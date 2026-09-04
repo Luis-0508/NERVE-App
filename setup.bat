@@ -26,6 +26,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$envPath = Join-Path $root '.env';" ^
   "$startTemplate = Join-Path $root 'start.example.bat';" ^
   "$startPath = Join-Path $root 'start.bat';" ^
+  "$existing = @{};" ^
+  "if (Test-Path -LiteralPath $envPath) {" ^
+  "  foreach ($line in [IO.File]::ReadAllLines($envPath)) {" ^
+  "    if ($line -match '^\s*#' -or $line -notmatch '=') { continue };" ^
+  "    $parts = $line -split '=', 2;" ^
+  "    $existing[$parts[0].Trim()] = $parts[1];" ^
+  "  }" ^
+  "};" ^
   "$writeEnv = $true;" ^
   "if (Test-Path -LiteralPath $envPath) {" ^
   "  $answer = Read-Host '.env existiert bereits. Neu erzeugen und ersetzen? [j/N]';" ^
@@ -34,17 +42,23 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "};" ^
   "if ($writeEnv) {" ^
   "  $port = 3000;" ^
+  "  $savedPort = 0;" ^
+  "  if ([int]::TryParse($existing['NERVE_WEB_PORT'], [ref]$savedPort) -and $savedPort -ge 1 -and $savedPort -le 65535) { $port = $savedPort };" ^
   "  while ($true) {" ^
-  "    $rawPort = Read-Host 'Web-Port [3000]';" ^
+  "    $rawPort = Read-Host ('Web-Port [' + $port + ']');" ^
   "    if ([string]::IsNullOrWhiteSpace($rawPort)) { break };" ^
   "    $candidate = 0;" ^
   "    if ([int]::TryParse($rawPort, [ref]$candidate) -and $candidate -ge 1 -and $candidate -le 65535) { $port = $candidate; break };" ^
   "    Write-Host 'Bitte einen Port zwischen 1 und 65535 eingeben.' -ForegroundColor Red;" ^
   "  };" ^
-  "  $bytes = New-Object byte[] 24;" ^
-  "  $rng = New-Object Security.Cryptography.RNGCryptoServiceProvider;" ^
-  "  try { $rng.GetBytes($bytes) } finally { $rng.Dispose() };" ^
-  "  $password = [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant();" ^
+  "  $password = $existing['POSTGRES_PASSWORD'];" ^
+  "  $reusedPassword = -not [string]::IsNullOrWhiteSpace($password) -and $password -ne 'change-me';" ^
+  "  if (-not $reusedPassword) {" ^
+  "    $bytes = New-Object byte[] 24;" ^
+  "    $rng = New-Object Security.Cryptography.RNGCryptoServiceProvider;" ^
+  "    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() };" ^
+  "    $password = [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant();" ^
+  "  };" ^
   "  $lines = @(" ^
   "    'NERVE_HTTP_ADDR=:8080'," ^
   "    ('NERVE_DATABASE_URL=postgres://nerve:' + $password + '@postgres:5432/nerve?sslmode=disable')," ^
@@ -63,7 +77,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  $utf8 = New-Object Text.UTF8Encoding($false);" ^
   "  [IO.File]::WriteAllText($envPath, (($lines -join [Environment]::NewLine) + [Environment]::NewLine), $utf8);" ^
   "  Write-Host ('[OK] .env wurde fuer http://localhost:' + $port + ' erzeugt.') -ForegroundColor Green;" ^
-  "  Write-Host '[OK] Ein zufaelliges Datenbankpasswort wurde sicher in .env gespeichert.' -ForegroundColor Green;" ^
+  "  if ($reusedPassword) {" ^
+  "    Write-Host '[OK] Das bestehende Datenbankpasswort wurde beibehalten.' -ForegroundColor Green;" ^
+  "  } else {" ^
+  "    Write-Host '[OK] Ein zufaelliges Datenbankpasswort wurde sicher in .env gespeichert.' -ForegroundColor Green;" ^
+  "  };" ^
   "};" ^
   "$writeStart = $true;" ^
   "if (Test-Path -LiteralPath $startPath) {" ^

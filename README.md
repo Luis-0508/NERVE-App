@@ -36,7 +36,7 @@ NERVE must be started as the complete Compose stack; `npm run dev` starts only t
 3. Run `start.bat` from Explorer, PowerShell, or Command Prompt. Both scripts always change to their own project directory first and keep the console open until a key is pressed.
 4. The start script runs `docker compose up -d --build`, waits for the web proxy, API, and PostgreSQL readiness, and opens the Windows default browser only after every check passes.
 
-The generated database password is stored only in the ignored local `.env`; neither setup script contains a password. Manual setup remains possible by copying `.env.example` to `.env`, replacing `POSTGRES_PASSWORD=change-me`, and copying `start.example.bat` to `start.bat`.
+The generated database password is stored only in the ignored local `.env`; neither setup script contains a password. When an existing `.env` is reconfigured, `setup.bat` deliberately keeps its current database password because PostgreSQL does not reapply `POSTGRES_PASSWORD` to an initialized data volume. Manual setup remains possible by copying `.env.example` to `.env`, replacing `POSTGRES_PASSWORD=change-me`, and copying `start.example.bat` to `start.bat`.
 
 Use `http://localhost:3000` unless `NERVE_WEB_PORT` was changed in `.env`. When a reliable active IPv4 address is available, the script also prints a LAN URL such as `http://192.168.1.25:3000`. Docker publishes the web proxy on all host interfaces. Windows Firewall and the local network must permit inbound access to the configured port.
 
