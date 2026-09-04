@@ -32,10 +32,11 @@ The setup endpoint closes itself after the first user is created. Subsequent set
 NERVE must be started as the complete Compose stack; `npm run dev` starts only the frontend and intentionally does not provide an `/api/v1` proxy.
 
 1. Install and start Docker Desktop with the Compose v2 plugin.
-2. Copy `start.example.bat` to the ignored local file `start.bat`. A working checkout created during development may already contain this local file.
-3. Run `start.bat` from Explorer, PowerShell, or Command Prompt. The script always changes to its own project directory first.
-4. On its first run, the script creates `.env` from `.env.example` and stops. Replace `POSTGRES_PASSWORD=change-me` with a strong local password, review the remaining values, and run it again.
-5. The script runs `docker compose up -d --build`, waits for the web proxy, API, and PostgreSQL readiness, and opens the Windows default browser only after every check passes.
+2. Run `setup.bat`. The assistant asks for the local web port, creates `.env` with a cryptographically random database password, and generates the ignored local `start.bat` from `start.example.bat`. Existing local files are replaced only after confirmation.
+3. Run `start.bat` from Explorer, PowerShell, or Command Prompt. Both scripts always change to their own project directory first and keep the console open until a key is pressed.
+4. The start script runs `docker compose up -d --build`, waits for the web proxy, API, and PostgreSQL readiness, and opens the Windows default browser only after every check passes.
+
+The generated database password is stored only in the ignored local `.env`; neither setup script contains a password. Manual setup remains possible by copying `.env.example` to `.env`, replacing `POSTGRES_PASSWORD=change-me`, and copying `start.example.bat` to `start.bat`.
 
 Use `http://localhost:3000` unless `NERVE_WEB_PORT` was changed in `.env`. When a reliable active IPv4 address is available, the script also prints a LAN URL such as `http://192.168.1.25:3000`. Docker publishes the web proxy on all host interfaces. Windows Firewall and the local network must permit inbound access to the configured port.
 
