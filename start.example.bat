@@ -4,6 +4,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 cd /d "%~dp0"
 if errorlevel 1 (
   echo [NERVE] Das Projektverzeichnis konnte nicht geoeffnet werden.
+  call :hold_window
   exit /b 1
 )
 
@@ -11,24 +12,31 @@ echo [NERVE] Pruefe die lokale Docker-Laufzeit...
 where docker >nul 2>&1
 if errorlevel 1 (
   echo [FEHLER] Docker wurde nicht gefunden. Installiere bzw. starte Docker Desktop und versuche es erneut.
+  call :hold_window
   exit /b 1
 )
+echo [OK] Docker CLI wurde gefunden.
 
 docker compose version >nul 2>&1
 if errorlevel 1 (
   echo [FEHLER] Docker Compose v2 ist nicht verfuegbar. Aktualisiere Docker Desktop und versuche es erneut.
+  call :hold_window
   exit /b 1
 )
+echo [OK] Docker Compose v2 ist verfuegbar.
 
 docker info >nul 2>&1
 if errorlevel 1 (
   echo [FEHLER] Docker Desktop bzw. die Docker Engine ist nicht erreichbar.
   echo          Starte Docker Desktop, warte bis die Engine bereit ist und fuehre start.bat erneut aus.
+  call :hold_window
   exit /b 1
 )
+echo [OK] Docker Engine ist erreichbar.
 
 if not exist ".env.example" (
   echo [FEHLER] .env.example fehlt im Projektroot.
+  call :hold_window
   exit /b 1
 )
 
@@ -37,19 +45,24 @@ if not exist ".env" (
   echo [NERVE] Eine lokale .env wurde aus .env.example erstellt.
   echo [AKTION] Oeffne .env, ersetze insbesondere POSTGRES_PASSWORD=change-me
   echo          durch ein starkes lokales Passwort und starte start.bat danach erneut.
+  call :hold_window
   exit /b 2
 )
+echo [OK] Lokale .env wurde gefunden.
 
 powershell -NoProfile -Command "$line = $null; foreach ($item in [IO.File]::ReadAllLines('.env')) { if ($item -match '^\s*POSTGRES_PASSWORD\s*=') { $line = $item } }; if ($null -eq $line) { exit 1 }; $value = ($line -split '=', 2)[1].Trim().Trim([char]34).Trim([char]39); if ([string]::IsNullOrWhiteSpace($value) -or $value -eq 'change-me') { exit 2 }"
 if errorlevel 2 (
   echo [FEHLER] POSTGRES_PASSWORD in .env ist leer oder verwendet noch change-me.
   echo          Setze ein starkes lokales Passwort und starte danach erneut.
+  call :hold_window
   exit /b 2
 )
 if errorlevel 1 (
   echo [FEHLER] POSTGRES_PASSWORD fehlt in .env.
+  call :hold_window
   exit /b 2
 )
+echo [OK] Erforderliche lokale Konfiguration ist gesetzt.
 
 set "NERVE_WEB_PORT=3000"
 for /f "delims=" %%P in ('powershell -NoProfile -Command "$value = ''; foreach ($item in [IO.File]::ReadAllLines('.env')) { if ($item -match '^\s*NERVE_WEB_PORT\s*=') { $value = ($item -split '=', 2)[1].Trim().Trim([char]34).Trim([char]39) } }; $port = 0; if ([int]::TryParse($value, [ref]$port) -and $port -ge 1 -and $port -le 65535) { [Console]::Write($port) }"') do set "NERVE_WEB_PORT=%%P"
@@ -58,8 +71,10 @@ set "NERVE_URL=http://localhost:%NERVE_WEB_PORT%"
 docker compose config --quiet
 if errorlevel 1 (
   echo [FEHLER] docker-compose.yml oder .env ist ungueltig. Korrigiere die oben gemeldete Konfiguration.
+  call :hold_window
   exit /b 1
 )
+echo [OK] Docker-Compose-Konfiguration ist gueltig.
 
 echo [NERVE] Baue und starte Web, Reverse Proxy, API und PostgreSQL...
 docker compose up -d --build
@@ -91,6 +106,7 @@ echo [INFO] Status: docker compose ps
 echo [INFO] Logs:   docker compose logs --tail 100
 echo [INFO] Stop:   docker compose down
 start "" "%NERVE_URL%"
+call :hold_window
 exit /b 0
 
 :startup_failed
@@ -110,4 +126,11 @@ docker compose ps
 echo.
 echo ===== Relevante Logs =====
 docker compose logs --tail 120 postgres api web
+call :hold_window
 exit /b 1
+
+:hold_window
+echo.
+echo [INFO] Druecke eine beliebige Taste, um dieses Fenster zu schliessen.
+pause >nul
+exit /b 0
