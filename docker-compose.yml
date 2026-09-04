@@ -1,0 +1,48 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nerve}
+      POSTGRES_USER: ${POSTGRES_USER:-nerve}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - nerve-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      NERVE_HTTP_ADDR: :8080
+      NERVE_DATABASE_URL: postgres://${POSTGRES_USER:-nerve}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-nerve}?sslmode=disable
+      NERVE_MIGRATIONS_DIR: /app/migrations
+      NERVE_COOKIE_SECURE: ${NERVE_COOKIE_SECURE:-false}
+      NERVE_TRUST_PROXY: "true"
+      NERVE_ALLOWED_ORIGIN: ${NERVE_ALLOWED_ORIGIN:-http://localhost:3000}
+      NERVE_SESSION_TTL: ${NERVE_SESSION_TTL:-24h}
+      NERVE_LOG_LEVEL: ${NERVE_LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-http://localhost:3000}
+    ports:
+      - "${NERVE_WEB_PORT:-3000}:8080"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  nerve-postgres:
