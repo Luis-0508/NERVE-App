@@ -1,0 +1,13 @@
+.git
+.next
+.npm-cache
+node_modules
+out
+.env
+.env.*
+!.env.example
+start.bat
+*.pem
+*.key
+coverage
+*.log

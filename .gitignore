@@ -3,6 +3,11 @@ node_modules/
 out/
 .npm-cache/
 .env
+.env.*
+!.env.example
+start.bat
+*.pem
+*.key
 *.log
 .DS_Store
 coverage/

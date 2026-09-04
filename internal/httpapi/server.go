@@ -9,7 +9,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -76,6 +78,8 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", s.live)
 	mux.HandleFunc("GET /health/ready", s.ready)
+	mux.HandleFunc("GET /api/v1", s.apiRoot)
+	mux.HandleFunc("GET /api/v1/{$}", s.apiRoot)
 	mux.HandleFunc("GET /api/v1/status", s.status)
 	mux.HandleFunc("POST /api/v1/auth/bootstrap", s.bootstrap)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
@@ -104,7 +108,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 
 		if origin := r.Header.Get("Origin"); origin != "" {
-			if origin != s.cfg.AllowedOrigin {
+			if !s.originAllowed(r, origin) {
 				writeError(w, http.StatusForbidden, "origin_not_allowed", "The request origin is not allowed.")
 				return
 			}
@@ -125,6 +129,14 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 		s.logger.Info("http request", "method", r.Method, "path", r.URL.Path, "duration_ms", time.Since(started).Milliseconds(), "remote", s.clientAddress(r))
+	})
+}
+
+func (s *Server) apiRoot(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"name":    "NERVE API",
+		"status":  "ok",
+		"version": s.version,
 	})
 }
 
@@ -440,6 +452,40 @@ func (s *Server) clientAddress(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+func (s *Server) originAllowed(r *http.Request, origin string) bool {
+	normalizedOrigin, ok := normalizeOrigin(origin)
+	if !ok {
+		return false
+	}
+	for _, configured := range strings.Split(s.cfg.AllowedOrigin, ",") {
+		if normalized, valid := normalizeOrigin(strings.TrimSpace(configured)); valid && normalized == normalizedOrigin {
+			return true
+		}
+	}
+	if !s.cfg.TrustProxy {
+		return false
+	}
+	forwardedProto := firstForwardedValue(r.Header.Get("X-Forwarded-Proto"))
+	forwardedHost := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
+	if forwardedProto == "" || forwardedHost == "" {
+		return false
+	}
+	proxyOrigin, valid := normalizeOrigin(forwardedProto + "://" + forwardedHost)
+	return valid && proxyOrigin == normalizedOrigin
+}
+
+func normalizeOrigin(value string) (string, bool) {
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", false
+	}
+	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host), true
+}
+
+func firstForwardedValue(value string) string {
+	return strings.TrimSpace(strings.Split(value, ",")[0])
 }
 
 func isUnsafe(method string) bool {

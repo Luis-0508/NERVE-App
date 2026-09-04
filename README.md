@@ -27,6 +27,40 @@ Docker is the intended local and production development path.
 
 The setup endpoint closes itself after the first user is created. Subsequent setup requests return HTTP 409.
 
+## Windows quick start
+
+NERVE must be started as the complete Compose stack; `npm run dev` starts only the frontend and intentionally does not provide an `/api/v1` proxy.
+
+1. Install and start Docker Desktop with the Compose v2 plugin.
+2. Copy `start.example.bat` to the ignored local file `start.bat`. A working checkout created during development may already contain this local file.
+3. Run `start.bat` from Explorer, PowerShell, or Command Prompt. The script always changes to its own project directory first.
+4. On its first run, the script creates `.env` from `.env.example` and stops. Replace `POSTGRES_PASSWORD=change-me` with a strong local password, review the remaining values, and run it again.
+5. The script runs `docker compose up -d --build`, waits for the web proxy, API, and PostgreSQL readiness, and opens the Windows default browser only after every check passes.
+
+Use `http://localhost:3000` unless `NERVE_WEB_PORT` was changed in `.env`. When a reliable active IPv4 address is available, the script also prints a LAN URL such as `http://192.168.1.25:3000`. Docker publishes the web proxy on all host interfaces. Windows Firewall and the local network must permit inbound access to the configured port.
+
+The API remains reachable only through the web reverse proxy. For LAN access, Nginx forwards the original host and scheme and the API accepts only an `Origin` that matches that trusted proxy origin or an explicitly configured `NERVE_ALLOWED_ORIGIN`; origin checks are not disabled. Keep `NERVE_COOKIE_SECURE=false` for plain local HTTP and set it to `true` when NERVE is served through HTTPS.
+
+To stop NERVE while preserving PostgreSQL data:
+
+```text
+docker compose down
+```
+
+Use `docker compose down -v` only when the PostgreSQL volume and all local NERVE data should be deleted.
+
+### Runtime verification
+
+The following checks all use the same address exposed by the reverse proxy:
+
+- `/` returns the web interface.
+- `/api/v1` returns the NERVE API name, version, and `status: ok`.
+- `/health/live` confirms that the Go process is running.
+- `/health/ready` returns HTTP 200 only when the API can reach PostgreSQL.
+- `/api/v1/status` reports both overall `status: ok` and `database.status: ok`.
+
+`docker compose ps` shows the container state. Use `docker compose logs --tail 100 postgres api web` when a service is not ready. The start script prints both automatically after a failed startup and does not open a browser in that case.
+
 ## Local frontend development
 
 Install Node.js 22 or newer, then run:
@@ -54,6 +88,7 @@ The service applies ordered `.up.sql` migrations at startup while holding a Post
 
 - `GET /health/live` — process liveness
 - `GET /health/ready` — PostgreSQL readiness
+- `GET /api/v1` — API identity, version, and process status
 - `GET /api/v1/status` — version, uptime, and database state
 - `POST /api/v1/auth/bootstrap` — one-time administrator initialization
 - `POST /api/v1/auth/login` — create an opaque, hashed server-side session
