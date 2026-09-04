@@ -115,4 +115,3 @@ function DeviceTable({ items, density, sortButton }: { items: DeviceSummary[]; d
 function DeviceTableLoading() {
   return <div className="table-wrap" aria-label="Loading devices"><table className="data-table device-table"><thead><tr><th>Device</th><th>Status</th><th>IP address</th><th>Hostname</th><th>MAC address</th><th>Vendor</th><th>Type</th><th>Last seen</th></tr></thead><tbody>{Array.from({ length: 6 }, (_, index) => <tr key={index}>{Array.from({ length: 8 }, (_, cell) => <td key={cell}><span className="skeleton-line" /></td>)}</tr>)}</tbody></table></div>;
 }
-

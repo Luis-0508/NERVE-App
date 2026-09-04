@@ -12,4 +12,3 @@ const labels: Record<DeviceStatusValue, string> = {
 export function DeviceStatus({ status }: { status: DeviceStatusValue }) {
   return <span className="device-status"><span className="status-dot" data-status={status} aria-hidden="true" />{labels[status]}</span>;
 }
-
