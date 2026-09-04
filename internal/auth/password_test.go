@@ -20,4 +20,3 @@ func TestPasswordMinimumLength(t *testing.T) {
 		t.Fatal("expected short password to be rejected")
 	}
 }
-

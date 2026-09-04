@@ -41,4 +41,3 @@ func TestStatusDegradesWithoutDatabase(t *testing.T) {
 		t.Fatalf("expected degraded status, got %q", body.Status)
 	}
 }
-

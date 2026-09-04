@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nerve-labs/nerve/internal/auth"
 	"github.com/nerve-labs/nerve/internal/config"
+	"github.com/nerve-labs/nerve/internal/inventory"
 )
 
 const sessionCookie = "nerve_session"
@@ -23,6 +24,7 @@ const sessionCookie = "nerve_session"
 type Server struct {
 	db            *pgxpool.Pool
 	auth          *auth.Service
+	inventory     *inventory.Repositories
 	cfg           config.Config
 	logger        *slog.Logger
 	startedAt     time.Time
@@ -61,6 +63,7 @@ func New(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version strin
 	return &Server{
 		db:            db,
 		auth:          auth.NewService(db, cfg.SessionTTL),
+		inventory:     inventory.NewRepositories(db),
 		cfg:           cfg,
 		logger:        logger,
 		startedAt:     time.Now().UTC(),
@@ -79,6 +82,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/v1/auth/session", s.session)
 	mux.HandleFunc("GET /api/v1/events", s.events)
+	mux.HandleFunc("GET /api/v1/devices", s.devices)
+	mux.HandleFunc("GET /api/v1/devices/facets", s.deviceFacets)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}", s.deviceDetail)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/interfaces", s.deviceInterfaces)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/ip-addresses", s.deviceIPAddresses)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/services", s.deviceServices)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/relationships", s.deviceRelationships)
 	mux.HandleFunc("GET /api/v1/stream", s.stream)
 	return s.middleware(mux)
 }
@@ -160,7 +170,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		"version":       s.version,
 		"uptimeSeconds": int64(time.Since(s.startedAt).Seconds()),
 		"database":      database,
-		"time": time.Now().UTC().Format(time.RFC3339),
+		"time":          time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -271,8 +281,15 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
+	entityID := r.URL.Query().Get("entityId")
+	if entityID != "" && !isUUID(entityID) {
+		writeError(w, http.StatusBadRequest, "invalid_entity_id", "Entity ID must be a UUID.")
+		return
+	}
 	rows, err := s.db.Query(r.Context(), `SELECT id::text, COALESCE(entity_id::text, ''), type, severity, category, message, occurred_at
-		FROM events ORDER BY occurred_at DESC, id DESC LIMIT $1`, limit)
+		FROM events
+		WHERE (NULLIF($2, '') IS NULL OR entity_id = NULLIF($2, '')::uuid)
+		ORDER BY occurred_at DESC, id DESC LIMIT $1`, limit, entityID)
 	if err != nil {
 		s.logger.Error("query events", "error", err)
 		writeError(w, http.StatusInternalServerError, "events_unavailable", "Events could not be loaded.")

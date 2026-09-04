@@ -40,6 +40,8 @@ Immutable histories are kept in `observations`, `events`, `metrics`, and `audit_
 7. Docker: host/container/network synchronization, capabilities, audited lifecycle actions, logs.
 8. Security/events: explainable unknown-device, identity-change, and port-change observations.
 
+Milestone 2 now delivers the read-only device inventory slice across items 2 and 4: normalized repositories and APIs, database-backed facets and queries, a sortable/filterable inventory table, and device detail sections for network identity, services, events, relationships, and notes. Mutating inventory workflows remain intentionally deferred until discovery and authorization policies are defined.
+
 ## Technical risks
 
 - Identity reconciliation must tolerate changing IPs, duplicate hostnames, randomized MACs, and contradictory sources.
@@ -63,4 +65,3 @@ Credentials are not required for the foundation or unauthenticated local discove
 - Add authenticated entity/event repositories and API tests.
 - Implement subnet configuration and a capability-scoped discovery job.
 - Render discovered devices through the typed API; do not embed development arrays in components.
-
