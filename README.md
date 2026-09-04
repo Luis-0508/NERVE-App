@@ -62,6 +62,8 @@ The following checks all use the same address exposed by the reverse proxy:
 
 `docker compose ps` shows the container state. Use `docker compose logs --tail 100 postgres api web` when a service is not ready. The start script prints both automatically after a failed startup and does not open a browser in that case.
 
+If a browser tab remains blank after rebuilding an older checkout, reload it without cache (`Ctrl+F5`). The production build includes `npm run test:runtime`, which verifies that the exported application shell, referenced static assets, and Nginx content-security policy are compatible with the Next.js bootstrap runtime.
+
 ## Local frontend development
 
 Install Node.js 22 or newer, then run:

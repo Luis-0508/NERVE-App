@@ -85,7 +85,7 @@ set /a NERVE_ATTEMPT=0
 
 :wait_for_runtime
 set /a NERVE_ATTEMPT+=1
-powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $web = Invoke-WebRequest -UseBasicParsing -TimeoutSec 4 '%NERVE_URL%/'; $live = Invoke-RestMethod -TimeoutSec 4 '%NERVE_URL%/health/live'; $ready = Invoke-RestMethod -TimeoutSec 4 '%NERVE_URL%/health/ready'; $api = Invoke-RestMethod -TimeoutSec 4 '%NERVE_URL%/api/v1'; $status = Invoke-RestMethod -TimeoutSec 4 '%NERVE_URL%/api/v1/status'; if ($web.StatusCode -ne 200 -or $live.status -ne 'ok' -or $ready.status -ne 'ok' -or $api.status -ne 'ok' -or $status.status -ne 'ok' -or $status.database.status -ne 'ok') { exit 1 }" >nul 2>&1
+powershell -NoProfile -Command "$ErrorActionPreference = 'Stop'; $web = Invoke-WebRequest -UseBasicParsing -TimeoutSec 4 '%NERVE_URL%/'; $live = Invoke-RestMethod -TimeoutSec 4 '%NERVE_URL%/health/live'; $ready = Invoke-RestMethod -TimeoutSec 4 '%NERVE_URL%/health/ready'; $api = Invoke-RestMethod -TimeoutSec 4 '%NERVE_URL%/api/v1'; $status = Invoke-RestMethod -TimeoutSec 4 '%NERVE_URL%/api/v1/status'; $csp = [string]$web.Headers['Content-Security-Policy']; $inlineBootstrapBlocked = $web.Content -match '<script(?![^>]*src=)' -and $csp -notmatch 'script-src[^;]*''unsafe-inline'''; if ($web.StatusCode -ne 200 -or $web.Content -notmatch 'class=.app-shell.' -or $inlineBootstrapBlocked -or $live.status -ne 'ok' -or $ready.status -ne 'ok' -or $api.status -ne 'ok' -or $status.status -ne 'ok' -or $status.database.status -ne 'ok') { exit 1 }" >nul 2>&1
 if not errorlevel 1 goto :runtime_ready
 if %NERVE_ATTEMPT% GEQ 60 goto :runtime_failed
 timeout /t 2 /nobreak >nul

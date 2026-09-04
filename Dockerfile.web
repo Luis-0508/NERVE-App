@@ -10,6 +10,8 @@ COPY app ./app
 COPY components ./components
 COPY lib ./lib
 COPY public ./public
+COPY scripts ./scripts
+COPY deploy ./deploy
 COPY next-env.d.ts next.config.ts postcss.config.mjs tsconfig.json ./
 RUN npm run build
 
