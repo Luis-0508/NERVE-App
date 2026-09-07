@@ -161,16 +161,28 @@ function DiscoveryPanel({ onCompleted }: { onCompleted: () => void | Promise<voi
 
   const scanActive = state?.scan?.status === "queued" || state?.scan?.status === "running";
   const targetChanged = cidr.trim() !== (state?.target?.cidr ?? "");
+  const scanBlockedReason = busy
+    ? "Discovery is processing the current request."
+    : scanActive
+      ? "A discovery scan is already running."
+      : !state?.target
+        ? "Enter a subnet and save it before starting a scan."
+        : targetChanged
+          ? "Save the changed subnet before starting a scan."
+          : !state.agent?.online
+            ? "The local discovery agent must be online."
+            : undefined;
   return <section className="discovery-panel" aria-label="Local network discovery">
     <div className="discovery-config">
       <div className="discovery-title"><Radar aria-hidden="true" /><div><h2>Local discovery</h2><p>Scans run through the NERVE agent on this computer.</p></div></div>
-      <label className="discovery-cidr"><span>Subnet (CIDR)</span><input className="input mono" value={cidr} onChange={(event) => setCIDR(event.target.value)} placeholder="192.168.178.0/24" spellCheck={false} /></label>
-      <button className="button" type="button" disabled={busy || !cidr.trim() || !targetChanged} onClick={() => void saveTarget()}><Save aria-hidden="true" />Save subnet</button>
-      <button className="button button-primary" type="button" disabled={busy || scanActive || !state?.target || targetChanged || !state.agent?.online} onClick={() => void startScan()}><Play aria-hidden="true" />{scanActive ? "Scanning…" : "Scan now"}</button>
+      <label className="discovery-cidr"><span>Subnet (CIDR)</span><input className="input mono" value={cidr} onChange={(event) => setCIDR(event.target.value)} placeholder="Example: 192.168.178.0/24" spellCheck={false} /></label>
+      <button className="button" type="button" aria-busy={busy} disabled={busy || !cidr.trim() || !targetChanged} title={!cidr.trim() ? "Enter a subnet first." : !targetChanged ? "This subnet is already saved." : undefined} onClick={() => void saveTarget()}><Save aria-hidden="true" />{busy ? "Saving…" : "Save subnet"}</button>
+      <button className="button button-primary" type="button" aria-busy={busy || scanActive} aria-describedby={scanBlockedReason ? "discovery-scan-hint" : undefined} disabled={Boolean(scanBlockedReason)} title={scanBlockedReason} onClick={() => void startScan()}><Play aria-hidden="true" />{scanActive ? "Scanning…" : "Scan now"}</button>
     </div>
     <div className="discovery-status">
       <span><i className="status-dot" data-status={state?.agent?.online ? "online" : "offline"} />Agent {state?.agent?.online ? `online · ${state.agent.hostname}` : "offline"}</span>
       {state?.scan ? <span>Last scan: <strong>{state.scan.status}</strong> · {state.scan.addressesReachable}/{state.scan.addressesTotal || "…"} reachable · {state.scan.errorCount} errors</span> : <span>No scan has run yet.</span>}
+      {scanBlockedReason && !busy && !scanActive && <span className="discovery-hint" id="discovery-scan-hint">{scanBlockedReason}</span>}
     </div>
     {(error || state?.agent?.lastError || state?.scan?.errorMessage) && <div className="discovery-error" role="alert">{error || state?.agent?.lastError || state?.scan?.errorMessage}</div>}
     {state?.scan?.errors && state.scan.errors.length > 0 && <details className="discovery-errors"><summary>Show recent scan errors ({state.scan.errorCount})</summary><ul>{state.scan.errors.map((item, index) => <li key={`${item.address}-${item.stage}-${index}`}><span className="mono">{item.address || "scan"}</span> · {item.stage}: {item.message}</li>)}</ul></details>}
