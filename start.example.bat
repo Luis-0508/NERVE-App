@@ -110,16 +110,28 @@ goto :wait_for_runtime
 echo [NERVE] Baue den lokalen Windows-Discovery-Agenten...
 if not exist ".nerve\agent" mkdir ".nerve\agent"
 if not exist ".nerve\logs" mkdir ".nerve\logs"
-del /Q ".nerve\agent\nerve-agent.exe" >nul 2>&1
-docker build --file Dockerfile.agent --target artifact --build-arg TARGETOS=windows --build-arg TARGETARCH=amd64 --output "type=local,dest=.nerve/agent" .
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; $stateRoot = [IO.Path]::GetFullPath((Join-Path (Get-Location) '.nerve')); $stagePath = [IO.Path]::GetFullPath((Join-Path $stateRoot 'agent-build')); if (-not $stagePath.StartsWith($stateRoot + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Ungueltiger Agent-Buildpfad.' }; if (Test-Path -LiteralPath $stagePath) { Remove-Item -LiteralPath $stagePath -Recurse -Force }; [void](New-Item -ItemType Directory -Path $stagePath)"
+if errorlevel 1 (
+  echo [FEHLER] Das temporaere Agent-Buildverzeichnis konnte nicht vorbereitet werden.
+  goto :diagnostics
+)
+docker build --file Dockerfile.agent --target artifact --build-arg TARGETOS=windows --build-arg TARGETARCH=amd64 --output "type=local,dest=.nerve/agent-build" .
 if errorlevel 1 (
   echo [FEHLER] Der lokale Discovery-Agent konnte nicht gebaut werden.
   goto :diagnostics
 )
 echo [OK] Discovery-Agent wurde gebaut.
 
+echo [NERVE] Installiere den neuen Discovery-Agenten...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; $root = (Get-Location).Path; $pidPath = Join-Path $root '.nerve\agent.pid'; $exePath = [IO.Path]::GetFullPath((Join-Path $root '.nerve\agent\nerve-agent.exe')); $stagedPath = (Resolve-Path (Join-Path $root '.nerve\agent-build\nerve-agent.exe')).Path; if (Test-Path -LiteralPath $pidPath) { $oldPid = 0; [void][int]::TryParse(([IO.File]::ReadAllText($pidPath).Trim()), [ref]$oldPid); if ($oldPid -gt 0) { $oldProcess = Get-Process -Id $oldPid -ErrorAction SilentlyContinue; if ($null -ne $oldProcess) { $oldPath = $null; try { $oldPath = $oldProcess.Path } catch {}; if ([string]::IsNullOrWhiteSpace($oldPath) -or [IO.Path]::GetFullPath($oldPath) -ne $exePath) { throw 'Die gespeicherte Agent-PID gehoert nicht zum NERVE-Agenten.' }; Stop-Process -Id $oldPid -Force; [void]$oldProcess.WaitForExit(5000) } }; Remove-Item -LiteralPath $pidPath -Force -ErrorAction SilentlyContinue }; Copy-Item -LiteralPath $stagedPath -Destination $exePath -Force; Remove-Item -LiteralPath (Split-Path $stagedPath) -Recurse -Force"
+if errorlevel 1 (
+  echo [FEHLER] Der neue Discovery-Agent konnte nicht sicher installiert werden.
+  goto :diagnostics
+)
+echo [OK] Discovery-Agent wurde installiert.
+
 echo [NERVE] Starte den Discovery-Agenten auf diesem Windows-Rechner...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; $root = (Get-Location).Path; $pidPath = Join-Path $root '.nerve\agent.pid'; $exePath = (Resolve-Path (Join-Path $root '.nerve\agent\nerve-agent.exe')).Path; if (Test-Path $pidPath) { $oldPid = 0; [void][int]::TryParse(([IO.File]::ReadAllText($pidPath).Trim()), [ref]$oldPid); if ($oldPid -gt 0) { $process = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $oldPid) -ErrorAction SilentlyContinue; if ($null -ne $process -and $process.ExecutablePath -eq $exePath) { Stop-Process -Id $oldPid -Force -ErrorAction SilentlyContinue } } }; $values = @{}; foreach ($line in [IO.File]::ReadAllLines((Join-Path $root '.env'))) { if ($line -match '^\s*#' -or $line -notmatch '=') { continue }; $parts = $line -split '=', 2; $values[$parts[0].Trim()] = $parts[1].Trim().Trim([char]34).Trim([char]39) }; $env:NERVE_DISCOVERY_AGENT_TOKEN = $values['NERVE_DISCOVERY_AGENT_TOKEN']; $env:NERVE_AGENT_API_URL = '%NERVE_URL%/api/v1'; $process = Start-Process -FilePath $exePath -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root '.nerve\logs\discovery-agent.log') -RedirectStandardError (Join-Path $root '.nerve\logs\discovery-agent-error.log') -PassThru; [IO.File]::WriteAllText($pidPath, [string]$process.Id); Start-Sleep -Milliseconds 750; if ($process.HasExited) { exit 1 }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference = 'Stop'; $root = (Get-Location).Path; $pidPath = Join-Path $root '.nerve\agent.pid'; $exePath = (Resolve-Path (Join-Path $root '.nerve\agent\nerve-agent.exe')).Path; $values = @{}; foreach ($line in [IO.File]::ReadAllLines((Join-Path $root '.env'))) { if ($line -match '^\s*#' -or $line -notmatch '=') { continue }; $parts = $line -split '=', 2; $values[$parts[0].Trim()] = $parts[1].Trim().Trim([char]34).Trim([char]39) }; $env:NERVE_DISCOVERY_AGENT_TOKEN = $values['NERVE_DISCOVERY_AGENT_TOKEN']; $env:NERVE_AGENT_API_URL = '%NERVE_URL%/api/v1'; $process = Start-Process -FilePath $exePath -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root '.nerve\logs\discovery-agent.log') -RedirectStandardError (Join-Path $root '.nerve\logs\discovery-agent-error.log') -PassThru; [IO.File]::WriteAllText($pidPath, [string]$process.Id); Start-Sleep -Milliseconds 750; if ($process.HasExited) { exit 1 }"
 if errorlevel 1 (
   echo [FEHLER] Der lokale Discovery-Agent konnte nicht gestartet werden.
   goto :diagnostics
