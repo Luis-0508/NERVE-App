@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/nerve-labs/nerve/internal/config"
@@ -82,5 +83,19 @@ func TestStatusDegradesWithoutDatabase(t *testing.T) {
 	}
 	if body.Status != "degraded" {
 		t.Fatalf("expected degraded status, got %q", body.Status)
+	}
+}
+
+func TestDiscoveryAgentRequiresConfiguredBearerToken(t *testing.T) {
+	t.Parallel()
+	server := New(nil, config.Config{AllowedOrigin: "http://localhost:3000", DiscoveryAgentToken: "local-secret"}, slog.New(slog.NewTextHandler(io.Discard, nil)), "test")
+	for _, authorization := range []string{"", "Bearer wrong-secret"} {
+		request := httptest.NewRequest(http.MethodPost, "/api/v1/discovery/agent/heartbeat", strings.NewReader(`{"id":"test-agent"}`))
+		request.Header.Set("Authorization", authorization)
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("expected status 401 for %q, got %d", authorization, response.Code)
+		}
 	}
 }

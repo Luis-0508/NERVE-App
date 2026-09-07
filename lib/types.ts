@@ -94,3 +94,23 @@ export type Relationship = {
 export type DeviceList = { items: DeviceSummary[]; total: number; limit: number; offset: number };
 export type DeviceFacets = { statuses: string[]; classifications: string[] };
 export type DeviceDetail = { device: Device; interfaces: NetworkInterface[]; ipAddresses: IPAddress[]; services: ServiceEndpoint[]; relationships: Relationship[] };
+
+export type DiscoveryTarget = { id: string; name: string; cidr: string; enabled: boolean; createdAt: string; updatedAt: string };
+export type DiscoveryAgent = { id: string; hostname: string; platform: string; version: string; capabilities: string[]; lastHeartbeatAt: string; lastError?: string; online: boolean };
+export type DiscoveryScanError = { address?: string; stage: string; message: string; occurredAt: string };
+export type DiscoveryScan = {
+  id: string;
+  targetId: string;
+  targetCidr: string;
+  agentId?: string;
+  status: "queued" | "running" | "succeeded" | "partial" | "failed";
+  requestedAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  addressesTotal: number;
+  addressesReachable: number;
+  errorCount: number;
+  errorMessage?: string;
+  errors: DiscoveryScanError[];
+};
+export type DiscoveryState = { target?: DiscoveryTarget; agent?: DiscoveryAgent; scan?: DiscoveryScan };

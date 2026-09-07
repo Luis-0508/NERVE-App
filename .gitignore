@@ -6,6 +6,8 @@ out/
 .env.*
 !.env.example
 start.bat
+stop.bat
+.nerve/
 *.pem
 *.key
 *.log

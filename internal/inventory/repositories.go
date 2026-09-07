@@ -65,7 +65,7 @@ func (r *DeviceRepository) List(ctx context.Context, params DeviceListParams) (D
 
 	query := fmt.Sprintf(`
 		SELECT e.id::text, e.name, e.status, d.classification,
-			COALESCE(d.hostname, ''), COALESCE(primary_ip.address::text, ''),
+			COALESCE(d.hostname, ''), COALESCE(host(primary_ip.address), ''),
 			COALESCE(primary_mac.address, ''), COALESCE(d.manufacturer, ''),
 			COALESCE(d.operating_system, ''), e.first_seen_at, e.last_seen_at,
 			count(*) OVER()
@@ -90,7 +90,7 @@ func (r *DeviceRepository) List(ctx context.Context, params DeviceListParams) (D
 		WHERE ($1 = '' OR e.name ILIKE '%%' || $1 || '%%'
 			OR COALESCE(d.hostname, '') ILIKE '%%' || $1 || '%%'
 			OR COALESCE(d.manufacturer, '') ILIKE '%%' || $1 || '%%'
-			OR COALESCE(primary_ip.address::text, '') ILIKE '%%' || $1 || '%%'
+			OR COALESCE(host(primary_ip.address), '') ILIKE '%%' || $1 || '%%'
 			OR COALESCE(primary_mac.address, '') ILIKE '%%' || $1 || '%%')
 			AND ($2 = '' OR e.status = $2)
 			AND ($3 = '' OR d.classification = $3)
@@ -125,7 +125,7 @@ func (r *DeviceRepository) Get(ctx context.Context, id string) (Device, error) {
 	var item Device
 	err := r.db.QueryRow(ctx, `
 		SELECT e.id::text, e.name, e.status, d.classification,
-			COALESCE(d.hostname, ''), COALESCE(primary_ip.address::text, ''),
+			COALESCE(d.hostname, ''), COALESCE(host(primary_ip.address), ''),
 			COALESCE(primary_mac.address, ''), COALESCE(d.manufacturer, ''),
 			COALESCE(d.operating_system, ''), e.first_seen_at, e.last_seen_at,
 			COALESCE(d.model, ''), COALESCE(d.serial_number, ''), COALESCE(d.owner, ''),
@@ -201,7 +201,7 @@ func (r *InterfaceRepository) ListByDevice(ctx context.Context, deviceID string)
 	rows, err := r.db.Query(ctx, `
 		SELECT ni.entity_id::text, ni.name, COALESCE(ni.mac_address::text, ''),
 			COALESCE(ni.media_type, ''), ni.mtu, ni.speed_bps, ni.is_up,
-			ip.entity_id::text, ip.address::text, ip.version, ip.is_primary,
+			ip.entity_id::text, host(ip.address), ip.version, ip.is_primary,
 			ip.valid_from, ip.valid_until
 		FROM network_interfaces ni
 		LEFT JOIN interface_addresses ia ON ia.interface_id = ni.entity_id
@@ -263,7 +263,7 @@ func (r *InterfaceRepository) ListByDevice(ctx context.Context, deviceID string)
 
 func (r *IPAddressRepository) ListByDevice(ctx context.Context, deviceID string) ([]IPAddress, error) {
 	rows, err := r.db.Query(ctx, `
-		SELECT ip.entity_id::text, ip.address::text, ip.version, ip.is_primary,
+		SELECT ip.entity_id::text, host(ip.address), ip.version, ip.is_primary,
 			ni.entity_id::text, ni.name, ip.valid_from, ip.valid_until
 		FROM network_interfaces ni
 		JOIN interface_addresses ia ON ia.interface_id = ni.entity_id

@@ -11,9 +11,11 @@ app/                         Next.js routes and shared design tokens
 components/                  Product-specific React UI
 lib/                         Typed frontend API boundary
 cmd/nerve-server/            Go control-plane entrypoint
+cmd/nerve-agent/             Native host discovery worker
 internal/
   auth/                      Password and session handling
   config/                    Environment configuration
+  discovery/                 Scan jobs, reconciliation, persistence
   httpapi/                   Versioned HTTP API, middleware, SSE
   platform/database/         PostgreSQL connection and migration runner
 migrations/                  Ordered PostgreSQL migrations
@@ -40,7 +42,11 @@ Immutable histories are kept in `observations`, `events`, `metrics`, and `audit_
 7. Docker: host/container/network synchronization, capabilities, audited lifecycle actions, logs.
 8. Security/events: explainable unknown-device, identity-change, and port-change observations.
 
-Milestone 2 now delivers the read-only device inventory slice across items 2 and 4: normalized repositories and APIs, database-backed facets and queries, a sortable/filterable inventory table, and device detail sections for network identity, services, events, relationships, and notes. Mutating inventory workflows remain intentionally deferred until discovery and authorization policies are defined.
+Milestone 2 delivers the read-only device inventory slice across items 2 and 4: normalized repositories and APIs, database-backed facets and queries, a sortable/filterable inventory table, and device detail sections for network identity, services, events, relationships, and notes.
+
+Milestone 3 now delivers the first functional local-discovery slice. Administrators configure a bounded CIDR and queue a persistent scan from Devices. A token-authenticated native host agent claims work, performs bounded concurrent ICMP/TCP reachability checks, reads the host ARP/NDP cache, resolves reverse DNS, and reports per-host evidence without aborting on isolated failures. The Core reconciles primarily by MAC and secondarily by the subnet/IP binding, persists normalized devices/interfaces/addresses/observations/events, preserves first-seen timestamps, advances last-seen timestamps, and marks previously bound devices offline when they are absent from a successfully completed follow-up scan.
+
+Windows uses a native agent because Docker Desktop's Linux VM and layer-4 host networking cannot provide the host's real layer-2 neighbor view. Linux server/VM deployments use the same agent binary directly in the target host namespace. The Core container receives no raw-socket, host-network, or Docker-socket privileges.
 
 ## Technical risks
 
@@ -56,12 +62,12 @@ Milestone 2 now delivers the read-only device inventory slice across items 2 and
 
 Raw ICMP, ARP/NDP, low-port probing, passive packet capture, and NetFlow/sFlow listeners may require `CAP_NET_RAW`, `CAP_NET_ADMIN`, or privileged host networking depending on the deployment. Docker discovery/actions require a protected socket proxy or mutually authenticated remote API. Future switch changes and endpoint management require adapter-specific privileges.
 
-Credentials are not required for the foundation or unauthenticated local discovery. Proxmox API tokens, Docker TLS/SSH material, SNMP communities, SSH/WinRM accounts, network-vendor API credentials, GeoIP licensing, and future agent enrollment secrets are introduced only with their adapters.
+Local discovery requires only the randomly generated agent token used to authenticate host-to-Core reports; it needs no external network credentials. Proxmox API tokens, Docker TLS/SSH material, SNMP communities, SSH/WinRM accounts, network-vendor API credentials, and GeoIP licensing are introduced only with their adapters.
 
 ## First concrete tasks
 
 - Complete and verify the foundation build.
 - Run the initial migration against PostgreSQL and bootstrap the first administrator.
 - Add authenticated entity/event repositories and API tests.
-- Implement subnet configuration and a capability-scoped discovery job.
-- Render discovered devices through the typed API; do not embed development arrays in components.
+- Extend discovery scheduling beyond manual scans only after operational controls and retention are defined.
+- Add vendor/OUI enrichment only from a versioned local database; never send observed MAC addresses to a third party.

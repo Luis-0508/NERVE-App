@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, MonitorCog, RefreshCw, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, MonitorCog, Play, Radar, RefreshCw, Save, Search, SlidersHorizontal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { APIError, api } from "@/lib/api";
-import type { DeviceFacets, DeviceList, DeviceSummary } from "@/lib/types";
+import type { DeviceFacets, DeviceList, DeviceSummary, DiscoveryState } from "@/lib/types";
 import { DeviceStatus } from "./device-status";
 
 type SortKey = "name" | "status" | "classification" | "hostname" | "ip" | "vendor" | "first_seen" | "last_seen";
@@ -83,6 +83,8 @@ export function DevicesView() {
       <button className="button" type="button" onClick={() => void load()} disabled={loading}><RefreshCw size={14} aria-hidden="true" />Refresh</button>
     </div>
 
+    <DiscoveryPanel onCompleted={load} />
+
     <section className="device-table-panel" aria-label="Device inventory">
       <div className="device-toolbar">
         <label className="search-control"><Search aria-hidden="true" /><span className="sr-only">Search devices</span><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search name, hostname, IP, MAC, vendor" /></label>
@@ -103,6 +105,76 @@ export function DevicesView() {
       </footer>
     </section>
   </div>;
+}
+
+function DiscoveryPanel({ onCompleted }: { onCompleted: () => void | Promise<void> }) {
+  const [state, setState] = useState<DiscoveryState | null>(null);
+  const [cidr, setCIDR] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const previousStatus = useRef<string | undefined>(undefined);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await api.discovery();
+      setState(next);
+      setError(null);
+      setCIDR((current) => current || next.target?.cidr || "");
+      const completed = previousStatus.current === "queued" || previousStatus.current === "running";
+      if (completed && next.scan && !["queued", "running"].includes(next.scan.status)) void onCompleted();
+      previousStatus.current = next.scan?.status;
+    } catch (requestError) {
+      if (!(requestError instanceof APIError && requestError.status === 401)) {
+        setError(requestError instanceof Error ? requestError.message : "Discovery status could not be loaded.");
+      }
+    }
+  }, [onCompleted]);
+
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 2500);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+
+  async function saveTarget() {
+    setBusy(true); setError(null);
+    try {
+      const target = await api.saveDiscoveryTarget(cidr.trim());
+      setState((current) => ({ ...current, target }));
+      setCIDR(target.cidr);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "The subnet could not be saved.");
+    } finally { setBusy(false); }
+  }
+
+  async function startScan() {
+    if (!state?.target) return;
+    setBusy(true); setError(null);
+    try {
+      const scan = await api.startDiscoveryScan(state.target.id);
+      previousStatus.current = scan.status;
+      setState((current) => ({ ...current, scan }));
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "The scan could not be started.");
+    } finally { setBusy(false); }
+  }
+
+  const scanActive = state?.scan?.status === "queued" || state?.scan?.status === "running";
+  const targetChanged = cidr.trim() !== (state?.target?.cidr ?? "");
+  return <section className="discovery-panel" aria-label="Local network discovery">
+    <div className="discovery-config">
+      <div className="discovery-title"><Radar aria-hidden="true" /><div><h2>Local discovery</h2><p>Scans run through the NERVE agent on this computer.</p></div></div>
+      <label className="discovery-cidr"><span>Subnet (CIDR)</span><input className="input mono" value={cidr} onChange={(event) => setCIDR(event.target.value)} placeholder="192.168.178.0/24" spellCheck={false} /></label>
+      <button className="button" type="button" disabled={busy || !cidr.trim() || !targetChanged} onClick={() => void saveTarget()}><Save aria-hidden="true" />Save subnet</button>
+      <button className="button button-primary" type="button" disabled={busy || scanActive || !state?.target || targetChanged || !state.agent?.online} onClick={() => void startScan()}><Play aria-hidden="true" />{scanActive ? "Scanning…" : "Scan now"}</button>
+    </div>
+    <div className="discovery-status">
+      <span><i className="status-dot" data-status={state?.agent?.online ? "online" : "offline"} />Agent {state?.agent?.online ? `online · ${state.agent.hostname}` : "offline"}</span>
+      {state?.scan ? <span>Last scan: <strong>{state.scan.status}</strong> · {state.scan.addressesReachable}/{state.scan.addressesTotal || "…"} reachable · {state.scan.errorCount} errors</span> : <span>No scan has run yet.</span>}
+    </div>
+    {(error || state?.agent?.lastError || state?.scan?.errorMessage) && <div className="discovery-error" role="alert">{error || state?.agent?.lastError || state?.scan?.errorMessage}</div>}
+    {state?.scan?.errors && state.scan.errors.length > 0 && <details className="discovery-errors"><summary>Show recent scan errors ({state.scan.errorCount})</summary><ul>{state.scan.errors.map((item, index) => <li key={`${item.address}-${item.stage}-${index}`}><span className="mono">{item.address || "scan"}</span> · {item.stage}: {item.message}</li>)}</ul></details>}
+  </section>;
 }
 
 function DeviceTable({ items, density, sortButton }: { items: DeviceSummary[]; density: Density; sortButton: (label: string, key: SortKey) => React.ReactNode }) {

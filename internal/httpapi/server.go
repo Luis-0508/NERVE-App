@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nerve-labs/nerve/internal/auth"
 	"github.com/nerve-labs/nerve/internal/config"
+	"github.com/nerve-labs/nerve/internal/discovery"
 	"github.com/nerve-labs/nerve/internal/inventory"
 )
 
@@ -27,6 +28,7 @@ type Server struct {
 	db            *pgxpool.Pool
 	auth          *auth.Service
 	inventory     *inventory.Repositories
+	discovery     *discovery.Repository
 	cfg           config.Config
 	logger        *slog.Logger
 	startedAt     time.Time
@@ -66,6 +68,7 @@ func New(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version strin
 		db:            db,
 		auth:          auth.NewService(db, cfg.SessionTTL),
 		inventory:     inventory.NewRepositories(db),
+		discovery:     discovery.NewRepository(db),
 		cfg:           cfg,
 		logger:        logger,
 		startedAt:     time.Now().UTC(),
@@ -78,6 +81,7 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", s.live)
 	mux.HandleFunc("GET /health/ready", s.ready)
+	mux.HandleFunc("GET /health/discovery", s.discoveryReady)
 	mux.HandleFunc("GET /api/v1", s.apiRoot)
 	mux.HandleFunc("GET /api/v1/{$}", s.apiRoot)
 	mux.HandleFunc("GET /api/v1/status", s.status)
@@ -93,6 +97,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/ip-addresses", s.deviceIPAddresses)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/services", s.deviceServices)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/relationships", s.deviceRelationships)
+	mux.HandleFunc("GET /api/v1/discovery", s.discoveryState)
+	mux.HandleFunc("POST /api/v1/discovery/target", s.saveDiscoveryTarget)
+	mux.HandleFunc("POST /api/v1/discovery/scans", s.queueDiscoveryScan)
+	mux.HandleFunc("POST /api/v1/discovery/agent/heartbeat", s.discoveryAgentHeartbeat)
+	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/claim", s.discoveryAgentClaim)
+	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/{scanID}/report", s.discoveryAgentReport)
+	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/{scanID}/complete", s.discoveryAgentComplete)
 	mux.HandleFunc("GET /api/v1/stream", s.stream)
 	return s.middleware(mux)
 }

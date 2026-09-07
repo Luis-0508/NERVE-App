@@ -19,6 +19,10 @@ if not exist "start.example.bat" (
   echo [FEHLER] start.example.bat fehlt im Projektroot.
   goto :failed
 )
+if not exist "stop.example.bat" (
+  echo [FEHLER] stop.example.bat fehlt im Projektroot.
+  goto :failed
+)
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$ErrorActionPreference = 'Stop';" ^
@@ -26,6 +30,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "$envPath = Join-Path $root '.env';" ^
   "$startTemplate = Join-Path $root 'start.example.bat';" ^
   "$startPath = Join-Path $root 'start.bat';" ^
+  "$stopTemplate = Join-Path $root 'stop.example.bat';" ^
+  "$stopPath = Join-Path $root 'stop.bat';" ^
   "$existing = @{};" ^
   "if (Test-Path -LiteralPath $envPath) {" ^
   "  foreach ($line in [IO.File]::ReadAllLines($envPath)) {" ^
@@ -36,9 +42,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "};" ^
   "$writeEnv = $true;" ^
   "if (Test-Path -LiteralPath $envPath) {" ^
-  "  $answer = Read-Host '.env existiert bereits. Neu erzeugen und ersetzen? [j/N]';" ^
-  "  $writeEnv = $answer -match '^(j|ja|y|yes)$';" ^
-  "  if (-not $writeEnv) { Write-Host '[INFO] Bestehende .env bleibt unveraendert.' -ForegroundColor Yellow }" ^
+  "  $savedAgentToken = $existing['NERVE_DISCOVERY_AGENT_TOKEN'];" ^
+  "  if ([string]::IsNullOrWhiteSpace($savedAgentToken) -or $savedAgentToken -eq 'change-me') {" ^
+  "    Write-Host '[INFO] Die bestehende .env wird um den lokalen Discovery-Agenten ergaenzt.' -ForegroundColor Yellow;" ^
+  "  } else {" ^
+  "    $answer = Read-Host '.env existiert bereits. Neu konfigurieren? [j/N]';" ^
+  "    $writeEnv = $answer -match '^(j|ja|y|yes)$';" ^
+  "    if (-not $writeEnv) { Write-Host '[INFO] Bestehende .env bleibt unveraendert.' -ForegroundColor Yellow };" ^
+  "  }" ^
   "};" ^
   "if ($writeEnv) {" ^
   "  $port = 3000;" ^
@@ -59,6 +70,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() };" ^
   "    $password = [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant();" ^
   "  };" ^
+  "  $agentToken = $existing['NERVE_DISCOVERY_AGENT_TOKEN'];" ^
+  "  $reusedAgentToken = -not [string]::IsNullOrWhiteSpace($agentToken) -and $agentToken -ne 'change-me';" ^
+  "  if (-not $reusedAgentToken) {" ^
+  "    $tokenBytes = New-Object byte[] 32;" ^
+  "    $tokenRng = New-Object Security.Cryptography.RNGCryptoServiceProvider;" ^
+  "    try { $tokenRng.GetBytes($tokenBytes) } finally { $tokenRng.Dispose() };" ^
+  "    $agentToken = [BitConverter]::ToString($tokenBytes).Replace('-', '').ToLowerInvariant();" ^
+  "  };" ^
   "  $lines = @(" ^
   "    'NERVE_HTTP_ADDR=:8080'," ^
   "    ('NERVE_DATABASE_URL=postgres://nerve:' + $password + '@postgres:5432/nerve?sslmode=disable')," ^
@@ -68,6 +87,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "    ('NERVE_ALLOWED_ORIGIN=http://localhost:' + $port)," ^
   "    'NERVE_SESSION_TTL=24h'," ^
   "    'NERVE_LOG_LEVEL=info'," ^
+  "    ('NERVE_DISCOVERY_AGENT_TOKEN=' + $agentToken)," ^
   "    ('NEXT_PUBLIC_SITE_URL=http://localhost:' + $port)," ^
   "    ('NERVE_WEB_PORT=' + $port)," ^
   "    'POSTGRES_DB=nerve'," ^
@@ -82,6 +102,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  } else {" ^
   "    Write-Host '[OK] Ein zufaelliges Datenbankpasswort wurde sicher in .env gespeichert.' -ForegroundColor Green;" ^
   "  };" ^
+  "  if ($reusedAgentToken) { Write-Host '[OK] Das bestehende Discovery-Agent-Token wurde beibehalten.' -ForegroundColor Green } else { Write-Host '[OK] Ein lokales Discovery-Agent-Token wurde erzeugt.' -ForegroundColor Green };" ^
   "};" ^
   "$writeStart = $true;" ^
   "if (Test-Path -LiteralPath $startPath) {" ^
@@ -93,6 +114,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "  Copy-Item -LiteralPath $startTemplate -Destination $startPath -Force;" ^
   "  Write-Host '[OK] start.bat wurde erzeugt.' -ForegroundColor Green;" ^
   "};" ^
+  "Copy-Item -LiteralPath $stopTemplate -Destination $stopPath -Force;" ^
+  "Write-Host '[OK] stop.bat wurde erzeugt.' -ForegroundColor Green;" ^
   "Write-Host '';" ^
   "Write-Host '[FERTIG] Starte NERVE jetzt mit start.bat.' -ForegroundColor Cyan;"
 
