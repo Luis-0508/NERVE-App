@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: nerve_test
+          POSTGRES_USER: nerve_test
+          POSTGRES_PASSWORD: nerve_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nerve_test -d nerve_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+    env:
+      NERVE_TEST_DATABASE_URL: postgres://nerve_test:nerve_test_password@127.0.0.1:5432/nerve_test?sslmode=disable
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Run Go tests
+        run: go test ./...
+
+      - name: Run discovery integration test
+        run: go test -tags=integration ./internal/discovery -run '^TestDiscoveryInventoryFlow$' -count=1
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build API image
+        run: docker build --file Dockerfile.api --tag nerve-api:ci .
+
+      - name: Build Windows discovery agent artifact
+        run: docker build --file Dockerfile.agent --target artifact --build-arg TARGETOS=windows --build-arg TARGETARCH=amd64 --tag nerve-agent:ci .
