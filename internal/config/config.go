@@ -9,24 +9,26 @@ import (
 )
 
 type Config struct {
-	HTTPAddr      string
-	DatabaseURL   string
-	MigrationsDir string
-	AllowedOrigin string
-	CookieSecure  bool
-	TrustProxy    bool
-	SessionTTL    time.Duration
-	LogLevel      slog.Level
+	HTTPAddr            string
+	DatabaseURL         string
+	MigrationsDir       string
+	AllowedOrigin       string
+	CookieSecure        bool
+	TrustProxy          bool
+	SessionTTL          time.Duration
+	LogLevel            slog.Level
+	DiscoveryAgentToken string
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		HTTPAddr:      envOr("NERVE_HTTP_ADDR", ":8080"),
-		DatabaseURL:   os.Getenv("NERVE_DATABASE_URL"),
-		MigrationsDir: envOr("NERVE_MIGRATIONS_DIR", "migrations"),
-		AllowedOrigin: envOr("NERVE_ALLOWED_ORIGIN", "http://localhost:3000"),
-		SessionTTL:    24 * time.Hour,
-		LogLevel:      slog.LevelInfo,
+		HTTPAddr:            envOr("NERVE_HTTP_ADDR", ":8080"),
+		DatabaseURL:         os.Getenv("NERVE_DATABASE_URL"),
+		MigrationsDir:       envOr("NERVE_MIGRATIONS_DIR", "migrations"),
+		AllowedOrigin:       envOr("NERVE_ALLOWED_ORIGIN", "http://localhost:3000"),
+		SessionTTL:          24 * time.Hour,
+		LogLevel:            slog.LevelInfo,
+		DiscoveryAgentToken: os.Getenv("NERVE_DISCOVERY_AGENT_TOKEN"),
 	}
 
 	if value := os.Getenv("NERVE_COOKIE_SECURE"); value != "" {

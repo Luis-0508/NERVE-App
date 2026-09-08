@@ -73,7 +73,7 @@ func (s *Service) Bootstrap(ctx context.Context, email, password, remoteAddress 
 	if err != nil {
 		return User{}, "", time.Time{}, err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (actor_id, action, target_type, target_id, result, source_address) VALUES ($1, 'auth.bootstrap', 'user', $1::text, 'success', $2)`, user.ID, remoteAddress); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (actor_id, action, target_type, target_id, result, source_address) VALUES ($1::uuid, 'auth.bootstrap', 'user', $2, 'success', $3::inet)`, user.ID, user.ID, remoteAddress); err != nil {
 		return User{}, "", time.Time{}, fmt.Errorf("audit administrator setup: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -109,7 +109,7 @@ func (s *Service) Login(ctx context.Context, email, password, remoteAddress stri
 	if _, err := tx.Exec(ctx, `UPDATE users SET last_login_at = now() WHERE id = $1`, user.ID); err != nil {
 		return User{}, "", time.Time{}, fmt.Errorf("update last login: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (actor_id, action, target_type, target_id, result, source_address) VALUES ($1, 'auth.login', 'session', $1::text, 'success', $2)`, user.ID, remoteAddress); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (actor_id, action, target_type, target_id, result, source_address) VALUES ($1::uuid, 'auth.login', 'session', $2, 'success', $3::inet)`, user.ID, user.ID, remoteAddress); err != nil {
 		return User{}, "", time.Time{}, fmt.Errorf("audit login: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -149,7 +149,7 @@ func (s *Service) Logout(ctx context.Context, token string, user User, remoteAdd
 	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, digest[:]); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (actor_id, action, target_type, target_id, result, source_address) VALUES ($1, 'auth.logout', 'session', $1::text, 'success', $2)`, user.ID, remoteAddress); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (actor_id, action, target_type, target_id, result, source_address) VALUES ($1::uuid, 'auth.logout', 'session', $2, 'success', $3::inet)`, user.ID, user.ID, remoteAddress); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)

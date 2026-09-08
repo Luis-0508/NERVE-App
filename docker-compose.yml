@@ -27,6 +27,7 @@ services:
       NERVE_ALLOWED_ORIGIN: ${NERVE_ALLOWED_ORIGIN:-http://localhost:3000}
       NERVE_SESSION_TTL: ${NERVE_SESSION_TTL:-24h}
       NERVE_LOG_LEVEL: ${NERVE_LOG_LEVEL:-info}
+      NERVE_DISCOVERY_AGENT_TOKEN: ${NERVE_DISCOVERY_AGENT_TOKEN:?Set NERVE_DISCOVERY_AGENT_TOKEN in .env}
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,6 +43,11 @@ services:
       - "${NERVE_WEB_PORT:-3000}:8080"
     depends_on:
       - api
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--output-document=/dev/null", "http://127.0.0.1:8080/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 24
     restart: unless-stopped
 
 volumes:

@@ -9,13 +9,17 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nerve-labs/nerve/internal/auth"
 	"github.com/nerve-labs/nerve/internal/config"
+	"github.com/nerve-labs/nerve/internal/discovery"
+	"github.com/nerve-labs/nerve/internal/inventory"
 )
 
 const sessionCookie = "nerve_session"
@@ -23,6 +27,8 @@ const sessionCookie = "nerve_session"
 type Server struct {
 	db            *pgxpool.Pool
 	auth          *auth.Service
+	inventory     *inventory.Repositories
+	discovery     *discovery.Repository
 	cfg           config.Config
 	logger        *slog.Logger
 	startedAt     time.Time
@@ -61,6 +67,8 @@ func New(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version strin
 	return &Server{
 		db:            db,
 		auth:          auth.NewService(db, cfg.SessionTTL),
+		inventory:     inventory.NewRepositories(db),
+		discovery:     discovery.NewRepository(db),
 		cfg:           cfg,
 		logger:        logger,
 		startedAt:     time.Now().UTC(),
@@ -73,12 +81,29 @@ func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", s.live)
 	mux.HandleFunc("GET /health/ready", s.ready)
+	mux.HandleFunc("GET /health/discovery", s.discoveryReady)
+	mux.HandleFunc("GET /api/v1", s.apiRoot)
+	mux.HandleFunc("GET /api/v1/{$}", s.apiRoot)
 	mux.HandleFunc("GET /api/v1/status", s.status)
 	mux.HandleFunc("POST /api/v1/auth/bootstrap", s.bootstrap)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)
 	mux.HandleFunc("GET /api/v1/auth/session", s.session)
 	mux.HandleFunc("GET /api/v1/events", s.events)
+	mux.HandleFunc("GET /api/v1/devices", s.devices)
+	mux.HandleFunc("GET /api/v1/devices/facets", s.deviceFacets)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}", s.deviceDetail)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/interfaces", s.deviceInterfaces)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/ip-addresses", s.deviceIPAddresses)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/services", s.deviceServices)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/relationships", s.deviceRelationships)
+	mux.HandleFunc("GET /api/v1/discovery", s.discoveryState)
+	mux.HandleFunc("POST /api/v1/discovery/target", s.saveDiscoveryTarget)
+	mux.HandleFunc("POST /api/v1/discovery/scans", s.queueDiscoveryScan)
+	mux.HandleFunc("POST /api/v1/discovery/agent/heartbeat", s.discoveryAgentHeartbeat)
+	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/claim", s.discoveryAgentClaim)
+	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/{scanID}/report", s.discoveryAgentReport)
+	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/{scanID}/complete", s.discoveryAgentComplete)
 	mux.HandleFunc("GET /api/v1/stream", s.stream)
 	return s.middleware(mux)
 }
@@ -94,7 +119,7 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 
 		if origin := r.Header.Get("Origin"); origin != "" {
-			if origin != s.cfg.AllowedOrigin {
+			if !s.originAllowed(r, origin) {
 				writeError(w, http.StatusForbidden, "origin_not_allowed", "The request origin is not allowed.")
 				return
 			}
@@ -115,6 +140,14 @@ func (s *Server) middleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 		s.logger.Info("http request", "method", r.Method, "path", r.URL.Path, "duration_ms", time.Since(started).Milliseconds(), "remote", s.clientAddress(r))
+	})
+}
+
+func (s *Server) apiRoot(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{
+		"name":    "NERVE API",
+		"status":  "ok",
+		"version": s.version,
 	})
 }
 
@@ -160,7 +193,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request) {
 		"version":       s.version,
 		"uptimeSeconds": int64(time.Since(s.startedAt).Seconds()),
 		"database":      database,
-		"time": time.Now().UTC().Format(time.RFC3339),
+		"time":          time.Now().UTC().Format(time.RFC3339),
 	})
 }
 
@@ -271,8 +304,15 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request) {
 		}
 		limit = parsed
 	}
+	entityID := r.URL.Query().Get("entityId")
+	if entityID != "" && !isUUID(entityID) {
+		writeError(w, http.StatusBadRequest, "invalid_entity_id", "Entity ID must be a UUID.")
+		return
+	}
 	rows, err := s.db.Query(r.Context(), `SELECT id::text, COALESCE(entity_id::text, ''), type, severity, category, message, occurred_at
-		FROM events ORDER BY occurred_at DESC, id DESC LIMIT $1`, limit)
+		FROM events
+		WHERE (NULLIF($2, '') IS NULL OR entity_id = NULLIF($2, '')::uuid)
+		ORDER BY occurred_at DESC, id DESC LIMIT $1`, limit, entityID)
 	if err != nil {
 		s.logger.Error("query events", "error", err)
 		writeError(w, http.StatusInternalServerError, "events_unavailable", "Events could not be loaded.")
@@ -423,6 +463,40 @@ func (s *Server) clientAddress(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
+}
+
+func (s *Server) originAllowed(r *http.Request, origin string) bool {
+	normalizedOrigin, ok := normalizeOrigin(origin)
+	if !ok {
+		return false
+	}
+	for _, configured := range strings.Split(s.cfg.AllowedOrigin, ",") {
+		if normalized, valid := normalizeOrigin(strings.TrimSpace(configured)); valid && normalized == normalizedOrigin {
+			return true
+		}
+	}
+	if !s.cfg.TrustProxy {
+		return false
+	}
+	forwardedProto := firstForwardedValue(r.Header.Get("X-Forwarded-Proto"))
+	forwardedHost := firstForwardedValue(r.Header.Get("X-Forwarded-Host"))
+	if forwardedProto == "" || forwardedHost == "" {
+		return false
+	}
+	proxyOrigin, valid := normalizeOrigin(forwardedProto + "://" + forwardedHost)
+	return valid && proxyOrigin == normalizedOrigin
+}
+
+func normalizeOrigin(value string) (string, bool) {
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" || parsed.User != nil || (parsed.Path != "" && parsed.Path != "/") || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", false
+	}
+	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host), true
+}
+
+func firstForwardedValue(value string) string {
+	return strings.TrimSpace(strings.Split(value, ",")[0])
 }
 
 func isUnsafe(method string) bool {

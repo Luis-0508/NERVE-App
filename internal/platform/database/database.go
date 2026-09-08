@@ -74,12 +74,11 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, directory string) error {
 		if err != nil {
 			return fmt.Errorf("read migration %s: %w", name, err)
 		}
-		sum := sha256.Sum256(contents)
-		checksum := hex.EncodeToString(sum[:])
+		checksum, legacyChecksum := migrationChecksums(contents)
 		var existing string
 		err = connection.QueryRow(ctx, `SELECT checksum FROM schema_migrations WHERE version = $1`, name).Scan(&existing)
 		if err == nil {
-			if existing != checksum {
+			if existing != checksum && existing != legacyChecksum && !matchesLegacyTrailingBlankLine(contents, existing) {
 				return fmt.Errorf("migration %s changed after it was applied", name)
 			}
 			continue
@@ -105,4 +104,27 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, directory string) error {
 		}
 	}
 	return nil
+}
+
+// migrationChecksums makes migrations portable between Unix and Windows
+// checkouts. New ledger rows use LF as the canonical representation, while
+// the CRLF digest remains accepted for databases initialized by older builds.
+func migrationChecksums(contents []byte) (canonical string, legacyCRLF string) {
+	lf := strings.ReplaceAll(string(contents), "\r\n", "\n")
+	crlf := strings.ReplaceAll(lf, "\n", "\r\n")
+	return checksum([]byte(lf)), checksum([]byte(crlf))
+}
+
+// matchesLegacyTrailingBlankLine accepts the exact formatting variant produced
+// by an early Milestone 3 build. It differs only by one empty line at EOF; SQL
+// changes anywhere else still fail the immutable-migration check.
+func matchesLegacyTrailingBlankLine(contents []byte, existing string) bool {
+	lf := strings.ReplaceAll(string(contents), "\r\n", "\n")
+	crlf := strings.ReplaceAll(lf, "\n", "\r\n")
+	return existing == checksum([]byte(lf+"\n")) || existing == checksum([]byte(crlf+"\r\n"))
+}
+
+func checksum(contents []byte) string {
+	sum := sha256.Sum256(contents)
+	return hex.EncodeToString(sum[:])
 }

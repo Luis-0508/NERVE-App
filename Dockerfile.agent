@@ -1,0 +1,18 @@
+# syntax=docker/dockerfile:1.7
+FROM golang:1.24-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd ./cmd
+COPY internal ./internal
+COPY migrations ./migrations
+RUN go test ./...
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG NERVE_VERSION=dev
+RUN output=/out/nerve-agent; if [ "$TARGETOS" = "windows" ]; then output="$output.exe"; fi; \
+    CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
+    -ldflags="-s -w -X main.version=${NERVE_VERSION}" -o "$output" ./cmd/nerve-agent
+
+FROM scratch AS artifact
+COPY --from=build /out/ /
