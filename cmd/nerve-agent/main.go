@@ -27,12 +27,17 @@ import (
 var version = "dev"
 
 type agent struct {
-	apiURL   string
-	token    string
-	id       string
-	hostname string
-	client   *http.Client
-	logger   *slog.Logger
+	apiURL            string
+	token             string
+	id                string
+	hostname          string
+	client            *http.Client
+	logger            *slog.Logger
+	heartbeatInterval time.Duration
+	claimInterval     time.Duration
+	executeFunc       func(context.Context, discovery.Job) error
+	stateMu           sync.RWMutex
+	lastError         string
 }
 
 type probeResult struct {
@@ -52,6 +57,7 @@ func main() {
 	a := &agent{
 		apiURL: apiURL, token: token, id: hostname + "-" + runtime.GOOS,
 		hostname: hostname, client: &http.Client{Timeout: 20 * time.Second}, logger: logger,
+		heartbeatInterval: 10 * time.Second, claimInterval: 2 * time.Second,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -63,31 +69,89 @@ func main() {
 }
 
 func (a *agent) run(ctx context.Context) error {
-	lastError := ""
+	if err := a.heartbeat(ctx, a.currentError()); err != nil {
+		a.logger.Warn("initial discovery heartbeat failed", "error", err)
+	}
+
+	heartbeatCtx, stopHeartbeats := context.WithCancel(ctx)
+	var heartbeatWorker sync.WaitGroup
+	heartbeatWorker.Add(1)
+	go func() {
+		defer heartbeatWorker.Done()
+		a.runHeartbeats(heartbeatCtx)
+	}()
+	defer func() {
+		stopHeartbeats()
+		heartbeatWorker.Wait()
+	}()
+
 	for {
-		if err := a.heartbeat(ctx, lastError); err != nil {
-			lastError = err.Error()
-			a.logger.Warn("discovery heartbeat failed", "error", err)
-		} else {
-			lastError = ""
-			job, err := a.claim(ctx)
-			switch {
-			case err == nil:
-				if scanErr := a.execute(ctx, job); scanErr != nil {
-					lastError = scanErr.Error()
-					a.logger.Error("discovery scan failed", "scan_id", job.ID, "error", scanErr)
-				}
-			case !errors.Is(err, discovery.ErrNoJob):
-				lastError = err.Error()
-				a.logger.Warn("claim discovery job failed", "error", err)
+		job, err := a.claim(ctx)
+		switch {
+		case err == nil:
+			execute := a.execute
+			if a.executeFunc != nil {
+				execute = a.executeFunc
 			}
+			if scanErr := execute(ctx, job); scanErr != nil {
+				a.setError(scanErr.Error())
+				a.logger.Error("discovery scan failed", "scan_id", job.ID, "error", scanErr)
+			} else {
+				a.setError("")
+			}
+		case !errors.Is(err, discovery.ErrNoJob):
+			a.setError(err.Error())
+			a.logger.Warn("claim discovery job failed", "error", err)
 		}
+
+		claimInterval := a.claimInterval
+		if claimInterval <= 0 {
+			claimInterval = 2 * time.Second
+		}
+		timer := time.NewTimer(claimInterval)
 		select {
 		case <-ctx.Done():
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			return ctx.Err()
-		case <-time.After(2 * time.Second):
+		case <-timer.C:
 		}
 	}
+}
+
+func (a *agent) runHeartbeats(ctx context.Context) {
+	interval := a.heartbeatInterval
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := a.heartbeat(ctx, a.currentError()); err != nil && !errors.Is(err, context.Canceled) {
+				a.logger.Warn("discovery heartbeat failed", "error", err)
+			}
+		}
+	}
+}
+
+func (a *agent) currentError() string {
+	a.stateMu.RLock()
+	defer a.stateMu.RUnlock()
+	return a.lastError
+}
+
+func (a *agent) setError(value string) {
+	a.stateMu.Lock()
+	a.lastError = value
+	a.stateMu.Unlock()
 }
 
 func (a *agent) heartbeat(ctx context.Context, lastError string) error {
