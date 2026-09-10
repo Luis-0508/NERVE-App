@@ -180,21 +180,28 @@ func assertDiscoveryChildState(t *testing.T, ctx context.Context, pool *pgxpool.
 	t.Helper()
 	var deviceStatus, interfaceStatus, ipStatus string
 	var isUp bool
-	if err := pool.QueryRow(ctx, `SELECT device.status, interface_entity.status, ip_entity.status, interface.is_up
+	var validUntil sql.NullTime
+	if err := pool.QueryRow(ctx, `SELECT device.status, interface_entity.status, ip_entity.status, interface.is_up, ip.valid_until
 		FROM entities device
 		JOIN devices d ON d.entity_id = device.id
 		JOIN network_interfaces interface ON interface.device_id = d.entity_id
 		JOIN entities interface_entity ON interface_entity.id = interface.entity_id
 		JOIN interface_addresses assignment ON assignment.interface_id = interface.entity_id
-		JOIN ip_addresses ip ON ip.entity_id = assignment.ip_address_id AND ip.valid_until IS NULL
+		JOIN ip_addresses ip ON ip.entity_id = assignment.ip_address_id
 		JOIN entities ip_entity ON ip_entity.id = ip.entity_id
 		WHERE device.kind = 'device'
-		ORDER BY device.created_at
-		LIMIT 1`).Scan(&deviceStatus, &interfaceStatus, &ipStatus, &isUp); err != nil {
+		ORDER BY device.created_at, ip.valid_from DESC
+		LIMIT 1`).Scan(&deviceStatus, &interfaceStatus, &ipStatus, &isUp, &validUntil); err != nil {
 		t.Fatalf("read discovery child state: %v", err)
 	}
 	if deviceStatus != wantStatus || interfaceStatus != wantStatus || ipStatus != wantStatus || isUp != wantUp {
 		t.Fatalf("state device=%s interface=%s ip=%s is_up=%v, want %s/%s/%s/%v", deviceStatus, interfaceStatus, ipStatus, isUp, wantStatus, wantStatus, wantStatus, wantUp)
+	}
+	if wantStatus == "online" && validUntil.Valid {
+		t.Fatal("online discovery address is unexpectedly retired")
+	}
+	if wantStatus == "offline" && !validUntil.Valid {
+		t.Fatal("offline discovery address is unexpectedly still active")
 	}
 }
 
