@@ -4,6 +4,7 @@ package discovery_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -135,13 +136,22 @@ func TestDiscoveryHardeningInvariants(t *testing.T) {
 	runHardeningScan(t, ctx, repository, target.ID, userID, agentID, []discovery.Observation{observation})
 	assertDiscoveryChildState(t, ctx, pool, "online", true)
 
+	// The same MAC moving to a new address must keep the device/interface online
+	// while retiring the old IP rather than leaving two active address entities.
+	movedObservation := observation
+	movedObservation.Address = "192.168.178.51"
+	time.Sleep(25 * time.Millisecond)
+	runHardeningScan(t, ctx, repository, target.ID, userID, agentID, []discovery.Observation{movedObservation})
+	assertDiscoveryChildState(t, ctx, pool, "online", true)
+	assertAddressRetired(t, ctx, pool, observation.Address)
+
 	time.Sleep(25 * time.Millisecond)
 	runHardeningScan(t, ctx, repository, target.ID, userID, agentID, nil)
 	assertDiscoveryChildState(t, ctx, pool, "offline", false)
 
-	// A later observation must revive the same device/interface/IP entities.
+	// A later observation must revive the same device/interface/current-IP entities.
 	time.Sleep(25 * time.Millisecond)
-	runHardeningScan(t, ctx, repository, target.ID, userID, agentID, []discovery.Observation{observation})
+	runHardeningScan(t, ctx, repository, target.ID, userID, agentID, []discovery.Observation{movedObservation})
 	assertDiscoveryChildState(t, ctx, pool, "online", true)
 }
 
@@ -185,5 +195,22 @@ func assertDiscoveryChildState(t *testing.T, ctx context.Context, pool *pgxpool.
 	}
 	if deviceStatus != wantStatus || interfaceStatus != wantStatus || ipStatus != wantStatus || isUp != wantUp {
 		t.Fatalf("state device=%s interface=%s ip=%s is_up=%v, want %s/%s/%s/%v", deviceStatus, interfaceStatus, ipStatus, isUp, wantStatus, wantStatus, wantStatus, wantUp)
+	}
+}
+
+func assertAddressRetired(t *testing.T, ctx context.Context, pool *pgxpool.Pool, address string) {
+	t.Helper()
+	var status string
+	var validUntil sql.NullTime
+	if err := pool.QueryRow(ctx, `SELECT entity.status, ip.valid_until
+		FROM ip_addresses ip
+		JOIN entities entity ON entity.id = ip.entity_id
+		WHERE host(ip.address) = $1
+		ORDER BY ip.valid_from
+		LIMIT 1`, address).Scan(&status, &validUntil); err != nil {
+		t.Fatalf("read retired address %s: %v", address, err)
+	}
+	if status != "offline" || !validUntil.Valid {
+		t.Fatalf("retired address %s status=%s valid_until=%v, want offline with valid_until", address, status, validUntil.Valid)
 	}
 }
