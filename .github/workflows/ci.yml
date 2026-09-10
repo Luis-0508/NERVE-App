@@ -2,7 +2,12 @@ name: CI
 
 on:
   push:
+    branches:
+      - master
+
   pull_request:
+    branches:
+      - master
 
 permissions:
   contents: read
@@ -11,6 +16,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+
     services:
       postgres:
         image: postgres:17-alpine
