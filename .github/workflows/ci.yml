@@ -57,6 +57,45 @@ jobs:
       - name: Run discovery integration test
         run: go test -tags=integration ./internal/discovery -run '^TestDiscoveryInventoryFlow$' -count=1
 
+      - name: Run API integration smoke test
+        run: go test -tags=integration ./internal/httpapi -run '^TestAPIFlow$' -count=1
+
+      - name: Run API process startup smoke test
+        env:
+          NERVE_DATABASE_URL: postgres://nerve_test:nerve_test_password@127.0.0.1:5432/nerve_test?sslmode=disable
+          NERVE_HTTP_ADDR: 127.0.0.1:18080
+          NERVE_DISCOVERY_AGENT_TOKEN: ci-process-agent-token
+        run: |
+          set -euo pipefail
+          go build -o /tmp/nerve-server ./cmd/nerve-server
+          /tmp/nerve-server >/tmp/nerve-api.log 2>&1 &
+          api_pid=$!
+          cleanup() {
+            kill "$api_pid" 2>/dev/null || true
+            wait "$api_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/health/ready >/dev/null; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$api_pid" 2>/dev/null; then
+              cat /tmp/nerve-api.log
+              exit 1
+            fi
+            sleep 1
+          done
+
+          if [ "$ready" -ne 1 ]; then
+            cat /tmp/nerve-api.log
+            exit 1
+          fi
+
+          curl -fsS http://127.0.0.1:18080/api/v1 | grep -q '"status":"ok"'
+
       - name: Install frontend dependencies
         run: npm ci
 
