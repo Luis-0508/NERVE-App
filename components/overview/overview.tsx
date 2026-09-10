@@ -73,7 +73,7 @@ export function Overview() {
             <div className="aside-row"><dt>Realtime</dt><dd>/api/v1/stream</dd></div>
             <div className="aside-row"><dt>Server time</dt><dd>{status?.time ? new Date(status.time).toLocaleTimeString() : "—"}</dd></div>
           </dl>
-          <div className="aside-note"><strong>Foundation milestone</strong>Discovery and integrations are intentionally not simulated. Their navigation remains unavailable until real backend support is added.</div>
+          <div className="aside-note"><strong>Discovery milestone</strong>Local discovery and the device inventory are live. Topology, Proxmox, Docker, traffic, and remote actions remain disabled until their real backend slices are implemented.</div>
         </aside>
       </section>
     </div>
