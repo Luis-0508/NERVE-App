@@ -273,17 +273,52 @@ func scan(ctx context.Context, cidr string) ([]discovery.Observation, []discover
 			}
 		}
 		if result.observation.Reachable {
-			lookupCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
-			names, lookupErr := net.DefaultResolver.LookupAddr(lookupCtx, address)
-			cancel()
-			if lookupErr == nil && len(names) > 0 {
-				result.observation.Hostname = strings.TrimSuffix(names[0], ".")
-			}
 			observations = append(observations, result.observation)
 		}
 		scanErrors = append(scanErrors, result.errors...)
 	}
+	resolveReverseDNS(ctx, observations, 16)
 	return observations, scanErrors, len(addresses), nil
+}
+
+func resolveReverseDNS(ctx context.Context, observations []discovery.Observation, workerCount int) {
+	if len(observations) == 0 {
+		return
+	}
+	if workerCount <= 0 {
+		workerCount = 1
+	}
+	if workerCount > len(observations) {
+		workerCount = len(observations)
+	}
+
+	jobs := make(chan int)
+	var workers sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for index := range jobs {
+				lookupCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
+				names, err := net.DefaultResolver.LookupAddr(lookupCtx, observations[index].Address)
+				cancel()
+				if err == nil && len(names) > 0 {
+					observations[index].Hostname = strings.TrimSuffix(names[0], ".")
+				}
+			}
+		}()
+	}
+	for index := range observations {
+		select {
+		case jobs <- index:
+		case <-ctx.Done():
+			close(jobs)
+			workers.Wait()
+			return
+		}
+	}
+	close(jobs)
+	workers.Wait()
 }
 
 func enumerate(prefix netip.Prefix) []netip.Addr {
