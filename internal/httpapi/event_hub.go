@@ -6,12 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // eventHub owns one PostgreSQL LISTEN connection and fans notifications out to
-// all connected SSE clients. This prevents every browser tab from consuming a
-// database-pool connection.
+// all connected SSE clients. The listener is intentionally independent of the
+// request pool so browser streams neither consume pool capacity nor block
+// pool.Close during graceful shutdown.
 type eventHub struct {
 	db     *pgxpool.Pool
 	logger *slog.Logger
@@ -23,18 +25,21 @@ type eventHub struct {
 }
 
 func newEventHub(db *pgxpool.Pool, logger *slog.Logger) *eventHub {
+	if logger == nil {
+		logger = slog.Default()
+	}
 	return &eventHub{db: db, logger: logger, clients: make(map[uint64]chan string)}
 }
 
 func (h *eventHub) subscribe() (<-chan string, func()) {
-	h.startOnce.Do(func() { go h.run() })
-
 	h.mu.Lock()
 	h.nextID++
 	id := h.nextID
 	channel := make(chan string, 32)
 	h.clients[id] = channel
 	h.mu.Unlock()
+
+	h.startOnce.Do(func() { go h.run() })
 
 	var once sync.Once
 	unsubscribe := func() {
@@ -54,7 +59,8 @@ func (h *eventHub) run() {
 
 	backoff := time.Second
 	for {
-		connection, err := h.db.Acquire(context.Background())
+		config := h.db.Config().ConnConfig.Copy()
+		connection, err := pgx.ConnectConfig(context.Background(), config)
 		if err != nil {
 			h.logger.Warn("event hub database connection failed", "error", err)
 			time.Sleep(backoff)
@@ -65,7 +71,7 @@ func (h *eventHub) run() {
 		}
 
 		if _, err := connection.Exec(context.Background(), `LISTEN nerve_events`); err != nil {
-			connection.Release()
+			_ = connection.Close(context.Background())
 			h.logger.Warn("event hub LISTEN failed", "error", err)
 			time.Sleep(backoff)
 			if backoff < 30*time.Second {
@@ -76,14 +82,14 @@ func (h *eventHub) run() {
 
 		backoff = time.Second
 		for {
-			notification, err := connection.Conn().WaitForNotification(context.Background())
+			notification, err := connection.WaitForNotification(context.Background())
 			if err != nil {
 				h.logger.Warn("event hub listener disconnected", "error", err)
 				break
 			}
 			h.broadcast(notification.Payload)
 		}
-		connection.Release()
+		_ = connection.Close(context.Background())
 		time.Sleep(backoff)
 	}
 }
