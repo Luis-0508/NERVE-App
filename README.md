@@ -2,18 +2,19 @@
 
 NERVE is a self-hosted network management, infrastructure visualization, and remote management platform. The network is the product's primary navigation model: physical devices, virtual machines, containers, services, ports, and their relationships are represented in one provenance-aware entity graph.
 
-This repository currently contains the Milestone 1 foundation, the Milestone 2 device inventory slice, and the first functional Milestone 3 local discovery slice:
+This repository currently contains the Milestone 1 foundation, the Milestone 2 device inventory slice, the first functional Milestone 3 local discovery slice, and the Milestone 3.5 reliability hardening:
 
 - a restrained, responsive Next.js application shell with individually tuned Light, Dark, and System themes;
 - real login and first-administrator setup flows against the API;
-- a Go control plane with versioned endpoints, structured logs, security headers, authentication rate limiting, health/readiness checks, and SSE;
+- a Go control plane with versioned endpoints, structured logs, security headers, bounded authentication rate-limit state, health/readiness checks, and SSE;
 - PostgreSQL migrations for authentication, graph entities, observations, events, integrations, actions, and immutable audit records;
 - Docker Compose deployment with an Nginx reverse proxy;
 - isolated typed frontend API access with explicit connection, authentication, loading, and empty states;
-- PostgreSQL-backed repositories and authenticated read APIs for devices, interfaces, IP addresses, service endpoints, and relationships; and
+- PostgreSQL-backed repositories and authenticated read APIs for devices, interfaces, IP addresses, service endpoints, and relationships;
 - a live device inventory with server-side search, sorting, filtering, pagination, and a device detail view;
-- an authenticated local discovery workflow with subnet configuration, persistent scan jobs, visible status/errors, and a native host agent for ICMP/TCP reachability, ARP/NDP neighbor evidence, and reverse DNS; and
-- identity-aware device upserts that preserve `first_seen`, advance `last_seen`, avoid repeat-scan duplicates, and mark devices not observed during a completed scan offline.
+- an authenticated local discovery workflow with subnet configuration, persistent scan jobs, visible status/errors, and a native host agent for ICMP/TCP reachability, ARP/NDP neighbor evidence, and parallel reverse DNS;
+- identity-aware device upserts that preserve `first_seen`, advance `last_seen`, avoid repeat-scan duplicates, and keep device/interface/IP lifecycle state consistent; and
+- a database-enforced single-active-scan invariant plus a shared PostgreSQL event listener that fans realtime notifications out to SSE clients without consuming one database connection per browser tab.
 
 No inventory screen uses static device data. Topology, Proxmox, and Docker integrations remain deliberately unavailable until their own backend slices are implemented.
 
@@ -67,9 +68,9 @@ The following checks all use the same address exposed by the reverse proxy:
 
 ### Local network discovery
 
-Open **Devices**, enter a canonical subnet such as `192.168.178.0/24`, save it, and select **Scan now**. Only administrators can configure or start scans. The page shows whether the host agent is online, scan progress, reachable/total counts, and recent scan errors. Results are written into the normalized device, interface, address, identity, observation, event, and discovery tables; the inventory refreshes when a scan completes.
+Open **Devices**, enter a canonical subnet such as `192.168.178.0/24`, save it, and select **Scan now**. Only administrators can configure or start scans. The page shows whether the host agent is online, the current scan state, reachable/total counts when available, and recent scan errors. Results are written into the normalized device, interface, address, identity, observation, event, and discovery tables; the inventory refreshes when a scan completes.
 
-On Windows with Docker Desktop, discovery intentionally runs as a native host process. Docker Desktop runs Linux containers inside a VM, and its host-network feature exposes TCP/UDP at layer 4 rather than the host's layer-2 interfaces. Running ARP/NDP discovery inside the API container would therefore inspect the wrong network namespace. `start.bat` cross-compiles the Go agent in Docker, writes the generated binary and logs beneath ignored `.nerve/`, and starts it with ordinary user privileges. ICMP uses the operating-system `ping` command; the agent then reads the host ARP/NDP neighbor cache, performs reverse DNS, and uses bounded TCP connection attempts as a fallback.
+On Windows with Docker Desktop, discovery intentionally runs as a native host process. Docker Desktop runs Linux containers inside a VM, and its host-network feature exposes TCP/UDP at layer 4 rather than the host's layer-2 interfaces. Running ARP/NDP discovery inside the API container would therefore inspect the wrong network namespace. `start.bat` cross-compiles the Go agent in Docker, writes the generated binary and logs beneath ignored `.nerve/`, and starts it with ordinary user privileges. ICMP uses the operating-system `ping` command; the agent then reads the host ARP/NDP neighbor cache, performs bounded parallel reverse DNS, and uses bounded TCP connection attempts as a fallback.
 
 For a later Linux server or VM, build `Dockerfile.agent` with `TARGETOS=linux` and run the resulting `nerve-agent` directly on that host with `NERVE_AGENT_API_URL` and `NERVE_DISCOVERY_AGENT_TOKEN` set. This keeps discovery in the target network namespace without granting raw-socket or Docker-socket privileges to the Core container.
 
@@ -77,7 +78,7 @@ If a browser tab remains blank after rebuilding an older checkout, reload it wit
 
 ## Local frontend development
 
-Install Node.js 22 or newer, then run:
+Install Node.js 26 or use the production Docker build, then run:
 
 ```text
 npm install
@@ -88,7 +89,7 @@ For a complete local session, expose the API through the same origin or use the 
 
 ## Local API development
 
-Install Go 1.24 and PostgreSQL 17, configure the variables shown in `.env.example`, then run:
+Install Go 1.26 or newer and PostgreSQL 17, configure the variables shown in `.env.example`, then run:
 
 ```text
 go mod download
