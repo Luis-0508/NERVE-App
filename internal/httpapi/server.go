@@ -29,6 +29,7 @@ type Server struct {
 	auth          *auth.Service
 	inventory     *inventory.Repositories
 	discovery     *discovery.Repository
+	eventHub      *eventHub
 	cfg           config.Config
 	logger        *slog.Logger
 	startedAt     time.Time
@@ -69,6 +70,7 @@ func New(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version strin
 		auth:          auth.NewService(db, cfg.SessionTTL),
 		inventory:     inventory.NewRepositories(db),
 		discovery:     discovery.NewRepository(db),
+		eventHub:      newEventHub(db, logger),
 		cfg:           cfg,
 		logger:        logger,
 		startedAt:     time.Now().UTC(),
@@ -343,41 +345,29 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "stream_unsupported", "Realtime streaming is unavailable through this proxy.")
 		return
 	}
-	connection, err := s.db.Acquire(r.Context())
-	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "stream_unavailable", "A realtime database connection could not be opened.")
-		return
-	}
-	defer connection.Release()
-	if _, err := connection.Exec(r.Context(), `LISTEN nerve_events`); err != nil {
-		writeError(w, http.StatusInternalServerError, "stream_unavailable", "The event stream could not be initialized.")
-		return
-	}
+
+	events, unsubscribe := s.eventHub.subscribe()
+	defer unsubscribe()
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	fmt.Fprint(w, "event: ready\ndata: {}\n\n")
 	flusher.Flush()
 
+	keepalive := time.NewTicker(25 * time.Second)
+	defer keepalive.Stop()
 	for {
-		waitContext, cancel := context.WithTimeout(r.Context(), 25*time.Second)
-		notification, err := connection.Conn().WaitForNotification(waitContext)
-		cancel()
-		if err == nil {
-			fmt.Fprintf(w, "event: infrastructure\ndata: %s\n\n", notification.Payload)
-			flusher.Flush()
-			continue
-		}
-		if r.Context().Err() != nil {
+		select {
+		case <-r.Context().Done():
 			return
-		}
-		if errors.Is(err, context.DeadlineExceeded) {
+		case payload := <-events:
+			fmt.Fprintf(w, "event: infrastructure\ndata: %s\n\n", payload)
+			flusher.Flush()
+		case <-keepalive.C:
 			fmt.Fprint(w, ": keepalive\n\n")
 			flusher.Flush()
-			continue
 		}
-		s.logger.Warn("event stream ended", "error", err)
-		return
 	}
 }
 
@@ -414,8 +404,13 @@ func (s *Server) allowLogin(address string) bool {
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
 	now := time.Now()
+	for key, window := range s.loginAttempts {
+		if now.Sub(window.started) >= 15*time.Minute {
+			delete(s.loginAttempts, key)
+		}
+	}
 	window, exists := s.loginAttempts[address]
-	if !exists || now.Sub(window.started) >= 15*time.Minute {
+	if !exists {
 		s.loginAttempts[address] = &rateWindow{started: now, count: 1}
 		return true
 	}
