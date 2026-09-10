@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -119,6 +120,10 @@ func (r *Repository) Queue(ctx context.Context, targetID, userID string) (Scan, 
 		return Scan{}, ErrInvalidCIDR
 	}
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "discovery_scans_single_active_idx" {
+			return Scan{}, ErrScanActive
+		}
 		return Scan{}, fmt.Errorf("queue discovery scan: %w", err)
 	}
 	if err := r.db.QueryRow(ctx, `SELECT cidr::text FROM discovery_targets WHERE id = $1::uuid`, targetID).Scan(&scan.TargetCIDR); err != nil {
@@ -317,7 +322,7 @@ func (r *Repository) applyObservation(ctx context.Context, tx pgx.Tx, targetID, 
 			macValue = mac
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO network_interfaces (entity_id, device_id, name, mac_address, media_type, is_up)
-			VALUES ($1::uuid, $2::uuid, $3, $4::macaddr, 'ethernet', true)`, interfaceID, deviceID, interfaceName, macValue); err != nil {
+			VALUES ($1::uuid, $2::uuid, $3, $4::macaddr, NULL, true)`, interfaceID, deviceID, interfaceName, macValue); err != nil {
 			return fmt.Errorf("create discovered interface: %w", err)
 		}
 	} else {
@@ -345,8 +350,15 @@ func (r *Repository) applyObservation(ctx context.Context, tx pgx.Tx, targetID, 
 			return fmt.Errorf("attach discovered IP address: %w", err)
 		}
 	}
+	if _, err := tx.Exec(ctx, `UPDATE entities SET status = 'online', last_seen_at = now(), updated_at = now() WHERE id = $1::uuid`, ipID); err != nil {
+		return fmt.Errorf("update discovered IP entity: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `UPDATE ip_addresses SET valid_until = NULL WHERE entity_id = $1::uuid`, ipID); err != nil {
+		return fmt.Errorf("reactivate discovered IP address: %w", err)
+	}
 	if bindingErr == nil && boundDeviceID != deviceID {
 		_, _ = tx.Exec(ctx, `UPDATE ip_addresses SET valid_until = now() WHERE entity_id = $1::uuid AND valid_until IS NULL`, boundIPID)
+		_, _ = tx.Exec(ctx, `UPDATE entities SET status = 'offline', updated_at = now() WHERE id = $1::uuid`, boundIPID)
 	}
 	var macValue any
 	if mac != "" {
@@ -403,6 +415,26 @@ func (r *Repository) Complete(ctx context.Context, scanID, agentID string, compl
 			AND EXISTS (SELECT 1 FROM discovery_bindings binding WHERE binding.target_id = $1::uuid AND binding.device_id = entity.id)
 			AND NOT EXISTS (SELECT 1 FROM discovery_bindings binding WHERE binding.target_id = $1::uuid AND binding.device_id = entity.id AND binding.last_seen_at >= $2)`, targetID, startedAt); err != nil {
 			return fmt.Errorf("mark unseen devices offline: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE network_interfaces interface SET is_up = false
+			FROM entities device
+			WHERE device.id = interface.device_id AND device.status = 'offline'
+			AND EXISTS (SELECT 1 FROM discovery_bindings binding WHERE binding.target_id = $1::uuid AND binding.device_id = device.id)`, targetID); err != nil {
+			return fmt.Errorf("mark unseen network interfaces down: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE entities interface_entity SET status = 'offline', updated_at = now()
+			FROM network_interfaces interface, entities device
+			WHERE interface_entity.id = interface.entity_id AND device.id = interface.device_id AND device.status = 'offline'
+			AND EXISTS (SELECT 1 FROM discovery_bindings binding WHERE binding.target_id = $1::uuid AND binding.device_id = device.id)`, targetID); err != nil {
+			return fmt.Errorf("mark unseen interface entities offline: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE entities ip_entity SET status = 'offline', updated_at = now()
+			FROM ip_addresses ip, interface_addresses assignment, network_interfaces interface, entities device
+			WHERE ip_entity.id = ip.entity_id AND assignment.ip_address_id = ip.entity_id
+			AND interface.entity_id = assignment.interface_id AND device.id = interface.device_id
+			AND device.status = 'offline' AND ip.valid_until IS NULL
+			AND EXISTS (SELECT 1 FROM discovery_bindings binding WHERE binding.target_id = $1::uuid AND binding.device_id = device.id)`, targetID); err != nil {
+			return fmt.Errorf("mark unseen IP entities offline: %w", err)
 		}
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO events (type, severity, category, message, details)
