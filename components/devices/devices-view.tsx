@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, MonitorCog, Play, Radar, RefreshCw, Save, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, MonitorCog, Play, Radar, RefreshCw, Save, Search, SlidersHorizontal, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { APIError, api } from "@/lib/api";
 import type { DeviceFacets, DeviceList, DeviceSummary, DiscoveryState } from "@/lib/types";
@@ -188,6 +188,20 @@ function DiscoveryPanel({ onCompleted }: { onCompleted: () => void | Promise<voi
     } finally { setBusy(false); }
   }
 
+  async function stopScan() {
+    if (!state?.target || !(state.scan?.status === "queued" || state.scan?.status === "running")) return;
+    setBusy(true); setError(null);
+    try {
+      const scan = await api.stopDiscoveryScan(state.target.id);
+      previousStatus.current = scan.status;
+      previousReachable.current = scan.addressesReachable;
+      setState((current) => ({ ...current, scan }));
+      await onCompleted();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "The scan could not be stopped.");
+    } finally { setBusy(false); }
+  }
+
   const scanActive = state?.scan?.status === "queued" || state?.scan?.status === "running";
   const targetChanged = cidr.trim() !== (state?.target?.cidr ?? "");
   const configurationBlockedReason = busy
@@ -206,8 +220,10 @@ function DiscoveryPanel({ onCompleted }: { onCompleted: () => void | Promise<voi
     <div className="discovery-config">
       <div className="discovery-title"><Radar aria-hidden="true" /><div><h2>Local discovery</h2><p>Scans run through the NERVE agent on this computer.</p></div></div>
       <label className="discovery-cidr"><span>Subnet (CIDR)</span><input className="input mono" value={cidr} onChange={(event) => setCIDR(event.target.value)} placeholder="Example: 192.168.178.0/24" spellCheck={false} /></label>
-      <button className="button" type="button" aria-busy={busy} disabled={busy || !cidr.trim() || !targetChanged} title={!cidr.trim() ? "Enter a subnet first." : !targetChanged ? "This subnet is already saved." : undefined} onClick={() => void saveTarget()}><Save aria-hidden="true" />{busy ? "Saving…" : "Save subnet"}</button>
-      <button className="button button-primary" type="button" aria-busy={busy} aria-disabled={scanActive || Boolean(configurationBlockedReason)} disabled={!scanActive && Boolean(configurationBlockedReason)} title={scanActive ? "Live discovery is running. New devices appear in the table as they are found." : configurationBlockedReason} onClick={() => void startScan()}><Play aria-hidden="true" />{scanActive ? `Scanning · ${found} found` : "Scan now"}</button>
+      <button className="button" type="button" aria-busy={busy} disabled={busy || !cidr.trim() || !targetChanged || scanActive} title={scanActive ? "Stop the current scan before changing the subnet." : !cidr.trim() ? "Enter a subnet first." : !targetChanged ? "This subnet is already saved." : undefined} onClick={() => void saveTarget()}><Save aria-hidden="true" />{busy && !scanActive ? "Saving…" : "Save subnet"}</button>
+      {scanActive
+        ? <button className="button" type="button" aria-busy={busy} disabled={busy} title="Stop the current discovery scan so another scan can be started." onClick={() => void stopScan()}><Square aria-hidden="true" />{busy ? "Stopping…" : `Stop scan · ${found} found`}</button>
+        : <button className="button button-primary" type="button" aria-busy={busy} disabled={Boolean(configurationBlockedReason)} title={configurationBlockedReason} onClick={() => void startScan()}><Play aria-hidden="true" />{busy ? "Starting…" : "Scan now"}</button>}
     </div>
     <div className="discovery-status">
       <span><i className="status-dot" data-status={state?.agent?.online ? "online" : "offline"} />Agent {state?.agent?.online ? `online · ${state.agent.hostname}` : "offline"}</span>
