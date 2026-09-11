@@ -20,7 +20,6 @@ internal/
   platform/database/         PostgreSQL connection and migration runner
 migrations/                  Ordered PostgreSQL migrations
 deploy/                      Reverse-proxy configuration
-.openai/                     Static preview hosting configuration
 ```
 
 Integrations will live under `internal/integrations/<adapter>`. Domain packages are introduced with their first real behavior instead of being generated empty.
