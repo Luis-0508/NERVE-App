@@ -25,6 +25,9 @@ func (s *Server) discoveryState(w http.ResponseWriter, r *http.Request) {
 	if _, _, ok := s.requireSession(w, r); !ok {
 		return
 	}
+	if err := s.discovery.RecoverStaleScans(r.Context()); err != nil {
+		s.logger.Warn("recover stale discovery scans", "error", err)
+	}
 	state, err := s.discovery.State(r.Context())
 	if err != nil {
 		s.logger.Error("query discovery state", "error", err)
@@ -74,12 +77,35 @@ func (s *Server) queueDiscoveryScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var input struct {
-		TargetID string `json:"targetId"`
+		TargetID    string `json:"targetId"`
+		CancelActive bool   `json:"cancelActive,omitempty"`
 	}
 	if err := decodeJSON(r, &input); err != nil || !isUUID(input.TargetID) {
 		writeError(w, http.StatusBadRequest, "invalid_request", "A valid discovery target is required.")
 		return
 	}
+
+	if input.CancelActive {
+		scan, err := s.discovery.CancelActiveScan(r.Context(), input.TargetID, user.ID)
+		if errors.Is(err, discovery.ErrNoJob) {
+			writeError(w, http.StatusConflict, "no_active_scan", "No active discovery scan exists.")
+			return
+		}
+		if err != nil {
+			s.logger.Error("cancel discovery scan", "error", err)
+			writeError(w, http.StatusInternalServerError, "scan_cancel_failed", "The discovery scan could not be stopped.")
+			return
+		}
+		writeJSON(w, http.StatusOK, scan)
+		return
+	}
+
+	if err := s.discovery.RecoverStaleScans(r.Context()); err != nil {
+		s.logger.Error("recover stale discovery scans before queue", "error", err)
+		writeError(w, http.StatusInternalServerError, "scan_recovery_failed", "Old discovery scan state could not be recovered.")
+		return
+	}
+
 	scan, err := s.discovery.Queue(r.Context(), input.TargetID, user.ID)
 	if errors.Is(err, discovery.ErrScanActive) {
 		writeError(w, http.StatusConflict, "scan_active", err.Error())
