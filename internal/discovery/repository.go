@@ -163,8 +163,9 @@ func (r *Repository) Claim(ctx context.Context, agentID string) (Job, error) {
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
 	if _, err := tx.Exec(ctx, `UPDATE discovery_scans SET status = 'failed', completed_at = now(),
-		error_message = 'Discovery agent stopped before completing the scan.'
-		WHERE status = 'running' AND started_at < now() - interval '10 minutes'`); err != nil {
+		error_message = CASE WHEN agent_id = $1 THEN 'Discovery agent restarted before completing the scan.'
+		ELSE 'Discovery agent stopped before completing the scan.' END
+		WHERE status = 'running' AND (agent_id = $1 OR started_at < now() - interval '10 minutes')`, agentID); err != nil {
 		return Job{}, fmt.Errorf("expire abandoned discovery jobs: %w", err)
 	}
 	var job Job
