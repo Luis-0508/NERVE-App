@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "NERVE — Network operations",
   description: "Self-hosted network inventory, topology, events, and infrastructure management.",
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://nerve-network-operations.q25xnbdqcj.chatgpt.site"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   openGraph: {
     title: "NERVE — Network operations",
     description: "See it. Understand it. Control it.",
