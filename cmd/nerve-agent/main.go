@@ -169,24 +169,42 @@ func (a *agent) claim(ctx context.Context) (discovery.Job, error) {
 
 func (a *agent) execute(ctx context.Context, job discovery.Job) error {
 	a.logger.Info("discovery scan started", "scan_id", job.ID, "cidr", job.CIDR)
-	observations, scanErrors, total, err := scan(ctx, job.CIDR)
+	scanCtx, cancel := context.WithTimeout(ctx, discoveryScanTimeout(job.CIDR))
+	defer cancel()
+
+	reportPath := "/discovery/agent/jobs/" + job.ID + "/report"
+	total, reachable, errorCount, err := scan(scanCtx, job.CIDR, func(report discovery.Report) error {
+		return a.post(scanCtx, reportPath, report, nil)
+	})
 	if err != nil {
-		_ = a.post(context.Background(), "/discovery/agent/jobs/"+job.ID+"/complete", discovery.Completion{Status: "failed", ErrorMessage: err.Error()}, nil)
+		completionCtx, completionCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer completionCancel()
+		_ = a.post(completionCtx, "/discovery/agent/jobs/"+job.ID+"/complete", discovery.Completion{AddressesTotal: total, Status: "failed", ErrorMessage: err.Error()}, nil)
 		return err
 	}
-	if err := a.post(ctx, "/discovery/agent/jobs/"+job.ID+"/report", discovery.Report{Observations: observations, Errors: scanErrors}, nil); err != nil {
-		_ = a.post(context.Background(), "/discovery/agent/jobs/"+job.ID+"/complete", discovery.Completion{AddressesTotal: total, Status: "failed", ErrorMessage: err.Error()}, nil)
-		return err
-	}
+
 	status := "succeeded"
-	if len(scanErrors) > 0 {
+	if errorCount > 0 {
 		status = "partial"
 	}
 	if err := a.post(ctx, "/discovery/agent/jobs/"+job.ID+"/complete", discovery.Completion{AddressesTotal: total, Status: status}, nil); err != nil {
 		return err
 	}
-	a.logger.Info("discovery scan completed", "scan_id", job.ID, "addresses", total, "reachable", len(observations), "errors", len(scanErrors), "status", status)
+	a.logger.Info("discovery scan completed", "scan_id", job.ID, "addresses", total, "reachable", reachable, "errors", errorCount, "status", status)
 	return nil
+}
+
+func discoveryScanTimeout(cidr string) time.Duration {
+	_, total, err := discovery.NormalizeCIDR(cidr)
+	if err != nil || total <= 0 {
+		return 2 * time.Minute
+	}
+	batches := (total + 63) / 64
+	timeout := 60*time.Second + time.Duration(batches)*4*time.Second
+	if timeout > 6*time.Minute {
+		return 6 * time.Minute
+	}
+	return timeout
 }
 
 func (a *agent) post(ctx context.Context, path string, value, destination any) error {
@@ -221,69 +239,226 @@ func (a *agent) post(ctx context.Context, path string, value, destination any) e
 	return nil
 }
 
-func scan(ctx context.Context, cidr string) ([]discovery.Observation, []discovery.ScanError, int, error) {
+func scan(ctx context.Context, cidr string, report func(discovery.Report) error) (int, int, int, error) {
 	prefix, err := netip.ParsePrefix(cidr)
 	if err != nil {
-		return nil, nil, 0, fmt.Errorf("parse scan subnet: %w", err)
+		return 0, 0, 0, fmt.Errorf("parse scan subnet: %w", err)
 	}
 	addresses := enumerate(prefix)
-	results := make([]probeResult, len(addresses))
+	total := len(addresses)
+	if total == 0 {
+		return 0, 0, 0, nil
+	}
+
+	scanCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	local := localAddresses()
+	neighbors, neighborErrors := neighborTable(scanCtx)
+
+	jobs := make(chan netip.Addr)
+	results := make(chan probeResult, 64)
+	workerCount := 64
+	if total < workerCount {
+		workerCount = total
+	}
+	var workers sync.WaitGroup
+	for worker := 0; worker < workerCount; worker++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for address := range jobs {
+				result := probe(scanCtx, address)
+				select {
+				case results <- result:
+				case <-scanCtx.Done():
+					return
+				}
+			}
+		}()
+	}
+	go func() {
+		defer close(jobs)
+		for _, address := range addresses {
+			select {
+			case jobs <- address:
+			case <-scanCtx.Done():
+				return
+			}
+		}
+	}()
+	go func() {
+		workers.Wait()
+		close(results)
+	}()
+
+	reported := make(map[string]struct{}, total)
+	pendingObservations := make([]discovery.Observation, 0, 24)
+	pendingErrors := append([]discovery.ScanError(nil), neighborErrors...)
+	reachable := 0
+	errorCount := 0
+	lastNeighborRefresh := time.Now()
+
+	refreshNeighbors := func() {
+		latest, _ := neighborTable(scanCtx)
+		for address, mac := range latest {
+			neighbors[address] = mac
+		}
+		lastNeighborRefresh = time.Now()
+	}
+	enrich := func(observations []discovery.Observation) {
+		for index := range observations {
+			address := observations[index].Address
+			if mac := local[address]; mac != "" {
+				observations[index].Reachable = true
+				observations[index].Method = "local-interface"
+				observations[index].MAC = mac
+			} else if mac := neighbors[address]; mac != "" {
+				observations[index].MAC = mac
+				if !observations[index].Reachable {
+					observations[index].Reachable = true
+					observations[index].Method = "arp-ndp"
+				}
+			}
+		}
+		resolveReverseDNS(scanCtx, observations, 16)
+	}
+	flush := func(refresh bool) error {
+		if len(pendingObservations) == 0 && len(pendingErrors) == 0 {
+			return nil
+		}
+		if refresh && time.Since(lastNeighborRefresh) >= time.Second {
+			refreshNeighbors()
+		}
+		if len(pendingObservations) > 0 {
+			enrich(pendingObservations)
+		}
+		batch := discovery.Report{
+			Observations: append([]discovery.Observation(nil), pendingObservations...),
+			Errors:       append([]discovery.ScanError(nil), pendingErrors...),
+		}
+		if err := report(batch); err != nil {
+			return err
+		}
+		for _, observation := range pendingObservations {
+			reported[observation.Address] = struct{}{}
+		}
+		reachable += len(pendingObservations)
+		errorCount += len(pendingErrors)
+		pendingObservations = pendingObservations[:0]
+		pendingErrors = pendingErrors[:0]
+		return nil
+	}
+
+	flushTicker := time.NewTicker(750 * time.Millisecond)
+	defer flushTicker.Stop()
+	for results != nil {
+		select {
+		case <-scanCtx.Done():
+			return total, reachable, errorCount, scanCtx.Err()
+		case <-flushTicker.C:
+			if err := flush(true); err != nil {
+				return total, reachable, errorCount, fmt.Errorf("report live discovery batch: %w", err)
+			}
+		case result, ok := <-results:
+			if !ok {
+				results = nil
+				continue
+			}
+			address := result.observation.Address
+			if mac := local[address]; mac != "" {
+				result.observation.Reachable = true
+				result.observation.Method = "local-interface"
+				result.observation.MAC = mac
+			} else if mac := neighbors[address]; mac != "" {
+				result.observation.MAC = mac
+				if !result.observation.Reachable {
+					result.observation.Reachable = true
+					result.observation.Method = "arp-ndp"
+				}
+			}
+			if result.observation.Reachable {
+				pendingObservations = append(pendingObservations, result.observation)
+			}
+			pendingErrors = append(pendingErrors, result.errors...)
+			if len(pendingObservations) >= 16 || len(pendingErrors) >= 64 {
+				if err := flush(true); err != nil {
+					return total, reachable, errorCount, fmt.Errorf("report live discovery batch: %w", err)
+				}
+			}
+		}
+	}
+	if err := flush(true); err != nil {
+		return total, reachable, errorCount, fmt.Errorf("report live discovery batch: %w", err)
+	}
+
+	// A final neighbor-cache sweep preserves discovery of devices that block all
+	// active probes but were still resolved at layer 2 while the scan ran.
+	refreshNeighbors()
+	for _, address := range addresses {
+		key := address.String()
+		if _, exists := reported[key]; exists {
+			continue
+		}
+		mac := local[key]
+		method := "local-interface"
+		if mac == "" {
+			mac = neighbors[key]
+			method = "arp-ndp"
+		}
+		if mac == "" {
+			continue
+		}
+		pendingObservations = append(pendingObservations, discovery.Observation{Address: key, Reachable: true, MAC: mac, Method: method})
+		if len(pendingObservations) >= 16 {
+			if err := flush(false); err != nil {
+				return total, reachable, errorCount, fmt.Errorf("report neighbor discovery batch: %w", err)
+			}
+		}
+	}
+	if err := flush(false); err != nil {
+		return total, reachable, errorCount, fmt.Errorf("report neighbor discovery batch: %w", err)
+	}
+	return total, reachable, errorCount, nil
+}
+
+func resolveReverseDNS(ctx context.Context, observations []discovery.Observation, workerCount int) {
+	if len(observations) == 0 {
+		return
+	}
+	if workerCount <= 0 {
+		workerCount = 1
+	}
+	if workerCount > len(observations) {
+		workerCount = len(observations)
+	}
+
 	jobs := make(chan int)
 	var workers sync.WaitGroup
-	workerCount := 64
-	if len(addresses) < workerCount {
-		workerCount = len(addresses)
-	}
 	for worker := 0; worker < workerCount; worker++ {
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
 			for index := range jobs {
-				results[index] = probe(ctx, addresses[index])
+				lookupCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
+				names, err := net.DefaultResolver.LookupAddr(lookupCtx, observations[index].Address)
+				cancel()
+				if err == nil && len(names) > 0 {
+					observations[index].Hostname = strings.TrimSuffix(names[0], ".")
+				}
 			}
 		}()
 	}
-	for index := range addresses {
+	for index := range observations {
 		select {
 		case jobs <- index:
 		case <-ctx.Done():
 			close(jobs)
 			workers.Wait()
-			return nil, nil, len(addresses), ctx.Err()
+			return
 		}
 	}
 	close(jobs)
 	workers.Wait()
-
-	neighbors, neighborErrors := neighborTable(ctx)
-	local := localAddresses()
-	observations := make([]discovery.Observation, 0)
-	scanErrors := neighborErrors
-	for index, result := range results {
-		address := addresses[index].String()
-		if mac := local[address]; mac != "" {
-			result.observation.Reachable = true
-			result.observation.Method = "local-interface"
-			result.observation.MAC = mac
-		} else if mac := neighbors[address]; mac != "" {
-			result.observation.MAC = mac
-			if !result.observation.Reachable {
-				result.observation.Reachable = true
-				result.observation.Method = "arp-ndp"
-			}
-		}
-		if result.observation.Reachable {
-			lookupCtx, cancel := context.WithTimeout(ctx, 1200*time.Millisecond)
-			names, lookupErr := net.DefaultResolver.LookupAddr(lookupCtx, address)
-			cancel()
-			if lookupErr == nil && len(names) > 0 {
-				result.observation.Hostname = strings.TrimSuffix(names[0], ".")
-			}
-			observations = append(observations, result.observation)
-		}
-		scanErrors = append(scanErrors, result.errors...)
-	}
-	return observations, scanErrors, len(addresses), nil
 }
 
 func enumerate(prefix netip.Prefix) []netip.Addr {

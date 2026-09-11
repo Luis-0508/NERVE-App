@@ -38,6 +38,7 @@ export const api = {
   discovery: () => request<DiscoveryState>("/api/v1/discovery"),
   saveDiscoveryTarget: (cidr: string, name = "Local network") => request<DiscoveryTarget>("/api/v1/discovery/target", { method: "POST", body: JSON.stringify({ cidr, name }) }),
   startDiscoveryScan: (targetId: string) => request<DiscoveryScan>("/api/v1/discovery/scans", { method: "POST", body: JSON.stringify({ targetId }) }),
+  stopDiscoveryScan: (targetId: string) => request<DiscoveryScan>("/api/v1/discovery/scans", { method: "POST", body: JSON.stringify({ targetId, cancelActive: true }) }),
   session: () => request<Session>("/api/v1/auth/session"),
   login: (email: string, password: string) => request<Session>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   setup: (email: string, password: string) => request<Session>("/api/v1/auth/bootstrap", { method: "POST", body: JSON.stringify({ email, password }) }),

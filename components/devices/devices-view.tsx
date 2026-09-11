@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, MonitorCog, Play, Radar, RefreshCw, Save, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, MonitorCog, Play, Radar, RefreshCw, Save, Search, SlidersHorizontal, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { APIError, api } from "@/lib/api";
 import type { DeviceFacets, DeviceList, DeviceSummary, DiscoveryState } from "@/lib/types";
@@ -18,6 +18,27 @@ function formatDate(value: string) {
 }
 
 function displayValue(value?: string) { return value || "—"; }
+
+function addressCountForCIDR(cidr?: string) {
+  if (!cidr) return undefined;
+  const [address, prefixText] = cidr.split("/");
+  const prefix = Number(prefixText);
+  const bits = address.includes(":") ? 128 : 32;
+  if (!Number.isInteger(prefix) || prefix < 0 || prefix > bits) return undefined;
+  const hostBits = bits - prefix;
+  if (hostBits > 12) return undefined;
+  let total = 2 ** hostBits;
+  if (bits === 32 && prefix <= 30) total = Math.max(0, total - 2);
+  return total;
+}
+
+function formatElapsed(startedAt?: string) {
+  if (!startedAt) return "";
+  const seconds = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${seconds % 60}s`;
+}
 
 export function DevicesView() {
   const [searchInput, setSearchInput] = useState("");
@@ -113,6 +134,7 @@ function DiscoveryPanel({ onCompleted }: { onCompleted: () => void | Promise<voi
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const previousStatus = useRef<string | undefined>(undefined);
+  const previousReachable = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -120,9 +142,15 @@ function DiscoveryPanel({ onCompleted }: { onCompleted: () => void | Promise<voi
       setState(next);
       setError(null);
       setCIDR((current) => current || next.target?.cidr || "");
-      const completed = previousStatus.current === "queued" || previousStatus.current === "running";
-      if (completed && next.scan && !["queued", "running"].includes(next.scan.status)) void onCompleted();
+
+      const previousWasActive = previousStatus.current === "queued" || previousStatus.current === "running";
+      const nextIsActive = next.scan?.status === "queued" || next.scan?.status === "running";
+      const discoveredMore = Boolean(nextIsActive && next.scan && next.scan.addressesReachable > previousReachable.current);
+      const completed = Boolean(previousWasActive && next.scan && !nextIsActive);
+      if (discoveredMore || completed) void onCompleted();
+
       previousStatus.current = next.scan?.status;
+      previousReachable.current = next.scan?.addressesReachable ?? 0;
     } catch (requestError) {
       if (!(requestError instanceof APIError && requestError.status === 401)) {
         setError(requestError instanceof Error ? requestError.message : "Discovery status could not be loaded.");
@@ -132,7 +160,7 @@ function DiscoveryPanel({ onCompleted }: { onCompleted: () => void | Promise<voi
 
   useEffect(() => {
     void refresh();
-    const timer = window.setInterval(() => void refresh(), 2500);
+    const timer = window.setInterval(() => void refresh(), 1000);
     return () => window.clearInterval(timer);
   }, [refresh]);
 
@@ -148,41 +176,61 @@ function DiscoveryPanel({ onCompleted }: { onCompleted: () => void | Promise<voi
   }
 
   async function startScan() {
-    if (!state?.target) return;
+    if (!state?.target || state.scan?.status === "queued" || state.scan?.status === "running") return;
     setBusy(true); setError(null);
     try {
       const scan = await api.startDiscoveryScan(state.target.id);
       previousStatus.current = scan.status;
+      previousReachable.current = scan.addressesReachable;
       setState((current) => ({ ...current, scan }));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "The scan could not be started.");
     } finally { setBusy(false); }
   }
 
+  async function stopScan() {
+    if (!state?.target || !(state.scan?.status === "queued" || state.scan?.status === "running")) return;
+    setBusy(true); setError(null);
+    try {
+      const scan = await api.stopDiscoveryScan(state.target.id);
+      previousStatus.current = scan.status;
+      previousReachable.current = scan.addressesReachable;
+      setState((current) => ({ ...current, scan }));
+      await onCompleted();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "The scan could not be stopped.");
+    } finally { setBusy(false); }
+  }
+
   const scanActive = state?.scan?.status === "queued" || state?.scan?.status === "running";
   const targetChanged = cidr.trim() !== (state?.target?.cidr ?? "");
-  const scanBlockedReason = busy
+  const configurationBlockedReason = busy
     ? "Discovery is processing the current request."
-    : scanActive
-      ? "A discovery scan is already running."
-      : !state?.target
-        ? "Enter a subnet and save it before starting a scan."
-        : targetChanged
-          ? "Save the changed subnet before starting a scan."
-          : !state.agent?.online
-            ? "The local discovery agent must be online."
-            : undefined;
+    : !state?.target
+      ? "Enter a subnet and save it before starting a scan."
+      : targetChanged
+        ? "Save the changed subnet before starting a scan."
+        : !state.agent?.online
+          ? "The local discovery agent must be online."
+          : undefined;
+  const scanTotal = state?.scan ? state.scan.addressesTotal || addressCountForCIDR(state.scan.targetCidr) : undefined;
+  const found = state?.scan?.addressesReachable ?? 0;
+
   return <section className="discovery-panel" aria-label="Local network discovery">
     <div className="discovery-config">
       <div className="discovery-title"><Radar aria-hidden="true" /><div><h2>Local discovery</h2><p>Scans run through the NERVE agent on this computer.</p></div></div>
       <label className="discovery-cidr"><span>Subnet (CIDR)</span><input className="input mono" value={cidr} onChange={(event) => setCIDR(event.target.value)} placeholder="Example: 192.168.178.0/24" spellCheck={false} /></label>
-      <button className="button" type="button" aria-busy={busy} disabled={busy || !cidr.trim() || !targetChanged} title={!cidr.trim() ? "Enter a subnet first." : !targetChanged ? "This subnet is already saved." : undefined} onClick={() => void saveTarget()}><Save aria-hidden="true" />{busy ? "Saving…" : "Save subnet"}</button>
-      <button className="button button-primary" type="button" aria-busy={busy || scanActive} aria-describedby={scanBlockedReason ? "discovery-scan-hint" : undefined} disabled={Boolean(scanBlockedReason)} title={scanBlockedReason} onClick={() => void startScan()}><Play aria-hidden="true" />{scanActive ? "Scanning…" : "Scan now"}</button>
+      <button className="button" type="button" aria-busy={busy} disabled={busy || !cidr.trim() || !targetChanged || scanActive} title={scanActive ? "Stop the current scan before changing the subnet." : !cidr.trim() ? "Enter a subnet first." : !targetChanged ? "This subnet is already saved." : undefined} onClick={() => void saveTarget()}><Save aria-hidden="true" />{busy && !scanActive ? "Saving…" : "Save subnet"}</button>
+      {scanActive
+        ? <button className="button" type="button" aria-busy={busy} disabled={busy} title="Stop the current discovery scan so another scan can be started." onClick={() => void stopScan()}><Square aria-hidden="true" />{busy ? "Stopping…" : `Stop scan · ${found} found`}</button>
+        : <button className="button button-primary" type="button" aria-busy={busy} disabled={Boolean(configurationBlockedReason)} title={configurationBlockedReason} onClick={() => void startScan()}><Play aria-hidden="true" />{busy ? "Starting…" : "Scan now"}</button>}
     </div>
     <div className="discovery-status">
       <span><i className="status-dot" data-status={state?.agent?.online ? "online" : "offline"} />Agent {state?.agent?.online ? `online · ${state.agent.hostname}` : "offline"}</span>
-      {state?.scan ? <span>Last scan: <strong>{state.scan.status}</strong> · {state.scan.addressesReachable}/{state.scan.addressesTotal || "…"} reachable · {state.scan.errorCount} errors</span> : <span>No scan has run yet.</span>}
-      {scanBlockedReason && !busy && !scanActive && <span className="discovery-hint" id="discovery-scan-hint">{scanBlockedReason}</span>}
+      {scanActive && state?.scan ? <span><strong>Live scan</strong> · {found} found so far{scanTotal !== undefined ? ` · ${scanTotal} addresses` : ""}{state.scan.startedAt ? ` · ${formatElapsed(state.scan.startedAt)}` : ""}</span>
+      : state?.scan ? <span>Last scan: <strong>{state.scan.status}</strong> · {state.scan.addressesReachable}/{state.scan.addressesTotal || scanTotal || "…"} reachable · {state.scan.errorCount} errors</span>
+      : <span>No scan has run yet.</span>}
+      {configurationBlockedReason && !busy && !scanActive && <span className="discovery-hint" id="discovery-scan-hint">{configurationBlockedReason}</span>}
     </div>
     {(error || state?.agent?.lastError || state?.scan?.errorMessage) && <div className="discovery-error" role="alert">{error || state?.agent?.lastError || state?.scan?.errorMessage}</div>}
     {state?.scan?.errors && state.scan.errors.length > 0 && <details className="discovery-errors"><summary>Show recent scan errors ({state.scan.errorCount})</summary><ul>{state.scan.errors.map((item, index) => <li key={`${item.address}-${item.stage}-${index}`}><span className="mono">{item.address || "scan"}</span> · {item.stage}: {item.message}</li>)}</ul></details>}

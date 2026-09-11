@@ -6,7 +6,6 @@
     "dev": "next dev",
     "build": "next build && node scripts/check-static-runtime.mjs",
     "start": "next start",
-    "lint": "next lint",
     "test:runtime": "node scripts/check-static-runtime.mjs",
     "typecheck": "tsc --noEmit"
   },
