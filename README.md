@@ -126,18 +126,24 @@ The service applies ordered `.up.sql` migrations at startup while holding a Post
 
 ## Live traffic map (ntopng)
 
-The existing Map page uses real ntopng REST v2 traffic. Set the following values in
-`.env`; Compose passes them only to the API container. The Go binary reads process
+**Windows capture and automatic setup:** see [Traffic sensor setup](docs/TRAFFIC_SENSOR_SETUP.md).
+A fresh Docker Desktop installation can run NERVE and discovery automatically, but
+needs a real capture sensor before it can display host/LAN traffic.
+
+The Map page uses real ntopng REST v2 traffic. Run `setup.bat` to select an external
+source or prepare the optional Linux sensor described below. Manual `.env` editing
+is optional. Compose passes the following settings only to the API container. The Go binary reads process
 environment variables, not the .env file directly. No credentials use NEXT_PUBLIC_ variables.
 
 ```dotenv
+NERVE_TRAFFIC_CAPTURE_MODE=external
 # Base URL reachable FROM the API container; no /lua/rest/... suffix.
 # Docker Desktop host: http://host.docker.internal:3001 (adjust to your ntopng port).
 NERVE_NTOPNG_URL=https://ntopng.example.lan:3001
 NERVE_NTOPNG_USERNAME=nerve-reader
 NERVE_NTOPNG_PASSWORD='replace-with-your-ntopng-password'
-# Choose the actual monitored ntopng interface; 0 is only the default.
-NERVE_NTOPNG_INTERFACE_ID=0
+# auto selects exactly one interface. Multiple interfaces require an explicit ID.
+NERVE_NTOPNG_INTERFACE_ID=auto
 # Budget for the whole snapshot, including pagination and country enrichment.
 NERVE_NTOPNG_TIMEOUT=5s
 # Extra local public/CGNAT/VPN ranges; private IPv4 and IPv6 ULA are automatic.
@@ -160,12 +166,13 @@ docker compose exec api /app/nerve-server traffic-check
 ```
 
 `traffic-check` uses exactly the running API container's environment and network,
-requires no shell in the distroless image, and prints only status and counts. It does
+requires no shell in the distroless image, and prints status, counts and capture metadata. It does
 not print credentials, source URLs, or traffic IPs. An error exits with code 1;
 connected/no-active-external-flows exits with code 0. A native process can run
 `nerve-server traffic-check` after exporting the same environment variables.
-`setup.bat` now creates all six optional traffic keys and preserves existing values
-when regenerating .env; `start.bat` and its template let Compose load the values.
+`setup.bat` preserves existing values, comments, custom keys and secrets on repeated
+runs. `start.bat` lets Compose load the values and runs a non-blocking traffic check
+after startup; a missing sensor does not prevent NERVE or native discovery from running.
 
 To verify ntopng directly, use its documented endpoints (curl prompts for the password):
 
@@ -182,11 +189,11 @@ bits per second and is divided by eight internally. The UI formats throughput as
 
 | Diagnostics status | Meaning / action |
 | --- | --- |
-| not_configured | URL, username, or password missing; configure .env and recreate API. |
+| not_configured | No sensor yet, or incomplete source credentials. Run setup.bat. Fresh installations show “Capture sensor required”. |
 | authentication_failed | HTTP 401/403 or redirect to ntopng login; verify account and interface permissions. |
 | unreachable | Network/TLS/timeout failure or upstream 5xx; check from the API container. |
 | invalid_response | Wrong route/interface, nonzero rc, HTML, or an incompatible/malformed JSON schema. |
-| invalid_configuration | Malformed base URL or interface ID. |
+| invalid_configuration | Malformed base URL/ID, or auto with zero/multiple interfaces. Choose the actual interface ID. |
 | no_active_external_flows | Successful response, but no sampled local-to-external sessions. |
 
 The authenticated `GET /api/v1/traffic/live` endpoint returns distinct error codes.

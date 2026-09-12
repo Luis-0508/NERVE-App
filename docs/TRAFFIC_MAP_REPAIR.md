@@ -1,5 +1,57 @@
 # Traffic-Map: Reparaturbericht
 
+## Ergänzung: Sensor-Einrichtung vom 12.09.2026
+
+Ausgangsbasis dieser Folgearbeit war Commit `278a050` auf `milestone-5-map`.
+Die reparierte Kartenprojektion, Flow-Animation, Geolocation und REST-v2-Auswertung
+wurden beibehalten. Das verbleibende Problem war die stillschweigende Voraussetzung
+einer bereits installierten ntopng-Quelle und fehlende Angaben zur Capture-Sichtbarkeit.
+
+Die Architektur trennt Windows-Discovery, NERVE-Dienste und Capture-Sensor. Docker
+Desktop stellt keine Windows-NIC für libpcap bereit. Deshalb startet die normale
+Compose-Konfiguration keinen irreführenden ntopng-Capture-Container. `setup.bat`
+bietet eine externe Quelle oder ein vollständig vorbereitetes Paket für einen
+nativen Linux-Sensor an; Zugangsdaten werden sicher erzeugt und zwischen Sensor/API
+abgeglichen. Bestehende `.env`-Werte, Kommentare und Secrets bleiben erhalten.
+Diagnostics enthält Capture-Modus, Interface und ausdrücklich begrenzte Sichtbarkeit.
+Ein einzelnes ntopng-Interface kann anhand der echten REST-v2-Interfaceliste automatisch
+aufgelöst werden; bei mehreren Interfaces ist eine eindeutige ID erforderlich.
+
+Erfolgreich geprüft:
+
+- Go Unit Tests, `go vet ./...` und Integrationstests gegen isoliertes PostgreSQL,
+  einschließlich bestehender Discovery-Abläufe und neuer Diagnose-/Leak-Prüfungen.
+- `npm run typecheck`, `npm run test:map`, Produktionsbuild einschließlich statischer
+  Runtime-Prüfung.
+- Windows PowerShell 5.1: neue `.env`, Wiederholung, Secret-Persistenz, externe Quelle,
+  Literal-Passwort, Fehler ohne Änderung der `.env`, Erhalt benutzerdefinierter Werte.
+- Compose-Validierung der Standardinstallation und des erzeugten Sensorpakets.
+- Echte Docker-Builds: API, Web, Linux-Sensor und Windows-Discovery-Agent.
+- Echte ntopng-Version 7.0.260911 im isolierten Docker-Netzwerk: Account-Bootstrap,
+  Reader-Login, Ablehnung des Default-Passworts, Authentifizierungsfehler, Healthcheck,
+  echte HTTPS-Verbindung als Flow bis zur NERVE-API, keine Secrets in Diagnose/Logs.
+- Frische, getrennte Compose-Installation mit Bootstrap/Anmeldung, korrektem
+  Missing-Sensor-Zustand, erneutem Setup und Dienstneuerstellung bei erhaltener Sitzung
+  und Datenbank. Ausschließlich die eigenen Testressourcen wurden danach entfernt.
+- Produktionseinstieg des Sensors weist den tatsächlichen WSL2-Kernel ausdrücklich ab.
+
+Die Docker-Laufzeit lag außerhalb des PATH und wurde unter der lokalen
+Docker-Desktop-Installation gefunden. Der zunächst angenommene ntopng-Tag `stable`
+existiert nicht; das tatsächlich verfügbare offizielle Image ist jetzt per Digest
+gebunden. Der reale Container-Test deckte zudem erforderliche Datenverzeichnisrechte
+für den eingeschränkten ntopng-Benutzer auf; diese wurden korrigiert.
+
+Nicht nachgewiesen: physische Linux-NIC-/SPAN-/TAP-Erfassung, Windows-Host-Capture,
+vollständiges LAN-Monitoring, ARM-Sensorbetrieb und ein manueller Doppelklick-Durchlauf
+von `start.bat` samt Start des nativen Discovery-Agenten. Der isolierte Container-Test
+belegt ausdrücklich nur den Traffic seines eigenen Netzwerk-Namespace. Die frühere
+Karten-Visualprüfung unten ist kein neuer visueller Browser-Test dieser Folgearbeit.
+
+Einrichtung, Sichtbarkeitsmatrix, Ports, Datenschutz, Diagnosebefehle und manuelle
+Capture-Abnahme: [Traffic sensor setup](TRAFFIC_SENSOR_SETUP.md).
+
+---
+
 Stand: 11.09.2026, Branch `milestone-5-map`. Kein Branchwechsel, Push, PR oder Merge.
 Die beim Beginn vorhandenen Änderungen und unversionierten Traffic-Dateien wurden weiterbearbeitet.
 
