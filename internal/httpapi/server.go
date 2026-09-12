@@ -20,6 +20,8 @@ import (
 	"github.com/nerve-labs/nerve/internal/config"
 	"github.com/nerve-labs/nerve/internal/discovery"
 	"github.com/nerve-labs/nerve/internal/inventory"
+	"github.com/nerve-labs/nerve/internal/integrations/ntopng"
+	"github.com/nerve-labs/nerve/internal/traffic"
 )
 
 const sessionCookie = "nerve_session"
@@ -34,6 +36,7 @@ type Server struct {
 	logger        *slog.Logger
 	startedAt     time.Time
 	version       string
+	traffic       traffic.Source
 	loginMu       sync.Mutex
 	loginAttempts map[string]*rateWindow
 }
@@ -65,6 +68,10 @@ type eventResponse struct {
 }
 
 func New(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version string) *Server {
+	return NewWithTraffic(db, cfg, logger, version, ntopng.New(ntopng.Config{URL: cfg.NtopngURL, Username: cfg.NtopngUsername, Password: cfg.NtopngPassword, InterfaceID: cfg.NtopngInterfaceID, Timeout: cfg.NtopngTimeout, LocalCIDRs: parseTrafficCIDRs(cfg.TrafficLocalCIDRs)}))
+}
+
+func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version string, source traffic.Source) *Server {
 	return &Server{
 		db:            db,
 		auth:          auth.NewService(db, cfg.SessionTTL),
@@ -75,6 +82,7 @@ func New(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version strin
 		logger:        logger,
 		startedAt:     time.Now().UTC(),
 		version:       version,
+		traffic:       source,
 		loginAttempts: make(map[string]*rateWindow),
 	}
 }
@@ -87,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1", s.apiRoot)
 	mux.HandleFunc("GET /api/v1/{$}", s.apiRoot)
 	mux.HandleFunc("GET /api/v1/status", s.status)
+	mux.HandleFunc("GET /api/v1/traffic/live", s.liveTraffic)
 	mux.HandleFunc("POST /api/v1/auth/bootstrap", s.bootstrap)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)

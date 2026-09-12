@@ -94,6 +94,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "    'POSTGRES_USER=nerve'," ^
   "    ('POSTGRES_PASSWORD=' + $password)" ^
   "  );" ^
+  "  $trafficDefaults = @{ NERVE_NTOPNG_URL=''; NERVE_NTOPNG_USERNAME=''; NERVE_NTOPNG_PASSWORD=''; NERVE_NTOPNG_INTERFACE_ID='0'; NERVE_NTOPNG_TIMEOUT='5s'; NERVE_TRAFFIC_LOCAL_CIDRS='' };" ^
+  "  foreach ($key in ($trafficDefaults.Keys | Sort-Object)) { $value = $trafficDefaults[$key]; if ($existing.ContainsKey($key)) { $value = $existing[$key] }; $lines += ($key + '=' + $value) };" ^
   "  $utf8 = New-Object Text.UTF8Encoding($false);" ^
   "  [IO.File]::WriteAllText($envPath, (($lines -join [Environment]::NewLine) + [Environment]::NewLine), $utf8);" ^
   "  Write-Host ('[OK] .env wurde fuer http://localhost:' + $port + ' erzeugt.') -ForegroundColor Green;" ^
@@ -117,6 +119,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "Copy-Item -LiteralPath $stopTemplate -Destination $stopPath -Force;" ^
   "Write-Host '[OK] stop.bat wurde erzeugt.' -ForegroundColor Green;" ^
   "Write-Host '';" ^
+  "Write-Host '[INFO] Traffic Map: NERVE_NTOPNG_URL, USERNAME und PASSWORD in .env setzen; siehe .env.example.';" ^
   "Write-Host '[FERTIG] Starte NERVE jetzt mit start.bat.' -ForegroundColor Cyan;"
 
 if errorlevel 1 goto :failed

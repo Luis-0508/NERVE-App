@@ -23,6 +23,9 @@ func main() {
 		slog.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
+	if len(os.Args) == 2 && os.Args[1] == "traffic-check" {
+		os.Exit(checkTraffic(cfg))
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel}))
 	slog.SetDefault(logger)
 

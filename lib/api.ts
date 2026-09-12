@@ -1,7 +1,7 @@
-import type { DeviceDetail, DeviceFacets, DeviceList, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ServiceStatus, Session } from "./types";
+import type { DeviceDetail, DeviceFacets, DeviceList, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ServiceStatus, Session, TrafficSnapshot } from "./types";
 
 export class APIError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public code?: string) {
     super(message);
   }
 }
@@ -13,14 +13,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
-    throw new APIError(response.status, body?.error?.message ?? `Request failed with status ${response.status}.`);
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string; code?: string } } | null;
+    throw new APIError(response.status, body?.error?.message ?? `Request failed with status ${response.status}.`, body?.error?.code);
   }
   return response.json() as Promise<T>;
 }
 
 export const api = {
   status: () => request<ServiceStatus>("/api/v1/status"),
+  liveTraffic: () => request<TrafficSnapshot>("/api/v1/traffic/live"),
   events: (limit = 8, entityId?: string) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (entityId) params.set("entityId", entityId);

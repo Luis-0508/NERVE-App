@@ -22,8 +22,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nerve-labs/nerve/internal/config"
 	"github.com/nerve-labs/nerve/internal/httpapi"
+	"github.com/nerve-labs/nerve/internal/integrations/ntopng"
 	"github.com/nerve-labs/nerve/internal/inventory"
 	"github.com/nerve-labs/nerve/internal/platform/database"
+	"github.com/nerve-labs/nerve/internal/traffic"
 )
 
 func TestAPIFlow(t *testing.T) {
@@ -110,6 +112,35 @@ func TestAPIFlow(t *testing.T) {
 		t.Fatal("bootstrap session is not authenticated")
 	}
 
+	// Authenticated traffic diagnostics must preserve distinct machine-readable states.
+	for _, tc := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{ntopng.ErrNotConfigured, 503, "traffic_source_not_configured"},
+		{ntopng.ErrAuthentication, 502, "traffic_source_authentication_failed"},
+		{ntopng.ErrUnavailable, 502, "traffic_source_unreachable"},
+		{ntopng.ErrInvalidResponse, 502, "traffic_source_invalid_response"},
+		{ntopng.ErrInvalidConfiguration, 502, "traffic_source_invalid_configuration"},
+		{nil, 200, ""},
+	} {
+		diagnostic := httptest.NewServer(httpapi.NewWithTraffic(pool, config.Config{SessionTTL: 24 * time.Hour}, logger, "test", trafficTestSource{err: tc.err}).Handler())
+		response := doJSON(t, client, http.MethodGet, diagnostic.URL+"/api/v1/traffic/live", "", nil)
+		body := readBody(response)
+		if response.StatusCode != tc.status || (tc.code != "" && !strings.Contains(body, tc.code)) {
+			t.Fatalf("traffic diagnostic: status=%d body=%s", response.StatusCode, body)
+		}
+		anonymous, err := http.Get(diagnostic.URL + "/api/v1/traffic/live")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = anonymous.Body.Close()
+		if anonymous.StatusCode != 401 {
+			t.Fatal("traffic endpoint must require a session")
+		}
+		diagnostic.Close()
+	}
 	targetResponse := doJSON(t, client, http.MethodPost, server.URL+"/api/v1/discovery/target", `{"name":"CI network","cidr":"192.168.178.0/24"}`, nil)
 	if targetResponse.StatusCode != http.StatusOK {
 		t.Fatalf("save target status = %d, want 200: %s", targetResponse.StatusCode, readBody(targetResponse))
@@ -225,4 +256,10 @@ func readBody(response *http.Response) string {
 	defer response.Body.Close()
 	body, _ := io.ReadAll(response.Body)
 	return string(body)
+}
+
+type trafficTestSource struct{ err error }
+
+func (s trafficTestSource) Live(context.Context) (traffic.Snapshot, error) {
+	return traffic.Snapshot{Source: "ntopng", Flows: []traffic.Flow{}}, s.err
 }
