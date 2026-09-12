@@ -405,3 +405,5 @@ a { color: inherit; text-decoration: none; }
 .traffic-map-surface { container-type: size; }
 .map-drawing { width: min(100cqw, 187.5cqh); max-height: none; flex: none; }
 @media (max-width: 600px) { .traffic-map-surface { height: clamp(260px, 68vw, 400px); min-height: 260px; }.map-meta { font-size: 8px; }.map-footer { font-size: 8px; }.map-panel { max-height: calc(100% - 30px); top: 15px; bottom: auto; } }
+
+.traffic-coverage { margin: 0; padding: 0 2px; font-size: 11px; color: var(--text-muted); }

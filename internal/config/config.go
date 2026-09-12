@@ -26,6 +26,7 @@ type Config struct {
 	NtopngInterfaceID   string
 	NtopngTimeout       time.Duration
 	TrafficLocalCIDRs   string
+	TrafficCaptureMode  string
 }
 
 func Load() (Config, error) {
@@ -43,6 +44,7 @@ func Load() (Config, error) {
 		NtopngInterfaceID:   envOr("NERVE_NTOPNG_INTERFACE_ID", "0"),
 		NtopngTimeout:       5 * time.Second,
 		TrafficLocalCIDRs:   os.Getenv("NERVE_TRAFFIC_LOCAL_CIDRS"),
+		TrafficCaptureMode:  os.Getenv("NERVE_TRAFFIC_CAPTURE_MODE"),
 	}
 
 	if value := os.Getenv("NERVE_COOKIE_SECURE"); value != "" {
@@ -85,6 +87,14 @@ func Load() (Config, error) {
 		if _, err := netip.ParsePrefix(strings.TrimSpace(raw)); err != nil {
 			return Config{}, fmt.Errorf("NERVE_TRAFFIC_LOCAL_CIDRS contains an invalid CIDR")
 		}
+	}
+	switch cfg.TrafficCaptureMode {
+	case "", "sensor-required", "external", "linux-interface":
+	default:
+		return Config{}, fmt.Errorf("NERVE_TRAFFIC_CAPTURE_MODE must be sensor-required, external or linux-interface")
+	}
+	if cfg.NtopngURL != "" && cfg.TrafficCaptureMode == "sensor-required" {
+		cfg.TrafficCaptureMode = "external"
 	}
 	return cfg, nil
 }

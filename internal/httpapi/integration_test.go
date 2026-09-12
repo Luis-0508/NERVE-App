@@ -125,11 +125,17 @@ func TestAPIFlow(t *testing.T) {
 		{ntopng.ErrInvalidConfiguration, 502, "traffic_source_invalid_configuration"},
 		{nil, 200, ""},
 	} {
-		diagnostic := httptest.NewServer(httpapi.NewWithTraffic(pool, config.Config{SessionTTL: 24 * time.Hour}, logger, "test", trafficTestSource{err: tc.err}).Handler())
+		diagnostic := httptest.NewServer(httpapi.NewWithTraffic(pool, config.Config{SessionTTL: 24 * time.Hour, TrafficCaptureMode: "linux-interface", NtopngInterfaceID: "7", NtopngURL: "http://private-sensor.invalid", NtopngUsername: "private-reader", NtopngPassword: "private-test-secret"}, logger, "test", trafficTestSource{err: tc.err}).Handler())
 		response := doJSON(t, client, http.MethodGet, diagnostic.URL+"/api/v1/traffic/live", "", nil)
 		body := readBody(response)
 		if response.StatusCode != tc.status || (tc.code != "" && !strings.Contains(body, tc.code)) {
 			t.Fatalf("traffic diagnostic: status=%d body=%s", response.StatusCode, body)
+		}
+		if !strings.Contains(body, `"mode":"linux-interface"`) || !strings.Contains(body, `"interfaceId":"7"`) || !strings.Contains(body, `"visibility"`) {
+			t.Fatal("capture diagnostics missing")
+		}
+		if strings.Contains(body, "private-") {
+			t.Fatal("sensor credentials or address leaked")
 		}
 		anonymous, err := http.Get(diagnostic.URL + "/api/v1/traffic/live")
 		if err != nil {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/nerve-labs/nerve/internal/config"
 	"github.com/nerve-labs/nerve/internal/integrations/ntopng"
+	"github.com/nerve-labs/nerve/internal/traffic"
 	"net/netip"
 	"os"
 	"strings"
@@ -40,6 +41,11 @@ func checkTraffic(cfg config.Config) int {
 	} else if snapshot.Summary.ActiveFlows == 0 {
 		status = "no_active_external_flows"
 	}
-	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"status": status, "externalFlows": snapshot.Summary.ActiveFlows, "unlocatedFlows": snapshot.Summary.UnlocatedFlows, "truncated": snapshot.Truncated})
+	capture := traffic.CaptureInfo(cfg.TrafficCaptureMode, cfg.NtopngURL, cfg.NtopngInterfaceID)
+	if snapshot.Capture != nil {
+		capture.InterfaceID = snapshot.Capture.InterfaceID
+		capture.InterfaceName = snapshot.Capture.InterfaceName
+	}
+	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"status": status, "capture": capture, "externalFlows": snapshot.Summary.ActiveFlows, "unlocatedFlows": snapshot.Summary.UnlocatedFlows, "truncated": snapshot.Truncated})
 	return code
 }

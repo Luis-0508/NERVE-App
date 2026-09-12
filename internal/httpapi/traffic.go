@@ -23,26 +23,38 @@ func (s *Server) liveTraffic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	capture := traffic.CaptureInfo(s.cfg.TrafficCaptureMode, s.cfg.NtopngURL, s.cfg.NtopngInterfaceID)
+	writeTrafficError := func(w http.ResponseWriter, status int, code, message string) {
+		if code == "traffic_source_not_configured" && capture.Mode == "sensor-required" {
+			message = "Capture sensor required"
+		}
+		writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}, "capture": capture})
+	}
 	if s.traffic == nil {
-		writeError(w, 503, "traffic_source_not_configured", "Traffic source not configured")
+		writeTrafficError(w, 503, "traffic_source_not_configured", "Traffic source not configured")
 		return
 	}
 	snapshot, err := s.traffic.Live(r.Context())
 	if err != nil {
 		switch {
 		case errors.Is(err, ntopng.ErrNotConfigured):
-			writeError(w, 503, "traffic_source_not_configured", "Traffic source not configured")
+			writeTrafficError(w, 503, "traffic_source_not_configured", "Traffic source not configured")
 		case errors.Is(err, ntopng.ErrAuthentication):
-			writeError(w, 502, "traffic_source_authentication_failed", "Authentication failed")
+			writeTrafficError(w, 502, "traffic_source_authentication_failed", "Authentication failed")
 		case errors.Is(err, ntopng.ErrInvalidConfiguration):
-			writeError(w, 502, "traffic_source_invalid_configuration", "Invalid ntopng configuration")
+			writeTrafficError(w, 502, "traffic_source_invalid_configuration", "Invalid ntopng configuration")
 		case errors.Is(err, ntopng.ErrInvalidResponse):
-			writeError(w, 502, "traffic_source_invalid_response", "Invalid response from ntopng")
+			writeTrafficError(w, 502, "traffic_source_invalid_response", "Invalid response from ntopng")
 		default:
-			writeError(w, 502, "traffic_source_unreachable", "Traffic source unreachable")
+			writeTrafficError(w, 502, "traffic_source_unreachable", "Traffic source unreachable")
 		}
 		return
 	}
+	if snapshot.Capture != nil {
+		capture.InterfaceID = snapshot.Capture.InterfaceID
+		capture.InterfaceName = snapshot.Capture.InterfaceName
+	}
+	snapshot.Capture = &capture
 	writeJSON(w, http.StatusOK, snapshot)
 }
 

@@ -3,6 +3,7 @@ package config
 import "testing"
 
 func TestTrafficEnvironment(t *testing.T) {
+	t.Setenv("NERVE_TRAFFIC_CAPTURE_MODE", "linux-interface")
 	t.Setenv("NERVE_NTOPNG_URL", "http://ntopng:3000")
 	t.Setenv("NERVE_NTOPNG_USERNAME", "reader")
 	t.Setenv("NERVE_NTOPNG_PASSWORD", "example-only")
@@ -12,6 +13,9 @@ func TestTrafficEnvironment(t *testing.T) {
 	cfg, err := Load()
 	if err != nil {
 		t.Fatal(err)
+	}
+	if cfg.TrafficCaptureMode != "linux-interface" {
+		t.Fatal("capture mode not loaded")
 	}
 	if cfg.NtopngURL != "http://ntopng:3000" || cfg.NtopngUsername != "reader" || cfg.NtopngPassword != "example-only" || cfg.NtopngInterfaceID != "3" || cfg.NtopngTimeout.Seconds() != 8 {
 		t.Fatal("traffic environment not loaded")

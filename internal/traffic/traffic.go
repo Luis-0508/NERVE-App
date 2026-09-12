@@ -47,6 +47,7 @@ type Summary struct {
 	OutboundBytesPerSecond float64 `json:"outboundBytesPerSecond"`
 }
 type Snapshot struct {
+	Capture          *Capture  `json:"capture,omitempty"`
 	GeneratedAt      time.Time `json:"generatedAt"`
 	Source           string    `json:"source"`
 	Flows            []Flow    `json:"flows"`

@@ -161,12 +161,39 @@ func (c *Client) fetch(ctx context.Context) (traffic.Snapshot, error) {
 	if err != nil || (base.Scheme != "http" && base.Scheme != "https") || base.Host == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" {
 		return traffic.Snapshot{}, ErrInvalidConfiguration
 	}
-	if id, err := strconv.Atoi(c.cfg.InterfaceID); err != nil || id < 0 {
+	interfaceID, interfaceName := c.cfg.InterfaceID, ""
+	if interfaceID == "auto" {
+		// A single interface is unambiguous. Never silently pick one of several sensors.
+		target := *base
+		target.Path = strings.TrimRight(base.Path, "/") + "/lua/rest/v2/get/ntopng/interfaces.lua"
+		var interfaces struct {
+			RC  *int `json:"rc"`
+			RSP []struct {
+				ID   *int   `json:"ifid"`
+				Name string `json:"ifname"`
+			} `json:"rsp"`
+		}
+		if err := c.get(ctx, &target, &interfaces); err != nil {
+			return traffic.Snapshot{}, err
+		}
+		if interfaces.RC == nil || *interfaces.RC != 0 {
+			return traffic.Snapshot{}, ErrInvalidResponse
+		}
+		if len(interfaces.RSP) != 1 {
+			return traffic.Snapshot{}, ErrInvalidConfiguration
+		}
+		selected := interfaces.RSP[0]
+		if selected.ID == nil || *selected.ID < 0 || selected.Name == "" {
+			return traffic.Snapshot{}, ErrInvalidResponse
+		}
+		interfaceID, interfaceName = strconv.Itoa(*selected.ID), selected.Name
+	}
+	if id, err := strconv.Atoi(interfaceID); err != nil || id < 0 {
 		return traffic.Snapshot{}, ErrInvalidConfiguration
 	}
 	base.Path = strings.TrimRight(base.Path, "/") + "/lua/rest/v2/get/flow/active.lua"
 	q := base.Query()
-	q.Set("ifid", c.cfg.InterfaceID)
+	q.Set("ifid", interfaceID)
 	q.Set("perPage", "500")
 	q.Set("sortColumn", "thpt")
 	q.Set("sortOrder", "desc")
@@ -240,7 +267,7 @@ func (c *Client) fetch(ctx context.Context) (traffic.Snapshot, error) {
 	}
 	items, summary := traffic.Aggregate(flows, 500)
 	summary.ActiveFlows = len(flows)
-	return traffic.Snapshot{GeneratedAt: time.Now().UTC(), Source: "ntopng", Flows: items, Summary: summary, Truncated: len(rows) < total || len(items) < summary.AggregatedFlows, SampledFlows: len(rows), SourceTotalFlows: total}, nil
+	return traffic.Snapshot{Capture: &traffic.Capture{InterfaceID: interfaceID, InterfaceName: interfaceName}, GeneratedAt: time.Now().UTC(), Source: "ntopng", Flows: items, Summary: summary, Truncated: len(rows) < total || len(items) < summary.AggregatedFlows, SampledFlows: len(rows), SourceTotalFlows: total}, nil
 }
 func (c *Client) remoteCountries(ctx context.Context, activeURL *url.URL) map[string]string {
 	endpoint := *activeURL
