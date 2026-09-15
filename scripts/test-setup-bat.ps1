@@ -8,6 +8,8 @@ foreach ($file in @('setup.bat','.env.example','start.example.bat','stop.example
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'setup.ps1') -Destination (Join-Path $fixture 'scripts/setup.ps1')
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'setup-common.ps1') -Destination (Join-Path $fixture 'scripts/setup-common.ps1')
 
+foreach ($file in @('setup-launchers.ps1','stock-launchers.json')) { Copy-Item -LiteralPath (Join-Path $PSScriptRoot $file) -Destination (Join-Path $fixture 'scripts') }
+
 function Invoke-BatchSetup([switch]$DirectFile) {
     $info = New-Object Diagnostics.ProcessStartInfo
     $info.FileName = $env:ComSpec
@@ -76,13 +78,37 @@ if ([IO.File]::ReadAllText((Join-Path $fixture 'start.bat')) -cne $startBefore -
 # Without the batch's cd, the file must still resolve its project via PSScriptRoot.
 Invoke-BatchSetup -DirectFile
 if ([IO.File]::ReadAllText($envPath) -cne $before) { throw 'Direct -File invocation changed existing configuration.' }
+# Reproduce the reported upgrade through the real batch entry point (no refresh switch).
+foreach ($name in @('start','stop')) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot ('fixtures/launchers-278a050/' + $name + '.bat.fixture')) -Destination (Join-Path $fixture ($name + '.bat')) -Force
+}
+Invoke-BatchSetup
+foreach ($name in @('start','stop')) {
+    if ([IO.File]::ReadAllText((Join-Path $fixture ($name + '.bat'))) -cne [IO.File]::ReadAllText((Join-Path $fixture ($name + '.example.bat')))) { throw 'Legacy stock launcher was not migrated.' }
+}
+if ([IO.File]::ReadAllText($envPath) -cne $before) { throw 'Upgrade changed configuration.' }
+# Future releases work without adding another historical hash: installed baseline.
+$newTemplate = [IO.File]::ReadAllText((Join-Path $fixture 'start.example.bat')) + "`r`nrem Future official release`r`n"
+[IO.File]::WriteAllText((Join-Path $fixture 'start.example.bat'), $newTemplate)
+Invoke-BatchSetup
+if ([IO.File]::ReadAllText((Join-Path $fixture 'start.bat')) -cne $newTemplate) { throw 'Managed future upgrade failed.' }
+# Both a modified official script and an entirely custom script must survive.
+$customStart = $newTemplate + "rem User customization`r`n"
+$customStop = "@echo off`r`necho My custom stop`r`n"
+[IO.File]::WriteAllText((Join-Path $fixture 'start.bat'), $customStart)
+[IO.File]::WriteAllText((Join-Path $fixture 'stop.bat'), $customStop)
+Invoke-BatchSetup
+Invoke-BatchSetup
+if ([IO.File]::ReadAllText((Join-Path $fixture 'start.bat')) -cne $customStart -or [IO.File]::ReadAllText((Join-Path $fixture 'stop.bat')) -cne $customStop) { throw 'Custom launcher overwritten.' }
+if ([IO.File]::ReadAllText($envPath) -cne $before) { throw 'Repeated upgrade changed secrets or custom values.' }
+Write-Host 'PASS: native legacy 278a050 upgrade, future managed upgrade, edited stock and genuine custom launchers preserved twice; configuration unchanged.'
 if ($reserved) {
     # After releasing our own listener, a second fresh setup should prefer 3000.
     $previous = $fixture
     $fixture += ' preferred port'
     New-Item -ItemType Directory -Path (Join-Path $fixture 'scripts') | Out-Null
     foreach ($file in @('setup.bat','.env.example','start.example.bat','stop.example.bat')) { Copy-Item -LiteralPath (Join-Path $previous $file) -Destination $fixture }
-    foreach ($file in @('setup.ps1','setup-common.ps1')) { Copy-Item -LiteralPath (Join-Path $previous ('scripts/' + $file)) -Destination (Join-Path $fixture 'scripts') }
+    foreach ($file in @('setup.ps1','setup-common.ps1','setup-launchers.ps1','stock-launchers.json')) { Copy-Item -LiteralPath (Join-Path $previous ('scripts/' + $file)) -Destination (Join-Path $fixture 'scripts') }
     Invoke-BatchSetup
     if ([IO.File]::ReadAllText((Join-Path $fixture '.env')) -notmatch '(?m)^NERVE_WEB_PORT=3000\r?$') { throw 'Fresh setup did not prefer available port 3000.' }
 }

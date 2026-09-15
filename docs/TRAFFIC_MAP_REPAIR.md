@@ -196,3 +196,44 @@ Nächster Abnahmeschritt: `scripts/test-windows-capture.ps1` erneut ausführen u
 die Windows-UAC-Aktualisierung bestätigen. Danach müssen beide Transfer-Richtungen,
 Bytes, Änderung der Werte, die echte Map, Ausfall/Erholung, Doppelstart und Stop
 erfolgreich geprüft sein. **Milestone 5 ist damit ausdrücklich nicht abgeschlossen.**
+# Launcher upgrade regression — 2026-09-15
+
+The migration in `d3ce9c2` recognized only one predecessor hash per launcher.
+The actual local `start.bat` matched official commit `278a050`, so setup wrongly
+preserved it as custom. That launcher skipped the native sensor entirely.
+
+Setup now uses a bundled, provenance-backed catalog of all 14 distinct official
+historical launcher contents and a schema-versioned local installed-content baseline
+in `.nerve/launchers.json`. Future upgrades compare against that baseline; edited
+scripts are retained with an INFO message. No marker-only overwrite or Git runtime
+dependency is introduced. Custom scripts also remain protected when the compatibility
+`-RefreshLaunchers` switch is passed. Templates, capture implementation, discovery,
+environment-generation logic and database lifecycle were not changed.
+
+Executed successfully on Windows:
+
+- `scripts/test-setup-bat.ps1`: real CMD/PowerShell file invocation without input,
+  paths with spaces, occupied-port fallback, second setup, retained secrets/values,
+  actual `278a050` upgrade, future baseline upgrade and two kinds of custom launcher.
+- `scripts/test-launcher-history.ps1`: all 14 catalog entries against their Git
+  provenance, actual migration, newline normalization and malformed-state fallback.
+- `scripts/test-setup.ps1`: configuration, external/Linux source and secret persistence.
+- `scripts/test-compose.ps1`: Compose validation and configuration isolation.
+- `scripts/test-start-traffic.ps1`: focused CMD completion test with CLI/browser doubles.
+- `scripts/test-windows-capture.ps1`: actual legacy launchers seeded before normal
+  setup; no manual refresh after setup. Docker builds, native startup and protected
+  sensor installation/update completed. Real Ethernet ETW HTTPS traffic matched curl
+  endpoints and inbound/outbound byte checks. Flow changes, offline TTL, recovery,
+  second start without duplicate sensor, discovery and retained session passed.
+  Launcher `traffic-check` returned `connected`. Real Edge login/map tests passed
+  with mapped real flows, stored manual location and dark/light/mobile screenshots.
+  Stop and isolated cleanup passed; no user database was removed.
+- Normal workspace `cmd.exe /d /c setup.bat` upgraded the actual old local launcher;
+  `.env` remained byte-identical. `git diff --check` passed.
+
+The first sandboxed Compose invocation could not locate Docker; the explicit local
+Docker executable succeeded with authorized access. Go/frontend source was unchanged;
+their standalone unit/vet/typecheck suites were not repeated for this launcher fix.
+The Docker production builds and real browser test above did run. This is automated
+native Windows acceptance evidence, not a claim that the user's final Explorer
+double-click acceptance is complete. Milestone 5 remains open pending that acceptance.

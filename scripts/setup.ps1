@@ -3,6 +3,7 @@ param(
     [string]$Root,
     # Retained for callers of the previous setup; local setup is always unattended.
     [switch]$NonInteractive,
+    # Compatibility only: custom launchers are now protected even with this switch.
     [switch]$RefreshLaunchers
 )
 $ErrorActionPreference = 'Stop'
@@ -75,18 +76,6 @@ if ((Get-Value 'NERVE_SENSOR_PORT') -eq '') {
 }
 Save-SetupEnvironment
 Write-Host ('[OK] NERVE: http://localhost:' + (Get-Value 'NERVE_WEB_PORT'))
-foreach ($name in @('start','stop')) {
-    $destination = Join-Path $Root ($name + '.bat')
-    $replace = $RefreshLaunchers -or -not (Test-Path -LiteralPath $destination)
-    # Upgrade only byte-equivalent stock launchers from the previous release.
-    # Custom scripts are retained; line-ending differences are harmless.
-    if (-not $replace) {
-        $stockHashes = @{start='0AC580FC933FA1D3D57080253C2E39B0F5FDC1192C03AEFC9710B3609CB0A055';stop='165B3D6C297EB0D728FFFE34C12AF0AA300A79CEDA36BCA35624C6CF74762F96'}
-        $text = [IO.File]::ReadAllText($destination).Replace("`r`n","`n").TrimEnd() + "`n"
-        $hasher = [Security.Cryptography.SHA256]::Create()
-        try { $hash = [BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($text))).Replace('-','') } finally { $hasher.Dispose() }
-        $replace = $hash -eq $stockHashes[$name]
-    }
-    if ($replace) { Copy-Item -LiteralPath (Join-Path $Root ($name + '.example.bat')) -Destination $destination -Force }
-}
+. (Join-Path $scriptDirectory 'setup-launchers.ps1')
+Update-SetupLaunchers $Root
 Write-Host '[OK] Konfiguration gespeichert. Bestehende Secrets und Daten bleiben erhalten. Start: start.bat'

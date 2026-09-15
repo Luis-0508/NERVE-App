@@ -44,13 +44,14 @@ function Batch([string]$Name, [int]$TimeoutSeconds) {
     } finally { if (-not $p.HasExited) { & taskkill.exe /PID $p.Id /T /F | Out-Null }; $p.Dispose() }
 }
 try {
+    # Seed the actual reported older official launchers; only setup may upgrade them.
+    foreach ($name in @('start','stop')) {
+        Copy-Item -LiteralPath (Join-Path $PSScriptRoot ('fixtures/launchers-278a050/' + $name + '.bat.fixture')) -Destination (Join-Path $fixture ($name + '.bat')) -Force
+    }
     Batch 'setup.bat' 30
     $before = [IO.File]::ReadAllText((Join-Path $fixture '.env'))
     Batch 'setup.bat' 30
     if ([IO.File]::ReadAllText((Join-Path $fixture '.env')) -cne $before) { throw 'Second setup changed secrets/configuration.' }
-    # Refresh only this test installation's known launchers when rerunning source changes.
-    Copy-Item -LiteralPath (Join-Path $fixture 'start.example.bat') -Destination (Join-Path $fixture 'start.bat') -Force
-    Copy-Item -LiteralPath (Join-Path $fixture 'stop.example.bat') -Destination (Join-Path $fixture 'stop.bat') -Force
     Write-Host 'TEST: native start.bat; first sensor install requests Windows UAC.'
     Batch 'start.bat' 900
     $port = [regex]::Match($before,'(?m)^NERVE_WEB_PORT=(\d+)').Groups[1].Value

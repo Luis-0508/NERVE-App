@@ -19,10 +19,34 @@ Existing database passwords, discovery tokens, native tokens, ports and custom
 values are retained. An unconfigured prior `sensor-required` Windows default is
 upgraded to `windows-native`; explicit external/Linux configurations remain intact.
 Known previous stock launchers upgrade automatically. Custom launchers are kept:
-merge the sensor calls from `start.example.bat`/`stop.example.bat`, or explicitly
-regenerate them with `scripts/setup.ps1 -RefreshLaunchers` after reviewing them.
+merge the sensor calls from `start.example.bat`/`stop.example.bat` after reviewing them.
+Setup reports preserved custom launchers explicitly. `-RefreshLaunchers` remains
+accepted for compatibility but no longer bypasses customization protection.
 Moving the repository creates a different installation identity; stop the old
 installation first. Nothing here deletes PostgreSQL or sensor volumes.
+
+## Launcher upgrades
+
+Normal `setup.bat` identifies legacy stock launchers by exact SHA-256 content
+identity against `scripts/stock-launchers.json`, including provenance from the
+official Git history. CRLF/LF and final newline differences are ignored; arbitrary
+content changes are not. No banner, filename or version comment alone authorizes
+replacement. This also works in ZIP distributions without Git installed.
+
+After installation, ignored `.nerve/launchers.json` (schema 1) records the installed
+content version of each launcher. Subsequent releases compare against that baseline
+before copying their current template. This avoids a new hardcoded predecessor hash
+for every release while detecting user edits. Missing/corrupt metadata falls back
+to the catalog; unknown scripts are preserved with an explicit INFO message. Keep
+this state when upgrading. It contains no credentials. Setup never needs to touch
+database containers or volumes to migrate launchers.
+
+Maintainers: run `powershell.exe -NoProfile -File scripts/update-stock-launchers.ps1`
+from the full official branch history before releasing launcher changes, review the
+catalog diff, and commit it. The generator retains existing historical entries.
+Run `scripts/test-launcher-history.ps1` (requires full history) and
+`scripts/test-setup-bat.ps1` (also works without Git). The latter starts native CMD
+without input, including the actual affected `278a050` fixtures and custom scripts.
 
 ## Capture architecture
 

@@ -55,9 +55,10 @@ option. The bundle must still be deployed at a suitable capture point.
 
 Existing `.env` values, comments, additional keys and secrets are retained. Repeated
 setup does not rotate valid secrets or recreate databases. `.env` updates use atomic
-replacement. Existing custom launchers are retained without a prompt. To deliberately
-refresh them from the current templates, run
-`powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1 -RefreshLaunchers`.
+replacement. Official older launchers upgrade automatically; existing custom launchers
+are retained without a prompt. Review and integrate the current `start.example.bat`
+and `stop.example.bat` manually for custom launchers. The compatibility switch
+`-RefreshLaunchers` no longer overwrites custom scripts.
 The port check reflects availability at setup time; existing ports are never silently
 changed on subsequent runs. Neither setup nor stop
 removes database or sensor volumes.
