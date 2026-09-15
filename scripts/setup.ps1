@@ -1,12 +1,21 @@
 [CmdletBinding()]
 param(
-    [string]$Root = (Split-Path $PSScriptRoot -Parent),
+    [string]$Root,
     [switch]$NonInteractive,
     [ValidateSet('preserve','sensor-required','external','linux-interface')][string]$TrafficMode = 'preserve',
     [string]$SensorAddress, [string]$CaptureInterface, [string]$NtopngURL, [string]$Username,
     [Security.SecureString]$Password, [string]$InterfaceID, [switch]$RefreshLaunchers
 )
 $ErrorActionPreference = 'Stop'
+# Resolve after parameter binding: Windows PowerShell -File can leave
+# $PSScriptRoot empty while evaluating parameter default expressions.
+if ([string]::IsNullOrWhiteSpace($Root)) {
+    if (-not [string]::IsNullOrWhiteSpace($PSScriptRoot)) {
+        $Root = Split-Path -Path $PSScriptRoot -Parent
+    } else {
+        $Root = (Get-Location).Path
+    }
+}
 $Root = [IO.Path]::GetFullPath($Root)
 $envPath = Join-Path $Root '.env'
 $utf8 = New-Object Text.UTF8Encoding($false)
