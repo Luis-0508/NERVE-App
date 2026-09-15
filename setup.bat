@@ -8,5 +8,6 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-pause
+echo [FERTIG] NERVE ist eingerichtet. Starte jetzt start.bat.
+timeout /t 5 /nobreak >nul 2>&1
 exit /b 0

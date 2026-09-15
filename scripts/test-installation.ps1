@@ -6,11 +6,9 @@ $fixture = Join-Path $repo ('.nerve/' + $project)
 New-Item -ItemType Directory -Path $fixture | Out-Null
 foreach ($name in @('.env.example','start.example.bat','stop.example.bat')) { Copy-Item -LiteralPath (Join-Path $repo $name) -Destination $fixture }
 & "$PSScriptRoot/setup.ps1" -Root $fixture -NonInteractive
-$listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback,0)
-$listener.Start(); $port = $listener.LocalEndpoint.Port; $listener.Stop()
 $path = Join-Path $fixture '.env'
 $original = [IO.File]::ReadAllText($path)
-[IO.File]::WriteAllText($path,$original.Replace('http://localhost:3000',('http://localhost:'+$port)).Replace('NERVE_WEB_PORT=3000',('NERVE_WEB_PORT='+$port)))
+$port = [regex]::Match($original,'(?m)^NERVE_WEB_PORT=(\d+)').Groups[1].Value
 $override = Join-Path $fixture 'compose.test.yaml'
 [IO.File]::WriteAllText($override,"services:`n  api:`n    image: nerveapp-api:latest`n  web:`n    image: nerveapp-web:latest`n")
 $argsBase = @('compose','-p',$project,'--env-file',$path,'-f',(Join-Path $repo 'docker-compose.yml'),'-f',$override)

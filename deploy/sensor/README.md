@@ -1,7 +1,7 @@
 # NERVE Linux capture sensor
 
 This is a **separate native Linux Docker Engine deployment**. Do not run it on
-Windows Docker Desktop or WSL. Setup creates the complete bundle in `.nerve/sensor`,
+Windows Docker Desktop or WSL. Optional `traffic-sensor-setup.bat` creates the complete bundle in `.nerve/sensor`,
 including two unique secret files and the management address/NIC in `.env`.
 
 1. Use a dedicated Linux host or a VM with a suitable physical NIC passed through.

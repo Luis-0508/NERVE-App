@@ -35,7 +35,7 @@ The setup endpoint closes itself after the first user is created. Subsequent set
 NERVE must be started as the complete Compose stack; `npm run dev` starts only the frontend and intentionally does not provide an `/api/v1` proxy.
 
 1. Install and start Docker Desktop with the Compose v2 plugin.
-2. Run `setup.bat`. The assistant asks for the local web port, creates `.env` with cryptographically random database and discovery-agent secrets, and generates the ignored local `start.bat` and `stop.bat`. Existing secrets are preserved during reconfiguration.
+2. Double-click `setup.bat`. No input is needed: it creates `.env` with cryptographically random database and discovery-agent secrets, selects port 3000 (or a free port if occupied), and generates the ignored local `start.bat` and `stop.bat`. Existing configuration, ports, secrets and custom launchers are retained. Successful setup closes automatically after a short completion message.
 3. Run `start.bat` from Explorer, PowerShell, or Command Prompt. Both scripts always change to their own project directory first and keep the console open until a key is pressed.
 4. The start script runs `docker compose up -d --build`, builds and starts the native Windows discovery agent, waits for the web proxy, API, PostgreSQL, and agent readiness, and opens the Windows default browser only after every check passes.
 
@@ -130,7 +130,9 @@ The service applies ordered `.up.sql` migrations at startup while holding a Post
 A fresh Docker Desktop installation can run NERVE and discovery automatically, but
 needs a real capture sensor before it can display host/LAN traffic.
 
-The Map page uses real ntopng REST v2 traffic. Run `setup.bat` to select an external
+The normal Windows setup does not ask about traffic capture and succeeds without a
+sensor. The Map page uses real ntopng REST v2 traffic. Only when needed, run
+`traffic-sensor-setup.bat` to select an external
 source or prepare the optional Linux sensor described below. Manual `.env` editing
 is optional. Compose passes the following settings only to the API container. The Go binary reads process
 environment variables, not the .env file directly. No credentials use NEXT_PUBLIC_ variables.
@@ -189,7 +191,7 @@ bits per second and is divided by eight internally. The UI formats throughput as
 
 | Diagnostics status | Meaning / action |
 | --- | --- |
-| not_configured | No sensor yet, or incomplete source credentials. Run setup.bat. Fresh installations show “Capture sensor required”. |
+| not_configured | No sensor yet, or incomplete source credentials. Optional setup: traffic-sensor-setup.bat. Fresh installations show “Capture sensor required”; NERVE and discovery remain usable. |
 | authentication_failed | HTTP 401/403 or redirect to ntopng login; verify account and interface permissions. |
 | unreachable | Network/TLS/timeout failure or upstream 5xx; check from the API container. |
 | invalid_response | Wrong route/interface, nonzero rc, HTML, or an incompatible/malformed JSON schema. |

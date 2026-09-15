@@ -18,7 +18,7 @@ func CaptureInfo(mode, url, id string) Capture {
 	}
 	visibility := "Coverage is not verified. Only traffic delivered to the selected sensor interface is visible. LAN monitoring requires a suitable observation point, SPAN or TAP."
 	if mode == "sensor-required" {
-		visibility = "No packet capture is configured. Docker Desktop cannot capture the Windows network adapter. Connect a capture sensor using setup.bat."
+		visibility = "No packet capture is configured. Docker Desktop cannot capture the Windows network adapter. Optional: connect a capture sensor using traffic-sensor-setup.bat."
 	}
 	if mode == "linux-interface" {
 		visibility = "Linux interface capture: host traffic and packets delivered to this NIC only. Other LAN devices require SPAN/TAP or a routing observation point. Coverage is not verified."

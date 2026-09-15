@@ -6,7 +6,7 @@ NERVE separates the management application, native discovery, and packet capture
 The normal Desktop Compose stack remains PostgreSQL + API + web. Adding a Linux
 ntopng container there would not deliver Windows-host or LAN capture. An optional
 **separate native Linux sensor deployment** is supplied under `deploy/sensor` and
-prepared by `setup.bat`. Existing external ntopng sources continue to work.
+prepared by `traffic-sensor-setup.bat`. Existing external ntopng sources continue to work.
 
 Docker Desktop's Linux containers run behind its VM networking. Even Desktop host
 networking provides layer-4 access, not direct Windows NIC access. Neither
@@ -25,11 +25,11 @@ NERVE does not silently install kernel drivers or assume commercial licenses.
 ## Standard Windows installation
 
 1. Install/start Docker Desktop with Linux containers; clone the repository.
-2. Run `setup.bat`. Enter the web port on a fresh installation.
-3. At the traffic choice, press Enter to retain existing configuration (or continue
-   without a sensor), choose `e` for an existing ntopng instance, or `l` to prepare
-   a Linux capture sensor. Password prompts do not echo input.
-4. Run `start.bat`. It builds/starts NERVE and its native Windows discovery agent.
+2. Double-click `setup.bat`. It needs no input and closes automatically after success.
+   A fresh installation gets secure random secrets and port 3000, or a free port
+   selected by Windows when 3000 is unavailable. The port and both local URLs are
+   stored consistently in `.env`. Existing installations keep their saved port.
+3. Run `start.bat`. It builds/starts NERVE and its native Windows discovery agent.
    The final traffic check is informative and does not block discovery.
 
 No sensor means no traffic data. The map displays the compact “Capture sensor
@@ -37,21 +37,29 @@ required” state and explains the next step in Diagnostics. Discovery still fin
 reachable devices, neighbors and services; it does not measure flow throughput.
 This prerequisite cannot be truthfully eliminated through Compose alone.
 
-Setup generates cryptographically random database/discovery secrets. For the Linux
-sensor option it also creates independent 256-bit administrator and reader secrets,
+Normal setup only configures the local installation, generates cryptographically
+random database/discovery secrets, and marks fresh capture as `sensor-required`.
+There are no questions about ntopng, Linux, IP addresses or capture interfaces.
+`traffic-sensor-setup.bat` is a separate optional step. Choose `e` for an existing
+ntopng instance or `l` for a Linux sensor; Enter keeps the current source unchanged.
+Password prompts do not echo input. The Linux sensor option creates independent
+256-bit administrator and reader secrets,
 writes a complete `.nerve/sensor` bundle, and points the API to its management
 address. No manual ntopng account creation or `.env` editing is needed for this
 option. The bundle must still be deployed at a suitable capture point.
 
 Existing `.env` values, comments, additional keys and secrets are retained. Repeated
 setup does not rotate valid secrets or recreate databases. `.env` updates use atomic
-replacement. Existing custom launchers are replaced only when selected; accept the
-launcher refresh to obtain the latest startup diagnostic. Neither setup nor stop
+replacement. Existing custom launchers are retained without a prompt. To deliberately
+refresh them from the current templates, run
+`powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/setup.ps1 -RefreshLaunchers`.
+The port check reflects availability at setup time; existing ports are never silently
+changed on subsequent runs. Neither setup nor stop
 removes database or sensor volumes.
 
 ## Optional Linux sensor
 
-Select `l` in setup and supply the Linux host's explicit management IPv4 address and
+Run `traffic-sensor-setup.bat`, select `l`, and supply the Linux host's explicit management IPv4 address and
 capture NIC name. Copy `.nerve/sensor` securely to that host and run
 `docker compose up -d --build` there. See the generated README, also available in
 [deploy/sensor/README.md](../deploy/sensor/README.md), for permissions and firewall setup.
@@ -151,11 +159,14 @@ Run the existing Go unit/integration tests, `go vet ./...`, `npm run typecheck`,
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-setup.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-setup-bat.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-start-traffic.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-compose.ps1
 docker compose --env-file .env.example build api web
 docker build -t nerve-sensor:local-test deploy/sensor
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-sensor.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-installation.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-start-bat.ps1
 ```
 
 The sensor test explicitly invokes its runtime inside a bridge-network lab container
@@ -165,3 +176,16 @@ rejects known Desktop/WSL kernels. Installation tests create a uniquely named Co
 project with a free web port and a test-only database, verify setup/recreation and
 session persistence, and remove only their own containers/volume. Ignored fixtures
 remain under `.nerve` and contain generated test secrets.
+The native batch test supplies no stdin at all, checks occupied-port fallback and
+retention of an existing traffic source. The start test invokes the actual launcher
+with real Docker builds, an isolated Windows discovery agent and its browser-opening
+command; its test agent and Compose project are removed afterwards.
+
+For the setup-UX change, native batch tests ran without sending any input, including
+port 3000 occupied/free, a path with spaces, an existing occupied configured port,
+and unchanged secrets/traffic/custom values on rerun. Optional sensor setup and
+Compose validation passed. The focused start-completion test passed using a CLI
+test double returning the real missing-sensor exit code 1; the launcher still requests
+the browser and exits 0. A full native `start.bat` run was attempted but stopped at
+the Docker availability check because the local Engine did not become available.
+That attempt does not establish a new Docker/Windows-agent end-to-end success.

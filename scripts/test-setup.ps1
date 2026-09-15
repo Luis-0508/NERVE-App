@@ -16,23 +16,27 @@ Assert ((Value 'NERVE_TRAFFIC_CAPTURE_MODE') -eq 'sensor-required') 'Fresh captu
 Assert ((EnvText) -ceq $first) 'Repeated setup changed existing configuration.'
 Add-Content -LiteralPath (Join-Path $fixture '.env') -Value "# custom setting`r`nCUSTOM_SETTING='keep-me'`r`n"
 $password = ConvertTo-SecureString 'test-only-$#with!quotes' -AsPlainText -Force
-& "$PSScriptRoot/setup.ps1" -Root $fixture -NonInteractive -TrafficMode external -NtopngURL 'http://host.docker.internal:3001' -Username reader -Password $password -InterfaceID 7
+& "$PSScriptRoot/setup-traffic-sensor.ps1" -Root $fixture -NonInteractive -TrafficMode external -NtopngURL 'http://host.docker.internal:3001' -Username reader -Password $password -InterfaceID 7
 Assert ((Value 'NERVE_NTOPNG_PASSWORD') -ceq "'test-only-`$#with!quotes'") 'External password was not preserved literally.'
 Assert ((Value 'NERVE_NTOPNG_INTERFACE_ID') -eq '7') 'Explicit interface was overwritten.'
 $external = EnvText
+& "$PSScriptRoot/setup-traffic-sensor.ps1" -Root $fixture -NonInteractive
+Assert ((EnvText) -ceq $external) 'Optional preserve mode changed the source.'
 & "$PSScriptRoot/setup.ps1" -Root $fixture -NonInteractive
 Assert ((EnvText) -ceq $external) 'Existing external source was changed.'
 $failed = $false
-try { & "$PSScriptRoot/setup.ps1" -Root $fixture -NonInteractive -TrafficMode external -NtopngURL 'http://user:password@invalid' -Username reader -Password $password } catch { $failed = $true }
+try { & "$PSScriptRoot/setup-traffic-sensor.ps1" -Root $fixture -NonInteractive -TrafficMode external -NtopngURL 'http://user:password@invalid' -Username reader -Password $password } catch { $failed = $true }
 Assert $failed 'Embedded credentials were accepted.'
 Assert ((EnvText) -ceq $external) 'Failed setup changed .env.'
-& "$PSScriptRoot/setup.ps1" -Root $fixture -NonInteractive -TrafficMode linux-interface -SensorAddress 192.0.2.50 -CaptureInterface enp3s0
+& "$PSScriptRoot/setup-traffic-sensor.ps1" -Root $fixture -NonInteractive -TrafficMode linux-interface -SensorAddress 192.0.2.50 -CaptureInterface enp3s0
 $sensor = EnvText
+& "$PSScriptRoot/setup.ps1" -Root $fixture
+Assert ((EnvText) -ceq $sensor) 'Normal setup changed an existing Linux sensor configuration.'
 $readerPath = Join-Path $fixture '.nerve/sensor/reader.password'
 $reader = [IO.File]::ReadAllText($readerPath)
 Assert ((Value 'NERVE_NTOPNG_PASSWORD') -ceq ("'" + $reader + "'")) 'API and sensor secrets differ.'
 Assert ($reader -ne [IO.File]::ReadAllText((Join-Path $fixture '.nerve/sensor/admin.password'))) 'Admin and reader secrets must differ.'
-& "$PSScriptRoot/setup.ps1" -Root $fixture -NonInteractive -TrafficMode linux-interface -SensorAddress 192.0.2.50 -CaptureInterface enp3s0
+& "$PSScriptRoot/setup-traffic-sensor.ps1" -Root $fixture -NonInteractive -TrafficMode linux-interface -SensorAddress 192.0.2.50 -CaptureInterface enp3s0
 Assert ((EnvText) -ceq $sensor -and [IO.File]::ReadAllText($readerPath) -ceq $reader) 'Sensor rerun rotated credentials.'
 Assert ((Value 'POSTGRES_PASSWORD') -ceq $db -and (Value 'NERVE_DISCOVERY_AGENT_TOKEN') -ceq $agent) 'Database or discovery credentials changed.'
 Assert ((EnvText).Contains("CUSTOM_SETTING='keep-me'")) 'Custom configuration was lost.'

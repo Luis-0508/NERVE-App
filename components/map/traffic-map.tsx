@@ -11,7 +11,7 @@ const storedOrigin = "nerve:traffic-map-origin";
 function speed(bytes: number) { const units = ["bit/s", "Kbit/s", "Mbit/s", "Gbit/s"]; let value = bytes * 8, unit = 0; while (value >= 1000 && unit < 3) { value /= 1000; unit++; } return `${value >= 10 || unit === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unit]}`; }
 function date(value: string) { const d = new Date(value); return !Number.isFinite(d.getTime()) || d.getUTCFullYear() < 1970 ? "—" : d.toLocaleString(); }
 const hints: Record<string, string> = {
- traffic_source_not_configured: "Run setup.bat to connect a capture sensor.",
+ traffic_source_not_configured: "Optional: run traffic-sensor-setup.bat to connect a capture sensor.",
  traffic_source_authentication_failed: "Check ntopng username, password and interface permissions.",
  traffic_source_unreachable: "Check URL, Docker connectivity, TLS certificate and timeout.",
  traffic_source_invalid_response: "Check the ntopng REST v2 endpoint and interface ID.",

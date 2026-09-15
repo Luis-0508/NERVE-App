@@ -45,7 +45,7 @@ if not exist ".env" (
   if errorlevel 1 exit /b 2
 )
 echo [OK] Lokale .env wurde gefunden.
-echo [INFO] Traffic-Sensor: Einrichtung ueber setup.bat, Sichtbarkeit unter Map - Diagnostics.
+echo [INFO] Optionaler Traffic-Sensor: traffic-sensor-setup.bat. Fuer den Start nicht erforderlich.
 
 powershell -NoProfile -Command "$line = $null; foreach ($item in [IO.File]::ReadAllLines('.env')) { if ($item -match '^\s*POSTGRES_PASSWORD\s*=') { $line = $item } }; if ($null -eq $line) { exit 1 }; $value = ($line -split '=', 2)[1].Trim().Trim([char]34).Trim([char]39); if ([string]::IsNullOrWhiteSpace($value) -or $value -eq 'change-me') { exit 2 }"
 if errorlevel 2 (
