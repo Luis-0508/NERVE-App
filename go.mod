@@ -3,7 +3,7 @@ module github.com/nerve-labs/nerve
 go 1.26.0
 
 require (
-	github.com/jackc/pgx/v5 v5.10.0
+	github.com/jackc/pgx/v5 v5.11.0
 	github.com/oschwald/maxminddb-golang/v2 v2.6.0
 	github.com/pashagolub/pgxmock/v4 v4.9.0
 	golang.org/x/crypto v0.56.0
