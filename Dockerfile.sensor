@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1.7
+FROM mcr.microsoft.com/dotnet/sdk:10.0@sha256:2fa828c68761b1b8c23d7662dc134421b9d3b59fe1425fdbc80804e390cdb24d AS build
+WORKDIR /src
+COPY native/windows-sensor/nerve-sensor.csproj native/windows-sensor/NuGet.Config native/windows-sensor/packages.lock.json ./
+RUN dotnet restore -r win-x64 --locked-mode
+COPY native/windows-sensor/Program.cs native/windows-sensor/THIRD_PARTY_NOTICES.md ./
+RUN dotnet publish -c Release -r win-x64 --self-contained true --no-restore -o /out
+# TraceEvent's symbol/legacy-kernel helpers are not needed for manifest ETW.
+# Do not redistribute the proprietary DIA/KernelTraceControl binaries.
+RUN rm -f /out/amd64/KernelTraceControl.dll /out/amd64/msdia140.dll /out/Microsoft.DiaSymReader.Native.amd64.dll /out/Dia2Lib.dll \
+    && cp THIRD_PARTY_NOTICES.md /out/ \
+    && cp /usr/share/dotnet/LICENSE.txt /out/DOTNET-LICENSE.txt \
+    && cp /usr/share/dotnet/ThirdPartyNotices.txt /out/DOTNET-THIRD-PARTY-NOTICES.txt
+FROM scratch AS artifact
+COPY --from=build /out/ /
+FROM scratch AS lockfile
+COPY --from=build /src/packages.lock.json /packages.lock.json

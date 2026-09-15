@@ -8,7 +8,7 @@ import { ThemeControl } from "./theme-control";
 
 const nav = [
   { id: "overview", label: "Overview", href: "/", icon: Gauge, enabled: true },
-  { id: "map", label: "Map", href: "#", icon: Map, enabled: false },
+  { id: "map", label: "Map", href: "/map", icon: Map, enabled: true },
   { id: "devices", label: "Devices", href: "/devices", icon: Network, enabled: true },
   { id: "infrastructure", label: "Infrastructure", href: "#", icon: ServerCog, enabled: false },
   { id: "services", label: "Services", href: "#", icon: Boxes, enabled: false },

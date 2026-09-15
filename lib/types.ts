@@ -114,3 +114,7 @@ export type DiscoveryScan = {
   errors: DiscoveryScanError[];
 };
 export type DiscoveryState = { target?: DiscoveryTarget; agent?: DiscoveryAgent; scan?: DiscoveryScan };
+export type TrafficDirection = "inbound" | "outbound";
+export type TrafficFlow = { id: string; localIp: string; remoteIp: string; localPort: number; remotePort: number; localPorts: number[]; remotePorts: number[]; flowCount: number; direction: TrafficDirection; protocol: string; application: string; bytes: number; bytesPerSecond: number; firstSeenAt: string; lastSeenAt: string; remoteCountryCode?: string; remoteCountryName?: string; remoteLatitude?: number; remoteLongitude?: number; remoteCity?: string; remoteRegion?: string; remoteLocationSource?: "dbip-city-lite" | "country-representative" };
+export type TrafficCapture = { mode: string; interfaceId: string; interfaceName?: string; visibility: string; eventsLost?: number; backendStage?: string; backendError?: number };
+export type TrafficSnapshot = { capture?: TrafficCapture; generatedAt: string; source: string; flows: TrafficFlow[]; truncated: boolean; sampledFlows: number; sourceTotalFlows: number; summary: { activeFlows: number; aggregatedFlows: number; unlocatedFlows: number; bytesPerSecond: number; inboundBytesPerSecond: number; outboundBytesPerSecond: number } };

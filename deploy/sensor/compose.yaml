@@ -1,0 +1,35 @@
+# Separate deployment: native Linux Engine only. Never include in Desktop compose.
+name: nerve-sensor
+services:
+  ntopng:
+    build: .
+    network_mode: host
+    environment:
+      SENSOR_ADDRESS: ${SENSOR_ADDRESS:?Set the Linux management IPv4 address}
+      CAPTURE_INTERFACE: ${CAPTURE_INTERFACE:?Select the physical capture NIC}
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    secrets:
+      - admin_password
+      - reader_password
+    volumes:
+      - sensor-state:/var/lib/ntopng
+    tmpfs:
+      - /run/nerve:mode=755
+    healthcheck:
+      test: ["CMD", "/opt/nerve/healthcheck.sh"]
+      interval: 15s
+      timeout: 6s
+      start_period: 60s
+      retries: 4
+    restart: unless-stopped
+    stop_grace_period: 30s
+    init: true
+secrets:
+  admin_password:
+    file: ./admin.password
+  reader_password:
+    file: ./reader.password
+volumes:
+  sensor-state:

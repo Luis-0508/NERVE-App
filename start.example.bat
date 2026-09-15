@@ -40,15 +40,10 @@ if not exist ".env.example" (
   exit /b 1
 )
 
-if not exist ".env" (
-  copy /Y ".env.example" ".env" >nul
-  echo [NERVE] Eine lokale .env wurde aus .env.example erstellt.
-  echo [AKTION] Oeffne .env, ersetze insbesondere POSTGRES_PASSWORD=change-me
-  echo          durch ein starkes lokales Passwort und starte start.bat danach erneut.
-  call :hold_window
-  exit /b 2
-)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\setup.ps1" -NonInteractive
+if errorlevel 1 exit /b 2
 echo [OK] Lokale .env wurde gefunden.
+echo [INFO] Windows Host Capture startet automatisch. Externe Sensoren bleiben optional.
 
 powershell -NoProfile -Command "$line = $null; foreach ($item in [IO.File]::ReadAllLines('.env')) { if ($item -match '^\s*POSTGRES_PASSWORD\s*=') { $line = $item } }; if ($null -eq $line) { exit 1 }; $value = ($line -split '=', 2)[1].Trim().Trim([char]34).Trim([char]39); if ([string]::IsNullOrWhiteSpace($value) -or $value -eq 'change-me') { exit 2 }"
 if errorlevel 2 (
@@ -155,6 +150,9 @@ timeout /t 2 /nobreak >nul
 goto :wait_for_agent
 
 :runtime_ready
+echo [NERVE] Bereite Windows Traffic Sensor vor...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\start-traffic-sensor.ps1" -Root "%CD%"
+if errorlevel 1 echo [INFO] Traffic capture unavailable. NERVE Core und Discovery bleiben nutzbar. Siehe Map - Diagnostics.
 echo.
 echo [BEREIT] NERVE ist vollstaendig erreichbar.
 echo          Lokal: %NERVE_URL%
@@ -169,6 +167,9 @@ echo [INFO] Status: docker compose ps
 echo [INFO] Logs:   docker compose logs --tail 100
 echo [INFO] Agent:  .nerve\logs\discovery-agent.log
 echo [INFO] Stop:   stop.bat
+echo [NERVE] Pruefe Traffic-Quelle - unabhaengig von Discovery...
+docker compose exec -T api /app/nerve-server traffic-check
+if errorlevel 1 echo [INFO] Traffic-Sensor noch nicht bereit. NERVE und Discovery bleiben nutzbar. Siehe Map - Diagnostics.
 start "" "%NERVE_URL%"
 call :hold_window
 exit /b 0
@@ -198,6 +199,7 @@ call :hold_window
 exit /b 1
 
 :hold_window
+if "%NERVE_NO_PAUSE%"=="1" exit /b 0
 echo.
 echo [INFO] Druecke eine beliebige Taste, um dieses Fenster zu schliessen.
 pause >nul

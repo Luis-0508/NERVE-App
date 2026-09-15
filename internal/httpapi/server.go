@@ -19,7 +19,9 @@ import (
 	"github.com/nerve-labs/nerve/internal/auth"
 	"github.com/nerve-labs/nerve/internal/config"
 	"github.com/nerve-labs/nerve/internal/discovery"
+	"github.com/nerve-labs/nerve/internal/integrations/ntopng"
 	"github.com/nerve-labs/nerve/internal/inventory"
+	"github.com/nerve-labs/nerve/internal/traffic"
 )
 
 const sessionCookie = "nerve_session"
@@ -34,6 +36,8 @@ type Server struct {
 	logger        *slog.Logger
 	startedAt     time.Time
 	version       string
+	traffic       traffic.Source
+	sensor        *traffic.SensorStore
 	loginMu       sync.Mutex
 	loginAttempts map[string]*rateWindow
 }
@@ -65,6 +69,32 @@ type eventResponse struct {
 }
 
 func New(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version string) *Server {
+	locations, geoErr := traffic.LoadCities(cfg.CityDatabase)
+	if geoErr != nil {
+		logger.Warn("local city database unavailable; using known country representatives only")
+	}
+	if cfg.TrafficCaptureMode == "windows-native" {
+		country, err := traffic.LoadCountries(cfg.CountryDatabase)
+		if err != nil {
+			logger.Warn("local country fallback database unavailable; city lookup remains independent")
+		}
+		sensor := traffic.NewSensor(cfg.SensorToken, country, parseTrafficCIDRs(cfg.TrafficLocalCIDRs)...)
+		server := NewWithTraffic(db, cfg, logger, version, traffic.WithLocations(sensor, locations))
+		server.sensor = sensor
+		return server
+	}
+	return NewWithTraffic(db, cfg, logger, version, traffic.WithLocations(ntopng.New(ntopng.Config{URL: cfg.NtopngURL, Username: cfg.NtopngUsername, Password: cfg.NtopngPassword, InterfaceID: cfg.NtopngInterfaceID, Timeout: cfg.NtopngTimeout, LocalCIDRs: parseTrafficCIDRs(cfg.TrafficLocalCIDRs)}), locations))
+}
+
+// SensorHandler is deliberately not mounted on Handler/the web listener.
+func (s *Server) SensorHandler() http.Handler {
+	if s.sensor == nil {
+		return http.NotFoundHandler()
+	}
+	return s.sensor.Handler()
+}
+
+func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version string, source traffic.Source) *Server {
 	return &Server{
 		db:            db,
 		auth:          auth.NewService(db, cfg.SessionTTL),
@@ -75,6 +105,7 @@ func New(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version strin
 		logger:        logger,
 		startedAt:     time.Now().UTC(),
 		version:       version,
+		traffic:       source,
 		loginAttempts: make(map[string]*rateWindow),
 	}
 }
@@ -87,6 +118,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1", s.apiRoot)
 	mux.HandleFunc("GET /api/v1/{$}", s.apiRoot)
 	mux.HandleFunc("GET /api/v1/status", s.status)
+	mux.HandleFunc("GET /api/v1/traffic/live", s.liveTraffic)
 	mux.HandleFunc("POST /api/v1/auth/bootstrap", s.bootstrap)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
 	mux.HandleFunc("POST /api/v1/auth/logout", s.logout)

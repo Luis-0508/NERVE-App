@@ -109,6 +109,9 @@ jobs:
       - name: Run TypeScript typecheck
         run: npm run typecheck
 
+      - name: Run traffic map tests
+        run: npm run test:map
+
       - name: Build frontend
         run: npm run build
 
@@ -120,6 +123,9 @@ jobs:
 
       - name: Build Windows discovery agent artifact
         run: docker build --file Dockerfile.agent --target artifact --build-arg TARGETOS=windows --build-arg TARGETARCH=amd64 --tag nerve-agent-windows:ci .
+
+      - name: Build Windows traffic sensor artifact
+        run: docker build --file Dockerfile.sensor --target artifact --tag nerve-sensor:ci .
 
       - name: Build Linux discovery agent artifact
         run: docker build --file Dockerfile.agent --target artifact --build-arg TARGETOS=linux --build-arg TARGETARCH=amd64 --tag nerve-agent-linux:ci .

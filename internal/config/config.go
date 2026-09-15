@@ -3,8 +3,10 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -18,6 +20,17 @@ type Config struct {
 	SessionTTL          time.Duration
 	LogLevel            slog.Level
 	DiscoveryAgentToken string
+	NtopngURL           string
+	NtopngUsername      string
+	NtopngPassword      string
+	NtopngInterfaceID   string
+	NtopngTimeout       time.Duration
+	TrafficLocalCIDRs   string
+	TrafficCaptureMode  string
+	SensorToken         string
+	SensorAddr          string
+	CountryDatabase     string
+	CityDatabase        string
 }
 
 func Load() (Config, error) {
@@ -29,6 +42,17 @@ func Load() (Config, error) {
 		SessionTTL:          24 * time.Hour,
 		LogLevel:            slog.LevelInfo,
 		DiscoveryAgentToken: os.Getenv("NERVE_DISCOVERY_AGENT_TOKEN"),
+		NtopngURL:           os.Getenv("NERVE_NTOPNG_URL"),
+		NtopngUsername:      os.Getenv("NERVE_NTOPNG_USERNAME"),
+		NtopngPassword:      os.Getenv("NERVE_NTOPNG_PASSWORD"),
+		NtopngInterfaceID:   envOr("NERVE_NTOPNG_INTERFACE_ID", "0"),
+		NtopngTimeout:       5 * time.Second,
+		TrafficLocalCIDRs:   os.Getenv("NERVE_TRAFFIC_LOCAL_CIDRS"),
+		TrafficCaptureMode:  os.Getenv("NERVE_TRAFFIC_CAPTURE_MODE"),
+		SensorToken:         os.Getenv("NERVE_SENSOR_TOKEN"),
+		SensorAddr:          os.Getenv("NERVE_SENSOR_ADDR"),
+		CountryDatabase:     envOr("NERVE_COUNTRY_DATABASE", "/app/data/dbip-country-lite.csv.gz"),
+		CityDatabase:        envOr("NERVE_CITY_DATABASE", "/app/data/dbip-city-lite.mmdb"),
 	}
 
 	if value := os.Getenv("NERVE_COOKIE_SECURE"); value != "" {
@@ -56,6 +80,29 @@ func Load() (Config, error) {
 		if err := cfg.LogLevel.UnmarshalText([]byte(value)); err != nil {
 			return Config{}, fmt.Errorf("parse NERVE_LOG_LEVEL: %w", err)
 		}
+	}
+	if value := os.Getenv("NERVE_NTOPNG_TIMEOUT"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil || parsed <= 0 {
+			return Config{}, fmt.Errorf("NERVE_NTOPNG_TIMEOUT must be a positive duration")
+		}
+		cfg.NtopngTimeout = parsed
+	}
+	for _, raw := range strings.Split(cfg.TrafficLocalCIDRs, ",") {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		if _, err := netip.ParsePrefix(strings.TrimSpace(raw)); err != nil {
+			return Config{}, fmt.Errorf("NERVE_TRAFFIC_LOCAL_CIDRS contains an invalid CIDR")
+		}
+	}
+	switch cfg.TrafficCaptureMode {
+	case "", "sensor-required", "external", "linux-interface", "windows-native":
+	default:
+		return Config{}, fmt.Errorf("NERVE_TRAFFIC_CAPTURE_MODE must be sensor-required, external, linux-interface or windows-native")
+	}
+	if cfg.NtopngURL != "" && cfg.TrafficCaptureMode == "sensor-required" {
+		cfg.TrafficCaptureMode = "external"
 	}
 	return cfg, nil
 }

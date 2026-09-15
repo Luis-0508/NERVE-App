@@ -26,6 +26,20 @@ func TestLiveness(t *testing.T) {
 	}
 }
 
+func TestNativeIngestIsNotOnBrowserListener(t *testing.T) {
+	server := New(nil, config.Config{TrafficCaptureMode: "windows-native", SensorToken: strings.Repeat("a", 64)}, slog.New(slog.NewTextHandler(io.Discard, nil)), "test")
+	web := httptest.NewRecorder()
+	server.Handler().ServeHTTP(web, httptest.NewRequest("POST", "/v1/snapshot", strings.NewReader("{}")))
+	if web.Code != 404 {
+		t.Fatal("sensor ingress exposed on web listener")
+	}
+	sensor := httptest.NewRecorder()
+	server.SensorHandler().ServeHTTP(sensor, httptest.NewRequest("POST", "/v1/snapshot", strings.NewReader("{}")))
+	if sensor.Code != 401 {
+		t.Fatal("unauthenticated sensor report accepted")
+	}
+}
+
 func TestAPIRoot(t *testing.T) {
 	server := New(nil, config.Config{AllowedOrigin: "http://localhost:3000"}, slog.New(slog.NewTextHandler(io.Discard, nil)), "test")
 	for _, path := range []string{"/api/v1", "/api/v1/"} {
