@@ -215,16 +215,20 @@ Map implementation and limits:
 - Natural Earth 1:50m countries are bundled in `public/maps`, rendered once with
   d3-geo Natural Earth projection and topojson-client. No CDN, tiles, street map,
   external geocoding, or invented polygons. Attribution/license: `public/maps/NOTICE.md`.
-- ntopng country codes come from flow endpoints, falling back to host/active.lua;
-  native Windows codes come from the bundled offline DB-IP Country Lite dataset.
-  Local Natural Earth centroids supply approximate positions. These are **country
-  centroids, not exact host locations**. Unknown countries remain unplaced and are
-  counted; their flows can still be inspected in the expandable list.
+- Public remote IPs from both Windows and ntopng use locally bundled DB-IP City
+  Lite (September 2026) city/region estimates. No IP lookup calls an external service.
+  Country-only results use Natural Earth representatives verified inside the rendered
+  country's land geometry. Unknown locations remain unplaced but inspectable.
+  Locations are approximate, never verified physical server positions; arcs do not
+  describe actual routing. See [geolocation details](docs/TRAFFIC_GEOLOCATION.md).
 - For ntopng, inbound/outbound means **session initiation**: remote client → local server, or
   local client → remote server. The endpoint supplies total bidirectional session
   throughput, so the two statistics are not independent upload/download meters.
 - Set Local site manually, or explicitly request browser geolocation. There is no
-  assumed location. Valid coordinates persist in localStorage and can be cleared.
+  assumed location. Versioned coordinates, source and time persist in localStorage.
+  Old unversioned values require explicit review and confirmation; they are retained
+  as candidates instead of being silently used or deleted. Browser estimates include
+  reported accuracy and require confirmation on reload after 30 days. Manual locations persist.
   Browser geolocation generally requires HTTPS or localhost and permission; manual
   entry also works on an HTTP LAN address. One local site is used for the whole map.
 - Stable groups combine local IP, remote IP, L4/L7 protocol and session direction.

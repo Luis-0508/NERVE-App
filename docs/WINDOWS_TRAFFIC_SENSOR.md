@@ -96,9 +96,11 @@ map updates its existing canvas incrementally. Overflow or ETW event loss marks 
 partial snapshot. This does not promise lossless capture at arbitrary line rates.
 
 The API filters local/multicast peers from the world map and resolves public IPv4/
-IPv6 addresses using locally bundled DB-IP Country Lite, then the existing Natural
-Earth country centroids. No per-IP web lookup occurs. Geography is approximate;
-missing country information stays unlocated. DB-IP attribution appears on the map.
+IPv6 addresses using locally bundled DB-IP City Lite. Country-only results use
+Natural Earth representatives verified inside the corresponding country geometry.
+No per-IP web lookup occurs. Geography is approximate; unknown locations stay
+unlocated. DB-IP attribution appears on the map. See [geolocation](TRAFFIC_GEOLOCATION.md)
+for local-site migration, accuracy, offline data updates and licensing.
 
 | Traffic | Visibility |
 | --- | --- |

@@ -18,25 +18,28 @@ const (
 )
 
 type Flow struct {
-	ID                string    `json:"id"`
-	LocalIP           string    `json:"localIp"`
-	RemoteIP          string    `json:"remoteIp"`
-	LocalPort         uint16    `json:"localPort"`
-	RemotePort        uint16    `json:"remotePort"`
-	LocalPorts        []uint16  `json:"localPorts"`
-	RemotePorts       []uint16  `json:"remotePorts"`
-	FlowCount         int       `json:"flowCount"`
-	Direction         Direction `json:"direction"`
-	Protocol          string    `json:"protocol"`
-	Application       string    `json:"application"`
-	Bytes             uint64    `json:"bytes"`
-	BytesPerSecond    float64   `json:"bytesPerSecond"`
-	FirstSeenAt       time.Time `json:"firstSeenAt"`
-	LastSeenAt        time.Time `json:"lastSeenAt"`
-	RemoteCountryCode string    `json:"remoteCountryCode,omitempty"`
-	RemoteCountryName string    `json:"remoteCountryName,omitempty"`
-	RemoteLatitude    *float64  `json:"remoteLatitude,omitempty"`
-	RemoteLongitude   *float64  `json:"remoteLongitude,omitempty"`
+	ID                   string    `json:"id"`
+	LocalIP              string    `json:"localIp"`
+	RemoteIP             string    `json:"remoteIp"`
+	LocalPort            uint16    `json:"localPort"`
+	RemotePort           uint16    `json:"remotePort"`
+	LocalPorts           []uint16  `json:"localPorts"`
+	RemotePorts          []uint16  `json:"remotePorts"`
+	FlowCount            int       `json:"flowCount"`
+	Direction            Direction `json:"direction"`
+	Protocol             string    `json:"protocol"`
+	Application          string    `json:"application"`
+	Bytes                uint64    `json:"bytes"`
+	BytesPerSecond       float64   `json:"bytesPerSecond"`
+	FirstSeenAt          time.Time `json:"firstSeenAt"`
+	LastSeenAt           time.Time `json:"lastSeenAt"`
+	RemoteCountryCode    string    `json:"remoteCountryCode,omitempty"`
+	RemoteCountryName    string    `json:"remoteCountryName,omitempty"`
+	RemoteLatitude       *float64  `json:"remoteLatitude,omitempty"`
+	RemoteLongitude      *float64  `json:"remoteLongitude,omitempty"`
+	RemoteCity           string    `json:"remoteCity,omitempty"`
+	RemoteRegion         string    `json:"remoteRegion,omitempty"`
+	RemoteLocationSource string    `json:"remoteLocationSource,omitempty"`
 }
 type Summary struct {
 	ActiveFlows            int     `json:"activeFlows"`

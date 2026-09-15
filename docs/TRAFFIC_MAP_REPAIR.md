@@ -237,3 +237,44 @@ their standalone unit/vet/typecheck suites were not repeated for this launcher f
 The Docker production builds and real browser test above did run. This is automated
 native Windows acceptance evidence, not a claim that the user's final Explorer
 double-click acceptance is complete. Milestone 5 remains open pending that acceptance.
+# Geography and local-site provenance — 2026-09-15
+
+The old map restored an unversioned localStorage coordinate pair solely because its
+numbers were in range. No source/time existed, so the reported Atlantic value could
+not be authenticated or attributed to a particular historical user/browser action.
+There is no matching hardcoded default in the inspected source/history. The fix retains
+legacy coordinates as review candidates and requires explicit confirmation before
+drawing an origin. New records include provenance, timestamp and browser accuracy;
+manual locations persist and browser fixes are only requested by an explicit action.
+
+Both native Windows and ntopng flow snapshots now receive local DB-IP City Lite MMDB
+enrichment. Country-only fallbacks use 235 Natural Earth representatives, all verified
+inside their own rendered country geometry. Unknown geography stays unlocated/listed.
+City/region estimates are unchanged, approximate and labelled; lines never claim a
+physical route. No extra traffic-IP requests or payload storage were introduced.
+
+Validation performed:
+
+- `go test ./...` and `go vet ./...` passed, with `NERVE_TEST_CITY_DATABASE` pointing
+  to the actual pinned September MMDB. Real IPv4/IPv6 decoding, invalid database,
+  city/region selection, country-only fallback, unknown location, source immutability,
+  stable IDs/counts and empty-array serialization are covered.
+- Go integration tests (`go test -tags=integration -count=1 ./...`) passed against an
+  isolated PostgreSQL instance, including existing auth/discovery/ntopng/sensor tests.
+- `npm run typecheck`, `npm run test:map`, `npm run build` passed. All country points
+  are tested against bundled Natural Earth geometry; local provenance/migration tests
+  cover absent, invalid, unknown-source, legacy, manual, stale-browser and unset data.
+- `scripts/test-setup-bat.ps1`, `scripts/test-setup.ps1`, `scripts/test-compose.ps1`
+  passed. An initial sandboxed batch test could not atomically replace a test file;
+  the authorized normal-access rerun passed without changing setup implementation.
+- `scripts/test-windows-capture.ps1` exercised actual Docker API/web/discovery/sensor
+  builds and native setup/start, real ETW HTTPS flows, live City Lite results, sensor
+  offline/recovery and duplicate-start protection. Real Edge tests covered absent and
+  Atlantic/invalid legacy sites, explicit browser estimation, manual persistence,
+  dark/light/mobile screenshots, discovery and retained authentication. No traffic
+  route mocks were used. Browser geolocation coordinates were explicitly supplied by
+  the isolated test context, not claimed as the user's physical location.
+
+See [TRAFFIC_GEOLOCATION.md](TRAFFIC_GEOLOCATION.md) for sources, CC BY 4.0 attribution,
+build-time updates, memory cost, migration and remaining limits. Automated validation
+does not close Milestone 5; the user's real visual acceptance remains outstanding.

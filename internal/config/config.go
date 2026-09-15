@@ -30,6 +30,7 @@ type Config struct {
 	SensorToken         string
 	SensorAddr          string
 	CountryDatabase     string
+	CityDatabase        string
 }
 
 func Load() (Config, error) {
@@ -51,6 +52,7 @@ func Load() (Config, error) {
 		SensorToken:         os.Getenv("NERVE_SENSOR_TOKEN"),
 		SensorAddr:          os.Getenv("NERVE_SENSOR_ADDR"),
 		CountryDatabase:     envOr("NERVE_COUNTRY_DATABASE", "/app/data/dbip-country-lite.csv.gz"),
+		CityDatabase:        envOr("NERVE_CITY_DATABASE", "/app/data/dbip-city-lite.mmdb"),
 	}
 
 	if value := os.Getenv("NERVE_COOKIE_SECURE"); value != "" {

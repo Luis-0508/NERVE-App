@@ -7,9 +7,9 @@ import (
 
 // Natural Earth 1:50m admin-0 countries, public domain. See public/maps/NOTICE.md.
 //
-//go:embed country-centroids.json
+//go:embed country-locations.json
 var countryData []byte
-var countryCentroids = func() map[string]struct {
+var countryLocations = func() map[string]struct {
 	Name     string
 	Lat, Lon float64
 } {
@@ -24,7 +24,7 @@ var countryCentroids = func() map[string]struct {
 }()
 
 func SetCountryLocation(flow *Flow) {
-	country, ok := countryCentroids[flow.RemoteCountryCode]
+	country, ok := countryLocations[flow.RemoteCountryCode]
 	if !ok {
 		return
 	}
@@ -33,4 +33,5 @@ func SetCountryLocation(flow *Flow) {
 	}
 	lat, lon := country.Lat, country.Lon
 	flow.RemoteLatitude, flow.RemoteLongitude = &lat, &lon
+	flow.RemoteLocationSource = "country-representative"
 }

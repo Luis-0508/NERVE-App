@@ -69,17 +69,21 @@ type eventResponse struct {
 }
 
 func New(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version string) *Server {
+	locations, geoErr := traffic.LoadCities(cfg.CityDatabase)
+	if geoErr != nil {
+		logger.Warn("local city database unavailable; using known country representatives only")
+	}
 	if cfg.TrafficCaptureMode == "windows-native" {
 		country, err := traffic.LoadCountries(cfg.CountryDatabase)
 		if err != nil {
-			logger.Warn("local country database unavailable; native flows will be unlocated")
+			logger.Warn("local country fallback database unavailable; city lookup remains independent")
 		}
 		sensor := traffic.NewSensor(cfg.SensorToken, country, parseTrafficCIDRs(cfg.TrafficLocalCIDRs)...)
-		server := NewWithTraffic(db, cfg, logger, version, sensor)
+		server := NewWithTraffic(db, cfg, logger, version, traffic.WithLocations(sensor, locations))
 		server.sensor = sensor
 		return server
 	}
-	return NewWithTraffic(db, cfg, logger, version, ntopng.New(ntopng.Config{URL: cfg.NtopngURL, Username: cfg.NtopngUsername, Password: cfg.NtopngPassword, InterfaceID: cfg.NtopngInterfaceID, Timeout: cfg.NtopngTimeout, LocalCIDRs: parseTrafficCIDRs(cfg.TrafficLocalCIDRs)}))
+	return NewWithTraffic(db, cfg, logger, version, traffic.WithLocations(ntopng.New(ntopng.Config{URL: cfg.NtopngURL, Username: cfg.NtopngUsername, Password: cfg.NtopngPassword, InterfaceID: cfg.NtopngInterfaceID, Timeout: cfg.NtopngTimeout, LocalCIDRs: parseTrafficCIDRs(cfg.TrafficLocalCIDRs)}), locations))
 }
 
 // SensorHandler is deliberately not mounted on Handler/the web listener.

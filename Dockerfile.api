@@ -8,6 +8,8 @@ COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
 ADD --chmod=644 --checksum=sha256:a32bb3c384bd3de60ad9024596aa5b395a6dd5beaa27a7223407cc2edc681d0b https://download.db-ip.com/free/dbip-country-lite-2026-09.csv.gz /data/dbip-country-lite.csv.gz
+ADD --chmod=644 --checksum=sha256:c5d05b35a45c3eea0cadc728c8f5ad751693d4e270529b731442172a73f05954 https://download.db-ip.com/free/dbip-city-lite-2026-09.mmdb.gz /tmp/dbip-city-lite.mmdb.gz
+RUN gzip -dc /tmp/dbip-city-lite.mmdb.gz > /data/dbip-city-lite.mmdb && chmod 644 /data/dbip-city-lite.mmdb
 RUN go test ./...
 ARG NERVE_VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w -X main.version=${NERVE_VERSION}" -o /out/nerve-server ./cmd/nerve-server
@@ -17,6 +19,7 @@ WORKDIR /app
 COPY --from=build /out/nerve-server /app/nerve-server
 COPY migrations /app/migrations
 COPY --from=build /data /app/data
+COPY public/maps/DB-IP-NOTICE.md /app/data/DB-IP-NOTICE.md
 EXPOSE 8080
 USER nonroot:nonroot
 ENTRYPOINT ["/app/nerve-server"]
