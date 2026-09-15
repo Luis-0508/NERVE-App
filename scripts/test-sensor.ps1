@@ -37,8 +37,13 @@ try {
     $reader = [IO.File]::ReadAllText((Join-Path $bundle 'reader.password'))
     $apiEnv = Join-Path $fixture.FullName 'sensor-api-test.env'
     [IO.File]::WriteAllText($apiEnv, ("NERVE_NTOPNG_URL=http://127.0.0.1:3001`nNERVE_NTOPNG_USERNAME=nerve`nNERVE_NTOPNG_PASSWORD=$reader`nNERVE_NTOPNG_INTERFACE_ID=auto`nNERVE_TRAFFIC_CAPTURE_MODE=external`n"))
-    $result = (DockerRun @('run','--rm','--network',('container:'+$name),'--env-file',$apiEnv,$APIImage,'traffic-check')) -join "`n"
-    $diagnostic = $result | ConvertFrom-Json
+    # ntopng publishes capture counters asynchronously after packet arrival.
+    for ($attempt=0; $attempt -lt 10; $attempt++) {
+        $result = (DockerRun @('run','--rm','--network',('container:'+$name),'--env-file',$apiEnv,$APIImage,'traffic-check')) -join "`n"
+        $diagnostic = $result | ConvertFrom-Json
+        if ($diagnostic.status -eq 'connected' -and $diagnostic.externalFlows -ge 1) { break }
+        Start-Sleep -Seconds 2
+    }
     if ($diagnostic.status -ne 'connected' -or $diagnostic.externalFlows -lt 1) { throw 'Real container HTTPS traffic did not reach the NERVE adapter.' }
     if ($result.Contains($reader)) { throw 'Diagnostic leaked credentials.' }
     $badAuth = (& $Docker run --rm --network ('container:'+$name) --env-file $apiEnv -e NERVE_NTOPNG_PASSWORD=invalid-test-password $APIImage traffic-check) -join "`n"

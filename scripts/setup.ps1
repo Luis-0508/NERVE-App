@@ -21,6 +21,7 @@ $utf8 = New-Object Text.UTF8Encoding($false)
 $fresh = -not (Test-Path -LiteralPath $envPath)
 $lines = [Collections.Generic.List[string]]::new()
 if (-not $fresh) { $lines.AddRange([IO.File]::ReadAllLines($envPath)) }
+$hadNativeSensorSettings = @($lines | Where-Object { $_ -match '^\s*NERVE_SENSOR_TOKEN\s*=' }).Count -gt 0
 $scriptDirectory = $PSScriptRoot
 if ([string]::IsNullOrWhiteSpace($scriptDirectory)) { $scriptDirectory = Join-Path $Root 'scripts' }
 . (Join-Path $scriptDirectory 'setup-common.ps1')
@@ -31,7 +32,7 @@ foreach ($line in [IO.File]::ReadAllLines((Join-Path $Root '.env.example'))) {
         if (-not ($lines | Where-Object { $_ -match ('^\s*' + $key + '\s*=') })) { Set-Value $key $value }
     }
 }
-foreach ($key in @('POSTGRES_PASSWORD','NERVE_DISCOVERY_AGENT_TOKEN')) {
+foreach ($key in @('POSTGRES_PASSWORD','NERVE_DISCOVERY_AGENT_TOKEN','NERVE_SENSOR_TOKEN')) {
     if ((Get-Value $key) -in @('', 'change-me')) { Set-Value $key (New-Secret) }
 }
 if ((Get-Value 'NERVE_DATABASE_URL') -match ':change-me@') {
@@ -61,13 +62,31 @@ if ($fresh) {
     Set-Value 'NERVE_WEB_PORT' ([string]$port)
     Set-Value 'NERVE_ALLOWED_ORIGIN' ('http://localhost:' + $port)
     Set-Value 'NEXT_PUBLIC_SITE_URL' ('http://localhost:' + $port)
-    Set-Value 'NERVE_TRAFFIC_CAPTURE_MODE' 'sensor-required'
+    Set-Value 'NERVE_TRAFFIC_CAPTURE_MODE' 'windows-native'
+}
+# Upgrade only the previous unconfigured Windows default. External sources are retained.
+if (-not $hadNativeSensorSettings -and (Get-Value 'NERVE_NTOPNG_URL') -eq '' -and (Get-Value 'NERVE_TRAFFIC_CAPTURE_MODE') -in @('', 'sensor-required')) {
+    Set-Value 'NERVE_TRAFFIC_CAPTURE_MODE' 'windows-native'
+}
+if ((Get-Value 'NERVE_SENSOR_PORT') -eq '') {
+    $sensorListener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+    try { $sensorListener.Start(); Set-Value 'NERVE_SENSOR_PORT' ([string]$sensorListener.LocalEndpoint.Port) }
+    finally { $sensorListener.Stop() }
 }
 Save-SetupEnvironment
 Write-Host ('[OK] NERVE: http://localhost:' + (Get-Value 'NERVE_WEB_PORT'))
 foreach ($name in @('start','stop')) {
     $destination = Join-Path $Root ($name + '.bat')
     $replace = $RefreshLaunchers -or -not (Test-Path -LiteralPath $destination)
+    # Upgrade only byte-equivalent stock launchers from the previous release.
+    # Custom scripts are retained; line-ending differences are harmless.
+    if (-not $replace) {
+        $stockHashes = @{start='0AC580FC933FA1D3D57080253C2E39B0F5FDC1192C03AEFC9710B3609CB0A055';stop='165B3D6C297EB0D728FFFE34C12AF0AA300A79CEDA36BCA35624C6CF74762F96'}
+        $text = [IO.File]::ReadAllText($destination).Replace("`r`n","`n").TrimEnd() + "`n"
+        $hasher = [Security.Cryptography.SHA256]::Create()
+        try { $hash = [BitConverter]::ToString($hasher.ComputeHash([Text.Encoding]::UTF8.GetBytes($text))).Replace('-','') } finally { $hasher.Dispose() }
+        $replace = $hash -eq $stockHashes[$name]
+    }
     if ($replace) { Copy-Item -LiteralPath (Join-Path $Root ($name + '.example.bat')) -Destination $destination -Force }
 }
 Write-Host '[OK] Konfiguration gespeichert. Bestehende Secrets und Daten bleiben erhalten. Start: start.bat'

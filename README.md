@@ -35,17 +35,17 @@ The setup endpoint closes itself after the first user is created. Subsequent set
 NERVE must be started as the complete Compose stack; `npm run dev` starts only the frontend and intentionally does not provide an `/api/v1` proxy.
 
 1. Install and start Docker Desktop with the Compose v2 plugin.
-2. Double-click `setup.bat`. No input is needed: it creates `.env` with cryptographically random database and discovery-agent secrets, selects port 3000 (or a free port if occupied), and generates the ignored local `start.bat` and `stop.bat`. Existing configuration, ports, secrets and custom launchers are retained. Successful setup closes automatically after a short completion message.
+2. Double-click `setup.bat`. No input is needed: it creates `.env` with cryptographically random database, discovery-agent and traffic-sensor secrets, selects port 3000 (or a free port if occupied), and generates the ignored local `start.bat` and `stop.bat`. Existing configuration, ports, secrets and custom launchers are retained; known stock launchers are upgraded automatically. Successful setup closes automatically after a short completion message.
 3. Run `start.bat` from Explorer, PowerShell, or Command Prompt. Both scripts always change to their own project directory first and keep the console open until a key is pressed.
-4. The start script runs `docker compose up -d --build`, builds and starts the native Windows discovery agent, waits for the web proxy, API, PostgreSQL, and agent readiness, and opens the Windows default browser only after every check passes.
+4. The start script builds/starts Core, the Windows discovery agent and the native Windows traffic sensor. Accept the first sensor service installation UAC prompt; subsequent unchanged starts need no elevation. Sensor failures are reported separately and never stop Core/discovery. The browser opens after Core/discovery readiness.
 
-Generated secrets are stored only in the ignored local `.env`; no batch file contains them. When an existing `.env` is reconfigured, `setup.bat` deliberately keeps its current database password because PostgreSQL does not reapply `POSTGRES_PASSWORD` to an initialized data volume. The discovery agent authenticates to the Core with its own bearer token and never receives a browser session or database credentials.
+Generated secrets stay in ignored local configuration; no batch file contains them. The sensor token is additionally copied to its ACL-protected service configuration. When an existing `.env` is reconfigured, `setup.bat` keeps its current database password because PostgreSQL does not reapply `POSTGRES_PASSWORD` to an initialized volume. Discovery and capture authenticate separately and never receive browser sessions or database credentials.
 
 Use `http://localhost:3000` unless `NERVE_WEB_PORT` was changed in `.env`. When a reliable active IPv4 address is available, the script also prints a LAN URL such as `http://192.168.1.25:3000`. Docker publishes the web proxy on all host interfaces. Windows Firewall and the local network must permit inbound access to the configured port.
 
-The API remains reachable only through the web reverse proxy. For LAN access, Nginx forwards the original host and scheme and the API accepts only an `Origin` that matches that trusted proxy origin or an explicitly configured `NERVE_ALLOWED_ORIGIN`; origin checks are not disabled. Keep `NERVE_COOKIE_SECURE=false` for plain local HTTP and set it to `true` when NERVE is served through HTTPS.
+The browser API remains reachable through the web reverse proxy. Native sensor ingestion uses a separate authenticated endpoint published only on host loopback; it is not exposed through Nginx. For LAN access, Nginx forwards the original host and scheme and the API accepts only an `Origin` that matches that trusted proxy origin or an explicitly configured `NERVE_ALLOWED_ORIGIN`; origin checks are not disabled. Keep `NERVE_COOKIE_SECURE=false` for plain local HTTP and set it to `true` when NERVE is served through HTTPS.
 
-To stop NERVE, including the host discovery agent, while preserving PostgreSQL data, run `stop.bat`. The Compose-only equivalent is:
+To stop NERVE, including the host discovery agent and traffic sensor, while preserving PostgreSQL data, run `stop.bat`. The Compose-only equivalent is:
 
 ```text
 docker compose down
@@ -122,18 +122,24 @@ The service applies ordered `.up.sql` migrations at startup while holding a Post
 - `POST /api/v1/discovery/target` — administrator-only subnet configuration
 - `POST /api/v1/discovery/scans` — administrator-only scan request
 - `GET /api/v1/stream` — authenticated server-sent event stream
-- `GET /api/v1/traffic/live` — authenticated, server-side ntopng v2 active-flow snapshot
+- `GET /api/v1/traffic/live` — authenticated, normalized Windows-native or ntopng v2 active-flow snapshot
 
-## Live traffic map (ntopng)
+## Live traffic map (Windows native / ntopng)
 
 **Windows capture and automatic setup:** see [Traffic sensor setup](docs/TRAFFIC_SENSOR_SETUP.md).
-A fresh Docker Desktop installation can run NERVE and discovery automatically, but
-needs a real capture sensor before it can display host/LAN traffic.
+A fresh Windows installation enables a separate native ETW traffic sensor. Docker
+Desktop does not capture the host NIC: `nerve-sensor.exe` runs on Windows and sends
+real TCP/UDP endpoint, direction, byte and timing metadata to Core. No additional
+Linux machine, ntopng installation or packet driver is required. The selected
+physical default-route adapter appears in Map → Diagnostics.
 
-The normal Windows setup does not ask about traffic capture and succeeds without a
-sensor. The Map page uses real ntopng REST v2 traffic. Only when needed, run
-`traffic-sensor-setup.bat` to select an external
-source or prepare the optional Linux sensor described below. Manual `.env` editing
+Capture covers this host on the selected adapter's local addresses. The world map
+shows external peers; LAN-wide monitoring still requires appropriate agents,
+gateway capture, SPAN or TAP. Set your local site coordinates (manual or optional
+browser location) once so arcs have an honest origin.
+
+`traffic-sensor-setup.bat` remains optional for external ntopng and the separate
+Linux sensor. Existing external/Linux configurations are preserved. Manual `.env` editing
 is optional. Compose passes the following settings only to the API container. The Go binary reads process
 environment variables, not the .env file directly. No credentials use NEXT_PUBLIC_ variables.
 
@@ -191,7 +197,8 @@ bits per second and is divided by eight internally. The UI formats throughput as
 
 | Diagnostics status | Meaning / action |
 | --- | --- |
-| not_configured | No sensor yet, or incomplete source credentials. Optional setup: traffic-sensor-setup.bat. Fresh installations show “Capture sensor required”; NERVE and discovery remain usable. |
+| capture_unavailable | Native service has not reported for 10 seconds; run start.bat and inspect Map → Diagnostics. Core/discovery remain usable. |
+| not_configured | External ntopng source or credentials are missing. Optional setup: traffic-sensor-setup.bat. |
 | authentication_failed | HTTP 401/403 or redirect to ntopng login; verify account and interface permissions. |
 | unreachable | Network/TLS/timeout failure or upstream 5xx; check from the API container. |
 | invalid_response | Wrong route/interface, nonzero rc, HTML, or an incompatible/malformed JSON schema. |
@@ -208,11 +215,12 @@ Map implementation and limits:
 - Natural Earth 1:50m countries are bundled in `public/maps`, rendered once with
   d3-geo Natural Earth projection and topojson-client. No CDN, tiles, street map,
   external geocoding, or invented polygons. Attribution/license: `public/maps/NOTICE.md`.
-- Country codes come from flow endpoints, falling back to ntopng host/active.lua.
+- ntopng country codes come from flow endpoints, falling back to host/active.lua;
+  native Windows codes come from the bundled offline DB-IP Country Lite dataset.
   Local Natural Earth centroids supply approximate positions. These are **country
   centroids, not exact host locations**. Unknown countries remain unplaced and are
   counted; their flows can still be inspected in the expandable list.
-- Inbound/outbound means **session initiation**: remote client → local server, or
+- For ntopng, inbound/outbound means **session initiation**: remote client → local server, or
   local client → remote server. The endpoint supplies total bidirectional session
   throughput, so the two statistics are not independent upload/download meters.
 - Set Local site manually, or explicitly request browser geolocation. There is no

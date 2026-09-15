@@ -1,5 +1,10 @@
 # Traffic capture architecture and setup
 
+**Windows native capture:** the normal `setup.bat` / `start.bat` path now includes
+a native Windows ETW sensor. See [Windows traffic sensor](WINDOWS_TRAFFIC_SENSOR.md)
+for the current installation, service rights, authenticated protocol and acceptance
+procedure. The external/Linux sensor remains an optional observation point.
+
 ## Decision
 
 NERVE separates the management application, native discovery, and packet capture.
@@ -29,16 +34,16 @@ NERVE does not silently install kernel drivers or assume commercial licenses.
    A fresh installation gets secure random secrets and port 3000, or a free port
    selected by Windows when 3000 is unavailable. The port and both local URLs are
    stored consistently in `.env`. Existing installations keep their saved port.
-3. Run `start.bat`. It builds/starts NERVE and its native Windows discovery agent.
-   The final traffic check is informative and does not block discovery.
+3. Run `start.bat`. It builds/starts NERVE, its native Windows discovery agent and
+   the native Windows ETW traffic sensor. Accept the first service-installation UAC
+   prompt. The final traffic check is informative and does not block discovery.
 
-No sensor means no traffic data. The map displays the compact “Capture sensor
-required” state and explains the next step in Diagnostics. Discovery still finds
-reachable devices, neighbors and services; it does not measure flow throughput.
-This prerequisite cannot be truthfully eliminated through Compose alone.
+The Windows sensor runs on the host, outside Docker Desktop. If it cannot run,
+the map shows “Traffic capture unavailable” with a specific diagnostic. Discovery
+still finds devices independently and does not measure flow throughput.
 
 Normal setup only configures the local installation, generates cryptographically
-random database/discovery secrets, and marks fresh capture as `sensor-required`.
+random database/discovery/native-sensor secrets, and selects `windows-native`.
 There are no questions about ntopng, Linux, IP addresses or capture interfaces.
 `traffic-sensor-setup.bat` is a separate optional step. Choose `e` for an existing
 ntopng instance or `l` for a Linux sensor; Enter keeps the current source unchanged.
@@ -89,7 +94,7 @@ persist; packet recording and historical-flow exports are not enabled by NERVE.
 
 | Observation point | NERVE-container traffic | Windows host / Internet | Other LAN devices | Complete LAN |
 | --- | --- | --- | --- | --- |
-| Standard Windows setup, no sensor | No flow capture | No flow capture | Discovery only | No |
+| Standard Windows setup, native ETW sensor | Only transport events Windows exposes on selected host addresses, not complete container visibility | Selected host adapter's TCP/UDP | Discovery; no arbitrary third-party flow capture | No |
 | ntopng in an ordinary Desktop container (not offered as production mode) | Only traffic delivered to that container/network namespace | No general capture | No general capture | No |
 | Native Linux sensor on a normal switch port | Only if traffic traverses that NIC | Only traffic to/from that Linux host, not arbitrary Windows traffic | Delivered broadcast/multicast and traffic to/from sensor | No |
 | Sensor at a gateway, SPAN destination or TAP | If it traverses the observation point | If mirrored/routed there | Only mirrored/routed links and directions | Only with adequate topology coverage and capture capacity |
@@ -101,8 +106,9 @@ does not promiscuously expose all stations' unicast traffic. Full LAN monitoring
 a network-design property, not a flag that NERVE can verify from an API connection.
 
 The world map intentionally displays local-to-external sessions, not all captured
-LAN-local flows. Session direction describes the initiator; total bytes/throughput
-are bidirectional session totals. Site coordinates remain optional and browser-local.
+LAN-local flows. For ntopng, session direction describes the initiator and totals
+are bidirectional. Native Windows flows instead report observed send/receive
+direction and directional ETW byte totals. Site coordinates are browser-local.
 
 ## Diagnostics and acceptance test
 
@@ -111,6 +117,7 @@ On Windows, in the repository:
 ```powershell
 docker compose ps
 docker compose exec api /app/nerve-server traffic-check
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/manage-traffic-sensor.ps1 -Action Status
 ```
 
 On the Linux sensor, in its bundle:
@@ -167,6 +174,7 @@ docker build -t nerve-sensor:local-test deploy/sensor
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-sensor.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-installation.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-start-bat.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-windows-capture.ps1
 ```
 
 The sensor test explicitly invokes its runtime inside a bridge-network lab container
@@ -181,7 +189,8 @@ retention of an existing traffic source. The start test invokes the actual launc
 with real Docker builds, an isolated Windows discovery agent and its browser-opening
 command; its test agent and Compose project are removed afterwards.
 
-For the setup-UX change, native batch tests ran without sending any input, including
+Historical results for the earlier setup-UX change (superseded by the native sensor
+test record in `TRAFFIC_MAP_REPAIR.md`): native batch tests ran without sending any input, including
 port 3000 occupied/free, a path with spaces, an existing occupied configured port,
 and unchanged secrets/traffic/custom values on rerun. Optional sensor setup and
 Compose validation passed. The focused start-completion test passed using a CLI

@@ -41,7 +41,8 @@ function Invoke-BatchSetup([switch]$DirectFile) {
 }
 
 # Force an occupied preferred port without touching existing listeners.
-$occupied = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Any,3000)
+$occupied = [Net.Sockets.TcpListener]::new([Net.IPAddress]::IPv6Any,3000)
+$occupied.Server.DualMode = $true
 $occupied.ExclusiveAddressUse = $true
 $reserved = $false
 try { $occupied.Start(); $reserved = $true } catch [Net.Sockets.SocketException] { }
@@ -55,12 +56,12 @@ $before = [IO.File]::ReadAllText($envPath)
 if ($reserved -and $before -match '(?m)^NERVE_WEB_PORT=3000\r?$') { throw 'Setup selected occupied port 3000.' }
 $port = [regex]::Match($before,'(?m)^NERVE_WEB_PORT=(\d+)').Groups[1].Value
 if (-not $port -or -not $before.Contains('NERVE_ALLOWED_ORIGIN=http://localhost:'+$port) -or -not $before.Contains('NEXT_PUBLIC_SITE_URL=http://localhost:'+$port)) { throw 'Port and URLs are inconsistent.' }
-if ($before -notmatch '(?m)^NERVE_TRAFFIC_CAPTURE_MODE=sensor-required\r?$') { throw 'Fresh setup did not select sensor-required.' }
+if ($before -notmatch '(?m)^NERVE_TRAFFIC_CAPTURE_MODE=windows-native\r?$') { throw 'Fresh setup did not select windows-native.' }
 if ($before -notmatch '(?m)^POSTGRES_PASSWORD=[a-f0-9]{64}\r?$' -or $before -notmatch '(?m)^NERVE_DISCOVERY_AGENT_TOKEN=[a-f0-9]{64}\r?$') { throw 'Fresh secrets missing.' }
 $startBefore = [IO.File]::ReadAllText((Join-Path $fixture 'start.bat'))
 $stopBefore = [IO.File]::ReadAllText((Join-Path $fixture 'stop.bat'))
 # Existing: keep a configured source and custom values without asking anything.
-$before = $before.Replace('NERVE_TRAFFIC_CAPTURE_MODE=sensor-required','NERVE_TRAFFIC_CAPTURE_MODE=external')
+$before = $before.Replace('NERVE_TRAFFIC_CAPTURE_MODE=windows-native','NERVE_TRAFFIC_CAPTURE_MODE=external')
 $before = [regex]::Replace($before,'(?m)^NERVE_NTOPNG_URL=\r?$', 'NERVE_NTOPNG_URL=http://existing-sensor:3001' + "`r")
 $before = [regex]::Replace($before,'(?m)^NERVE_NTOPNG_PASSWORD=\r?$', "NERVE_NTOPNG_PASSWORD='existing-test-only'`r")
 $before += "# custom installation`r`nCUSTOM_VALUE='retain-this'`r`n"

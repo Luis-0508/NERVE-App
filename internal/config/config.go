@@ -27,6 +27,9 @@ type Config struct {
 	NtopngTimeout       time.Duration
 	TrafficLocalCIDRs   string
 	TrafficCaptureMode  string
+	SensorToken         string
+	SensorAddr          string
+	CountryDatabase     string
 }
 
 func Load() (Config, error) {
@@ -45,6 +48,9 @@ func Load() (Config, error) {
 		NtopngTimeout:       5 * time.Second,
 		TrafficLocalCIDRs:   os.Getenv("NERVE_TRAFFIC_LOCAL_CIDRS"),
 		TrafficCaptureMode:  os.Getenv("NERVE_TRAFFIC_CAPTURE_MODE"),
+		SensorToken:         os.Getenv("NERVE_SENSOR_TOKEN"),
+		SensorAddr:          os.Getenv("NERVE_SENSOR_ADDR"),
+		CountryDatabase:     envOr("NERVE_COUNTRY_DATABASE", "/app/data/dbip-country-lite.csv.gz"),
 	}
 
 	if value := os.Getenv("NERVE_COOKIE_SECURE"); value != "" {
@@ -89,9 +95,9 @@ func Load() (Config, error) {
 		}
 	}
 	switch cfg.TrafficCaptureMode {
-	case "", "sensor-required", "external", "linux-interface":
+	case "", "sensor-required", "external", "linux-interface", "windows-native":
 	default:
-		return Config{}, fmt.Errorf("NERVE_TRAFFIC_CAPTURE_MODE must be sensor-required, external or linux-interface")
+		return Config{}, fmt.Errorf("NERVE_TRAFFIC_CAPTURE_MODE must be sensor-required, external, linux-interface or windows-native")
 	}
 	if cfg.NtopngURL != "" && cfg.TrafficCaptureMode == "sensor-required" {
 		cfg.TrafficCaptureMode = "external"

@@ -7,14 +7,36 @@ import (
 	"github.com/nerve-labs/nerve/internal/config"
 	"github.com/nerve-labs/nerve/internal/integrations/ntopng"
 	"github.com/nerve-labs/nerve/internal/traffic"
+	"io"
+	"net"
+	"net/http"
 	"net/netip"
 	"os"
 	"strings"
+	"time"
 )
 
 // Runs in the same container/network/configuration as the API, without a DB or a shell.
 // Only diagnostic counts are printed: never passwords, URLs, or traffic IPs.
 func checkTraffic(cfg config.Config) int {
+	if cfg.TrafficCaptureMode == "windows-native" {
+		_, port, err := net.SplitHostPort(cfg.SensorAddr)
+		if err != nil {
+			return 1
+		}
+		client := http.Client{Timeout: 5 * time.Second}
+		response, err := client.Get("http://127.0.0.1:" + port + "/health")
+		if err != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]string{"status": "capture_unavailable"})
+			return 1
+		}
+		defer response.Body.Close()
+		_, _ = io.Copy(os.Stdout, io.LimitReader(response.Body, 8192))
+		if response.StatusCode != 200 {
+			return 1
+		}
+		return 0
+	}
 	var cidrs []netip.Prefix
 	for _, raw := range strings.Split(cfg.TrafficLocalCIDRs, ",") {
 		if p, e := netip.ParsePrefix(strings.TrimSpace(raw)); e == nil {

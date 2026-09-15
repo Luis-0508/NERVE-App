@@ -124,7 +124,7 @@ Nach einer Änderung der `.env` muss der API-Container neu erzeugt werden.
 Die temporäre Datenbank des letzten vollständigen Testlaufs wurde geordnet gestoppt.
 Die Testwerkzeuge liegen im ignorierten `.nerve`-Verzeichnis; die Anwendung enthält keinen Demo-Flow-Provider.
 
-## Grenzen
+## Grenzen der damaligen ntopng-Reparatur
 
 - Die Zielposition ist ein ungefährer Länderzentroid, keine genaue Host-Geolocation.
 - Inbound/Outbound bezeichnet den Session-Initiator; ntopng liefert hier den gesamten bidirektionalen Session-Durchsatz. Die Statistiken sind keine getrennten Upload-/Download-Messwerte.
@@ -132,3 +132,67 @@ Die Testwerkzeuge liegen im ignorierten `.nerve`-Verzeichnis; die Anwendung enth
 - Ohne sichtbare interne Adressen (etwa bei NAT-Beobachtung nur auf WAN) sind zusätzliche lokale CIDRs bzw. die Wahl des geeigneten Capture-Interfaces nötig.
 - Ein Standort pro Browser; keine Multi-Site-Zuordnung und keine historische Flow-Datenbank.
 - PostgreSQL-Integration wurde hier auf Version 18.4 geprüft; das Compose-Deployment verwendet PostgreSQL 17. Docker- und echte ntopng-Abnahme bleiben deshalb erforderlich.
+
+## Native Windows-Erweiterung, 15. September 2026 — Abnahme offen
+
+Die bisherige Grenze war die fehlende Windows-Host-Quelle. Ergänzt wurden ein
+separater `nerve-sensor.exe`, der offizielle Windows-Netzwerk-ETW-Manifestprovider,
+ein eigener HMAC-authentifizierter Loopback-Eingang und die vorhandene
+`traffic.Source`-Abstraktion als gemeinsamer Map-Vertrag. Discovery und ntopng
+wurden nicht ersetzt. Details: [Windows Traffic Sensor](WINDOWS_TRAFFIC_SENSOR.md).
+
+Setup erzeugt ein separates 256-Bit-Sensor-Token und wählt automatisch einen freien
+Loopback-Port. Bestehende Datenbank-/Discovery-Secrets und externe Quellen bleiben
+erhalten. Nur der alte unkonfigurierte Windows-Standard wird einmalig migriert;
+spätere bewusste Deaktivierung bleibt erhalten. Stock-Launcher werden gezielt
+aktualisiert, Custom-Launcher bleiben bestehen. Start verwaltet einen geschützten
+LocalService-Dienst; unveränderte Starts benötigen keine erneute Installation.
+Eine verweigerte UAC-Installation verhindert weder Core noch Discovery.
+
+Der normale Kernel-Systemlogger wurde unter LocalService tatsächlich mit
+`0x80070005` abgewiesen. Der Windows-Manifestprovider funktionierte dagegen unter
+demselben eingeschränkten Konto und lieferte reale TCP-/UDP- und IPv4-/IPv6-Flows
+des erkannten Realtek-Ethernet-Adapters. Kein fremder Capture-Treiber wurde benötigt.
+Unbenötigte proprietäre DIA-/KernelTraceControl-Helfer des NuGet-Pakets werden aus
+dem finalen Artefakt ausgeschlossen; Lizenzhinweise und Hash-Lockfiles sind enthalten.
+
+Der kontrollierte HTTPS-Test deckte anschließend einen Fehler bei TCP-Empfang auf:
+Die Zuordnung darf nicht annehmen, dass dessen Tupel stets in Paket-Richtung
+angeordnet ist. Der Code bestimmt jetzt die lokale Seite aus den tatsächlichen
+NIC-Adressen und die Byte-Richtung unabhängig davon aus dem Ereignistyp. Der
+ergänzte Unit-Test besteht. **Die reale Abnahme dieser letzten Korrektur ist offen:**
+Windows beendete die dafür erforderliche Dienstaktualisierung mit „Vorgang wurde
+durch den Benutzer abgebrochen“. Die Korrektur und das bereinigte finale Artefakt
+wurden daher noch nicht als Windows-Dienst end-to-end geprüft.
+
+| Aktuelle Prüfung | Tatsächliches Ergebnis |
+| --- | --- |
+| Go Unit Tests und `go vet ./...` | Bestanden |
+| Go Integrationstests mit echtem isoliertem PostgreSQL | Bestanden |
+| HMAC, Zeitfenster, Replay, Eingabevalidierung, Offline/Recovery und Geo-Ranges | Unit-Tests bestanden; synthetische Eingaben, kein Capture-Nachweis |
+| Native `setup.bat` ohne Eingaben, Leerzeichenpfad und Wiederholung | Bestanden; vorhandene Werte/Secrets bleiben erhalten |
+| Einmalige Migration und späterer Capture-Opt-out | Bestanden |
+| `npm run typecheck`, `npm run test:map`, `npm run build` | Bestanden |
+| Compose-Konfiguration und Loopback-/Frontend-Isolation | Bestanden |
+| API-, Web-, Discovery-, Windows-Sensor- und Linux-Sensor-Docker-Builds | Bestanden |
+| Reale Compose-Installation, Login/Session nach Neuerzeugung, Datenbankpersistenz | Bestanden gegen PostgreSQL 17 |
+| Echter Windows-Start ohne Traffic-Quelle | Bestanden: Core und nativer Discovery-Agent laufen; INFO statt Abbruch |
+| Echte ntopng-REST-Abnahme im isolierten Container | Bestanden: echte HTTPS-Flows, Leserzugriff, falsches Passwort und Default-Passwort-Ablehnung |
+| Windows-ETW als LocalService | Reale Host-Flows nachgewiesen; keine vollständige TCP-Inbound-Abnahme der finalen Korrektur |
+| Finale Windows-Download-/Browser-/Doppelstart-Abnahme | Nicht abgeschlossen wegen abgebrochener UAC-Aktualisierung; Browser-Harness vorbereitet, noch nicht erfolgreich ausgeführt |
+| 500 aktive Flows / durchgehende FPS-Abnahme | Nicht gemessen; Zustände und Ausgabe sind begrenzt, keine Leistungszusage |
+
+Die nativen Starttests unterdrücken ausschließlich die letzte kosmetische
+Konsolenpause mit `NERVE_NO_PAUSE=1`; Docker, Discovery, Browser-Startbefehl und
+Windows-Service-Aufrufe sind echt. Das ältere fokussierte CMD-Testdouble bleibt
+ein zusätzlicher Kontrollflusstest. Das ntopng-Labor belegt keine SPAN-/LAN-Abdeckung.
+
+Isolierte Testdienste und Container wurden gestoppt; die bestehende persönliche
+Installation und ihre Datenbank wurden nicht zurückgesetzt. Der demand-start
+Testdienst bleibt installiert und gestoppt. Testkonfiguration, Transfer-Metadaten
+und Protokolle bleiben ausschließlich unter dem ignorierten `.nerve`.
+
+Nächster Abnahmeschritt: `scripts/test-windows-capture.ps1` erneut ausführen und
+die Windows-UAC-Aktualisierung bestätigen. Danach müssen beide Transfer-Richtungen,
+Bytes, Änderung der Werte, die echte Map, Ausfall/Erholung, Doppelstart und Stop
+erfolgreich geprüft sein. **Milestone 5 ist damit ausdrücklich nicht abgeschlossen.**

@@ -2,6 +2,21 @@ package config
 
 import "testing"
 
+func TestNativeSensorEnvironment(t *testing.T) {
+	t.Setenv("NERVE_TRAFFIC_CAPTURE_MODE", "windows-native")
+	t.Setenv("NERVE_SENSOR_TOKEN", "sensor-test-only-token")
+	t.Setenv("NERVE_SENSOR_ADDR", ":8091")
+	cfg, err := Load()
+	if err != nil || cfg.TrafficCaptureMode != "windows-native" || cfg.SensorToken != "sensor-test-only-token" || cfg.SensorAddr != ":8091" {
+		t.Fatal("native sensor configuration not loaded")
+	}
+	t.Setenv("NERVE_TRAFFIC_CAPTURE_MODE", "external")
+	cfg, err = Load()
+	if err != nil || cfg.TrafficCaptureMode != "external" {
+		t.Fatal("explicit external source was replaced")
+	}
+}
+
 func TestTrafficEnvironment(t *testing.T) {
 	t.Setenv("NERVE_TRAFFIC_CAPTURE_MODE", "linux-interface")
 	t.Setenv("NERVE_NTOPNG_URL", "http://ntopng:3000")

@@ -35,8 +35,17 @@ func (s *Server) liveTraffic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	snapshot, err := s.traffic.Live(r.Context())
+	if snapshot.Capture != nil && snapshot.Capture.Mode == "windows-native" {
+		capture = *snapshot.Capture
+	}
 	if err != nil {
 		switch {
+		case errors.Is(err, traffic.ErrSensorOffline):
+			writeTrafficError(w, 503, "traffic_capture_unavailable", "Traffic capture unavailable")
+		case errors.Is(err, traffic.ErrSensorPermission):
+			writeTrafficError(w, 503, "traffic_capture_permission_denied", "Windows capture permission denied")
+		case errors.Is(err, traffic.ErrSensorBackend):
+			writeTrafficError(w, 503, "traffic_capture_backend_unavailable", "Windows capture backend unavailable")
 		case errors.Is(err, ntopng.ErrNotConfigured):
 			writeTrafficError(w, 503, "traffic_source_not_configured", "Traffic source not configured")
 		case errors.Is(err, ntopng.ErrAuthentication):

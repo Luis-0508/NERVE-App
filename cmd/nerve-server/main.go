@@ -42,9 +42,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	api := httpapi.New(pool, cfg, logger, version)
+	sensorServer := &http.Server{Addr: cfg.SensorAddr, Handler: api.SensorHandler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
+	if cfg.SensorAddr != "" {
+		go func() {
+			if err := sensorServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				logger.Error("sensor listener unavailable")
+			}
+		}()
+	}
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           httpapi.New(pool, cfg, logger, version).Handler(),
+		Handler:           api.Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		WriteTimeout:      0, // SSE responses remain open; handlers enforce their own bounded work.
@@ -57,6 +66,7 @@ func main() {
 		<-shutdownContext.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		_ = sensorServer.Shutdown(ctx)
 		if err := server.Shutdown(ctx); err != nil {
 			logger.Error("http shutdown failed", "error", err)
 		}

@@ -19,8 +19,8 @@ import (
 	"github.com/nerve-labs/nerve/internal/auth"
 	"github.com/nerve-labs/nerve/internal/config"
 	"github.com/nerve-labs/nerve/internal/discovery"
-	"github.com/nerve-labs/nerve/internal/inventory"
 	"github.com/nerve-labs/nerve/internal/integrations/ntopng"
+	"github.com/nerve-labs/nerve/internal/inventory"
 	"github.com/nerve-labs/nerve/internal/traffic"
 )
 
@@ -37,6 +37,7 @@ type Server struct {
 	startedAt     time.Time
 	version       string
 	traffic       traffic.Source
+	sensor        *traffic.SensorStore
 	loginMu       sync.Mutex
 	loginAttempts map[string]*rateWindow
 }
@@ -68,7 +69,25 @@ type eventResponse struct {
 }
 
 func New(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version string) *Server {
+	if cfg.TrafficCaptureMode == "windows-native" {
+		country, err := traffic.LoadCountries(cfg.CountryDatabase)
+		if err != nil {
+			logger.Warn("local country database unavailable; native flows will be unlocated")
+		}
+		sensor := traffic.NewSensor(cfg.SensorToken, country, parseTrafficCIDRs(cfg.TrafficLocalCIDRs)...)
+		server := NewWithTraffic(db, cfg, logger, version, sensor)
+		server.sensor = sensor
+		return server
+	}
 	return NewWithTraffic(db, cfg, logger, version, ntopng.New(ntopng.Config{URL: cfg.NtopngURL, Username: cfg.NtopngUsername, Password: cfg.NtopngPassword, InterfaceID: cfg.NtopngInterfaceID, Timeout: cfg.NtopngTimeout, LocalCIDRs: parseTrafficCIDRs(cfg.TrafficLocalCIDRs)}))
+}
+
+// SensorHandler is deliberately not mounted on Handler/the web listener.
+func (s *Server) SensorHandler() http.Handler {
+	if s.sensor == nil {
+		return http.NotFoundHandler()
+	}
+	return s.sensor.Handler()
 }
 
 func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version string, source traffic.Source) *Server {

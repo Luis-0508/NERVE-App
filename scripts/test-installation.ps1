@@ -1,4 +1,4 @@
-param([string]$Docker = 'docker')
+param([string]$Docker = 'docker', [string]$APIImage = 'nerveapp-api:latest', [string]$WebImage = 'nerveapp-web:latest')
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
 $project = 'nerve-install-test-' + [Guid]::NewGuid().ToString('N').Substring(0,12)
@@ -10,7 +10,7 @@ $path = Join-Path $fixture '.env'
 $original = [IO.File]::ReadAllText($path)
 $port = [regex]::Match($original,'(?m)^NERVE_WEB_PORT=(\d+)').Groups[1].Value
 $override = Join-Path $fixture 'compose.test.yaml'
-[IO.File]::WriteAllText($override,"services:`n  api:`n    image: nerveapp-api:latest`n  web:`n    image: nerveapp-web:latest`n")
+[IO.File]::WriteAllText($override,"services:`n  api:`n    image: $APIImage`n  web:`n    image: $WebImage`n")
 $argsBase = @('compose','-p',$project,'--env-file',$path,'-f',(Join-Path $repo 'docker-compose.yml'),'-f',$override)
 function Compose([string[]]$Arguments) {
     & $Docker @argsBase @Arguments | Out-Host
@@ -27,7 +27,7 @@ try {
         catch {
             if (-not $_.Exception.Response -or [int]$_.Exception.Response.StatusCode -ne 503) { throw }
             $response = $_.ErrorDetails.Message | ConvertFrom-Json
-            if ($response.error.code -ne 'traffic_source_not_configured' -or $response.error.message -ne 'Capture sensor required' -or $response.capture.mode -ne 'sensor-required') { throw 'Fresh installation lacks honest capture diagnostics.' }
+            if ($response.error.code -ne 'traffic_capture_unavailable' -or $response.error.message -ne 'Traffic capture unavailable' -or $response.capture.mode -ne 'windows-native') { throw 'Fresh installation lacks honest capture diagnostics.' }
         }
     }
     CheckMissingSensor
