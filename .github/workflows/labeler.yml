@@ -1,0 +1,51 @@
+name: Pull request labels
+
+on:
+  pull_request_target:
+    branches:
+      - master
+    types:
+      - opened
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Ensure repository labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ensure_label() {
+            gh label create "$1" --color "$2" --description "$3" --force
+          }
+
+          ensure_label "frontend" "1D76DB" "Next.js UI, components, client code, or web configuration"
+          ensure_label "backend" "0E8A16" "Go API, server, or backend logic"
+          ensure_label "discovery" "5319E7" "Network discovery, scanning, or discovery-agent changes"
+          ensure_label "traffic" "FBCA04" "Traffic capture, ntopng, flow data, or map-related changes"
+          ensure_label "agent" "006B75" "NERVE discovery agent changes"
+          ensure_label "sensor" "D93F0B" "Traffic sensor or native capture changes"
+          ensure_label "database" "B60205" "Database schema, migrations, or persistence changes"
+          ensure_label "deployment" "0052CC" "Docker, setup, launchers, or deployment changes"
+          ensure_label "tests" "C5DEF5" "Automated tests or test tooling"
+          ensure_label "documentation" "0075CA" "Documentation-only or documentation-related changes"
+          ensure_label "dependencies" "0366D6" "Dependency manifest or lockfile changes"
+          ensure_label "ci" "000000" "GitHub Actions or repository automation changes"
+
+      - name: Apply labels from changed files
+        uses: actions/labeler@v7
+        with:
+          sync-labels: false
