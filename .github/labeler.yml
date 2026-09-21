@@ -1,0 +1,95 @@
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'app/**'
+          - 'components/**'
+          - 'lib/**'
+          - 'public/**'
+          - 'next.config.*'
+          - 'postcss.config.*'
+          - 'tsconfig.json'
+
+backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'cmd/**'
+          - 'internal/**'
+          - 'go.mod'
+          - 'go.sum'
+
+discovery:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'cmd/nerve-agent/**'
+          - 'internal/discovery/**'
+          - 'Dockerfile.agent'
+          - 'scripts/*discovery*'
+          - 'scripts/*agent*'
+
+traffic:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'internal/traffic/**'
+          - 'internal/integrations/ntopng/**'
+          - 'cmd/nerve-server/traffic*'
+          - 'scripts/*traffic*'
+          - 'scripts/*map*'
+
+agent:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'cmd/nerve-agent/**'
+          - 'Dockerfile.agent'
+          - 'scripts/*agent*'
+
+sensor:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'native/**'
+          - 'Dockerfile.sensor'
+          - 'scripts/*sensor*'
+          - 'scripts/*capture*'
+
+database:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'migrations/**'
+          - 'internal/database/**'
+
+deployment:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'deploy/**'
+          - 'docker-compose.yml'
+          - 'Dockerfile.*'
+          - '.dockerignore'
+          - '.env.example'
+          - 'setup.bat'
+          - 'start.example.bat'
+          - 'stop.example.bat'
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*_test.go'
+          - '**/*.test.*'
+          - 'scripts/test-*'
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - 'LICENSE'
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'package.json'
+          - 'package-lock.json'
+          - 'go.mod'
+          - 'go.sum'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
