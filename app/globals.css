@@ -407,3 +407,40 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 600px) { .traffic-map-surface { height: clamp(260px, 68vw, 400px); min-height: 260px; }.map-meta { font-size: 8px; }.map-footer { font-size: 8px; }.map-panel { max-height: calc(100% - 30px); top: 15px; bottom: auto; } }
 
 .traffic-coverage { margin: 0; padding: 0 2px; font-size: 11px; color: var(--text-muted); }
+/* 3D topology view */
+.topology-surface { display: block; }
+.topology-view, .topology-host { position: absolute; inset: 0; }
+.topology-view { z-index: 0; isolation: isolate; }
+.topology-canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; }
+.topology-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--focus); }
+.topology-labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.topology-surface .map-meta, .topology-surface .map-footer { z-index: 2; }
+.topology-surface .map-meta > span:first-child { padding: 3px 7px; margin: -3px -7px; border-radius: 4px; background: color-mix(in srgb, var(--surface-subtle) 80%, transparent); }
+.topology-toolbar { position: absolute; z-index: 3; top: 34px; right: 14px; display: flex; flex-direction: column; gap: 6px; }
+.topology-toolbar .icon-button { box-shadow: var(--shadow-popover); }
+.topology-toolbar .icon-button[aria-pressed="true"] { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+.topology-label { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 2px 6px; border-radius: 4px; color: var(--text); font-size: 11px; font-weight: 500; line-height: 1.25; white-space: nowrap; background: color-mix(in srgb, var(--surface) 82%, transparent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--border) 70%, transparent); transition: opacity .15s; }
+.topology-label small { color: var(--text-muted); font: 10px var(--font-mono); }
+.topology-label[data-kind="plate"] { align-items: flex-start; padding: 0; background: none; box-shadow: none; color: var(--text-secondary); font: 600 11px var(--font-mono); }
+.topology-label[data-kind="plate"] small { font-family: var(--font-ui); font-weight: 400; }
+.topology-label[data-kind="axis"] { padding: 0; background: none; box-shadow: none; color: var(--text-muted); font: 10px var(--font-mono); }
+.topology-label[data-kind="country"] { padding: 1px 5px; color: var(--text-secondary); font-size: 10px; background: color-mix(in srgb, var(--surface-subtle) 70%, transparent); box-shadow: none; }
+.topology-label[data-kind="remote"] span { font-family: var(--font-mono); font-size: 10px; }
+.topology-label[data-state="selected"] { color: var(--accent); box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent); }
+.topology-label[data-state="hover"] { box-shadow: 0 0 0 1px var(--border-strong); }
+.topology-label[data-state="dim"] { opacity: .35; }
+.traffic-empty.topology-notice { top: 44px; transform: translateX(-50%); z-index: 3; }
+.topology-legend .status-dot { margin: 0 4px 1px 6px; width: 6px; height: 6px; vertical-align: middle; }
+.topology-inspector { top: 36px; left: 16px; z-index: 4; max-height: calc(100% - 96px); }
+.topology-inspector h2 { margin: 4px 0 8px; overflow-wrap: anywhere; }
+.topology-inspector > dl { margin-top: 12px; }
+.topology-inspector > .button { margin-top: 12px; }
+.topology-flows h3 { margin: 14px 0 6px; color: var(--text-secondary); font-size: 11px; font-weight: 600; }
+.topology-flows ul { margin: 0; padding: 0; list-style: none; }
+.topology-flows button { width: 100%; display: flex; justify-content: space-between; gap: 10px; padding: 6px 4px; border: 0; border-top: 1px solid var(--border); background: none; color: var(--text); font-size: 11px; text-align: left; cursor: pointer; }
+.topology-flows button:hover, .topology-flows button:focus-visible { background: var(--surface-subtle); }
+.topology-flows button span:first-child { font-family: var(--font-mono); overflow-wrap: anywhere; }
+.topology-flows button span:last-child { color: var(--text-muted); white-space: nowrap; }
+.topology-flows p { margin: 6px 0 0; }
+.traffic-actions .segmented button { white-space: nowrap; }
+@media (max-width: 600px) { .traffic-header { flex-wrap: wrap; } .traffic-actions { flex-wrap: wrap; } .topology-toolbar { flex-direction: row; top: 30px; } .topology-label small { display: none; } .topology-surface .map-footer span:last-child { display: none; } }
