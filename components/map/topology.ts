@@ -1,8 +1,9 @@
 import type { DeviceStatus, DeviceSummary, TrafficDirection, TrafficFlow } from "@/lib/types";
 
 // Deterministic 3D topology derived only from observed NERVE data. Plates group devices by
-// address block (derived, not a verified segment); the horizon ring places remote endpoints by
-// approximate longitude/latitude. Nothing here invents links: every link is a measured flow.
+// address block (derived, not a verified segment); a globe above the network pins remote
+// endpoints at their approximate IP location. Nothing here invents links: every link is a
+// measured flow, routed through the local site's uplink.
 
 export type Vec3 = [number, number, number];
 export type NodeRole = "gateway" | "switch" | "server" | "client" | "unknown";
@@ -16,6 +17,8 @@ export type TopologyNode = {
   device?: DeviceSummary;
   groupId?: string;
   located?: boolean;
+  lat?: number;
+  lon?: number;
   countryCode?: string;
   countryName?: string;
   city?: string;
@@ -25,14 +28,17 @@ export type TopologyNode = {
 };
 export type TopologyLink = { id: string; source: string; target: string; direction: TrafficDirection; bytesPerSecond: number; flowIds: string[]; applications: string[] };
 export type TopologyGroup = { id: string; label: string; center: [number, number]; size: [number, number]; count: number };
-export type HorizonLabel = { code: string; name: string; position: Vec3; bytesPerSecond: number };
+export type GlobeLabel = { code: string; name: string; position: Vec3; normal: Vec3; bytesPerSecond: number };
+export type GeoPoint = { lat: number; lon: number };
+export type Globe = { radius: number; center: Vec3; alpha: number; gamma: number; site: GeoPoint | null; uplink: Vec3; unlocated: Vec3 };
 export type Topology = {
   nodes: TopologyNode[];
   links: TopologyLink[];
   groups: TopologyGroup[];
-  horizon: { radius: number; height: number; band: number; referenceLongitude: number; unlocated: Vec3 };
-  countries: HorizonLabel[];
+  globe: Globe;
+  countries: GlobeLabel[];
   lanRadius: number;
+  focus: Vec3;
   extent: number;
 };
 
@@ -73,9 +79,9 @@ export function hash(value: string) {
   return (h >>> 0) / 0xffffffff;
 }
 
-type Options = { devices: DeviceSummary[]; flows: TrafficFlow[]; deviceFilter?: "all" | "traffic" | "online"; referenceLongitude?: number };
+type Options = { devices: DeviceSummary[]; flows: TrafficFlow[]; deviceFilter?: "all" | "traffic" | "online"; site?: GeoPoint | null };
 
-export function buildTopology({ devices, flows, deviceFilter = "all", referenceLongitude = 0 }: Options): Topology {
+export function buildTopology({ devices, flows, deviceFilter = "all", site = null }: Options): Topology {
   const localByIP = new Map<string, TopologyNode>();
   const local: TopologyNode[] = [];
   const trafficIPs = new Set(flows.map(f => f.localIp));
@@ -95,8 +101,7 @@ export function buildTopology({ devices, flows, deviceFilter = "all", referenceL
 
   const groups = layoutGroups(local);
   const lanRadius = Math.max(8, ...groups.map(g => Math.hypot(Math.abs(g.center[0]) + g.size[0] / 2, Math.abs(g.center[1]) + g.size[1] / 2)));
-  const radius = lanRadius * 1.3 + 8, height = Math.max(9, radius * .4), band = height * .32;
-  const horizon = { radius, height, band, referenceLongitude, unlocated: [0, height + band + Math.max(4, height * .35), 0] as Vec3 };
+  const globe = createGlobe(lanRadius, site);
 
   const remotes = new Map<string, TopologyNode>();
   const links = new Map<string, TopologyLink>();
@@ -107,7 +112,7 @@ export function buildTopology({ devices, flows, deviceFilter = "all", referenceL
     let remote = remotes.get(flow.remoteIp);
     if (!remote) {
       const located = flow.remoteLatitude !== undefined && flow.remoteLongitude !== undefined && Number.isFinite(flow.remoteLatitude) && Number.isFinite(flow.remoteLongitude);
-      remote = { id: `remote:${flow.remoteIp}`, kind: "remote", role: "unknown", label: flow.remoteIp, ip: flow.remoteIp, status: "online", located, countryCode: flow.remoteCountryCode, countryName: flow.remoteCountryName, city: flow.remoteCity, position: located ? horizonPoint(flow.remoteLatitude!, flow.remoteLongitude!, flow.remoteIp, horizon) : unlocatedPoint(flow.remoteIp, horizon), bytesPerSecond: 0, flowIds: [] };
+      remote = { id: `remote:${flow.remoteIp}`, kind: "remote", role: "unknown", label: flow.remoteIp, ip: flow.remoteIp, status: "online", located, countryCode: flow.remoteCountryCode, countryName: flow.remoteCountryName, city: flow.remoteCity, ...(located ? { lat: flow.remoteLatitude, lon: flow.remoteLongitude } : {}), position: [0, 0, 0], bytesPerSecond: 0, flowIds: [] };
       remotes.set(flow.remoteIp, remote);
     }
     source.bytesPerSecond += flow.bytesPerSecond; source.flowIds.push(flow.id);
@@ -118,17 +123,28 @@ export function buildTopology({ devices, flows, deviceFilter = "all", referenceL
     if (!link.applications.includes(flow.application)) link.applications.push(flow.application);
     links.set(key, link);
   }
-  for (const remote of remotes.values()) {
-    if (!remote.located || !remote.countryCode) continue;
-    const total = countryTotals.get(remote.countryCode) ?? { name: remote.countryName ?? remote.countryCode, bytes: 0, x: 0, y: 0, z: 0, n: 0 };
-    total.bytes += remote.bytesPerSecond; total.x += remote.position[0]; total.y += remote.position[1]; total.z += remote.position[2]; total.n++;
+  const remoteNodes = [...remotes.values()].sort((a, b) => a.id.localeCompare(b.id));
+  // Pins sit exactly on their location; endpoints sharing a location stack outward instead of shifting.
+  const stacks = new Map<string, number>();
+  for (const remote of remoteNodes) {
+    if (!remote.located) { remote.position = unlocatedPoint(remote.ip!, globe); continue; }
+    const key = `${remote.lat!.toFixed(3)},${remote.lon!.toFixed(3)}`, level = stacks.get(key) ?? 0;
+    stacks.set(key, level + 1);
+    remote.position = globePoint(globe, remote.lat!, remote.lon!, PIN_HEIGHT + level * PIN_STACK);
+    if (!remote.countryCode) continue;
+    const direction = geoDirection(remote.lat!, remote.lon!), total = countryTotals.get(remote.countryCode) ?? { name: remote.countryName ?? remote.countryCode, bytes: 0, x: 0, y: 0, z: 0, n: 0 };
+    total.bytes += remote.bytesPerSecond; total.x += direction[0]; total.y += direction[1]; total.z += direction[2]; total.n++;
     countryTotals.set(remote.countryCode, total);
   }
-  const countries = [...countryTotals].map(([code, t]) => ({ code, name: t.name, bytesPerSecond: t.bytes, position: [t.x / t.n, t.y / t.n + band * .55, t.z / t.n] as Vec3 }))
-    .sort((a, b) => b.bytesPerSecond - a.bytesPerSecond || a.code.localeCompare(b.code));
+  const countries = [...countryTotals].map(([code, t]) => {
+    const normal = rotate(normalize([t.x, t.y, t.z]), globe.alpha, globe.gamma);
+    return { code, name: t.name, bytesPerSecond: t.bytes, normal, position: add(globe.center, normal, globe.radius * 1.22) };
+  }).sort((a, b) => b.bytesPerSecond - a.bytesPerSecond || a.code.localeCompare(b.code));
 
-  const remoteNodes = [...remotes.values()].sort((a, b) => a.id.localeCompare(b.id));
-  return { nodes: [...local, ...remoteNodes], links: [...links.values()].sort((a, b) => a.id.localeCompare(b.id)), groups, horizon, countries, lanRadius, extent: radius + 2 };
+  // Camera frame: the local network below and the globe above it.
+  const focus: Vec3 = [0, globe.center[1] * .56, globe.center[2] * .5];
+  const extent = Math.max(Math.hypot(lanRadius, focus[1], focus[2]), length(sub(globe.center, focus)) + globe.radius * 1.35) + 1;
+  return { nodes: [...local, ...remoteNodes], links: [...links.values()].sort((a, b) => a.id.localeCompare(b.id)), groups, globe, countries, lanRadius, focus, extent };
 }
 
 function layoutGroups(local: TopologyNode[]): TopologyGroup[] {
@@ -182,20 +198,95 @@ function layoutGroups(local: TopologyNode[]): TopologyGroup[] {
   return groups;
 }
 
-// The horizon is an equirectangular world wrapped on a cylinder: angle follows longitude
-// (the local site's longitude faces the default camera), height follows latitude.
-export function cylinderPoint(lat: number, lon: number, horizon: Pick<Topology["horizon"], "radius" | "height" | "band" | "referenceLongitude">, radius = horizon.radius): Vec3 {
-  const angle = (lon - horizon.referenceLongitude) * Math.PI / 180;
-  return [Math.sin(angle) * radius, horizon.height + lat / 90 * horizon.band, Math.cos(angle) * radius];
+// --- Globe geometry. geoDirection matches three.js SphereGeometry UVs, so an equirectangular
+// texture, pins and arcs all agree on where a latitude/longitude is.
+const DEG = Math.PI / 180, TILT = 20 * DEG, DEFAULT_VIEW: GeoPoint = { lat: 30, lon: 10 };
+export const PIN_HEIGHT = 1.06, PIN_STACK = .035, PATH_SAMPLES = 48;
+const add = (a: Vec3, b: Vec3, scale = 1): Vec3 => [a[0] + b[0] * scale, a[1] + b[1] * scale, a[2] + b[2] * scale];
+const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const length = (a: Vec3) => Math.hypot(a[0], a[1], a[2]);
+const normalize = (a: Vec3): Vec3 => { const l = length(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+export function geoDirection(lat: number, lon: number): Vec3 {
+  const phi = (lon + 180) * DEG, theta = (90 - lat) * DEG;
+  return [-Math.cos(phi) * Math.sin(theta), Math.cos(theta), Math.sin(phi) * Math.sin(theta)];
 }
-function horizonPoint(lat: number, lon: number, ip: string, horizon: Topology["horizon"]) {
-  // Endpoints in the same city would overlap exactly; a tiny stable offset keeps them pickable.
-  const jitter = hash(ip);
-  return cylinderPoint(lat + (jitter - .5) * 3, lon + (hash(ip + "#") - .5) * 3, horizon, horizon.radius + (jitter - .5) * .8);
+// Rotation about Y by alpha, then about X by gamma (three.js Euler(gamma, alpha, 0, "XYZ")).
+export function rotate([x, y, z]: Vec3, alpha: number, gamma: number): Vec3 {
+  const x1 = x * Math.cos(alpha) + z * Math.sin(alpha), z1 = -x * Math.sin(alpha) + z * Math.cos(alpha);
+  return [x1, y * Math.cos(gamma) - z1 * Math.sin(gamma), y * Math.sin(gamma) + z1 * Math.cos(gamma)];
 }
-function unlocatedPoint(ip: string, horizon: Topology["horizon"]): Vec3 {
-  const angle = hash(ip) * Math.PI * 2, r = 1.2 + hash(ip + "#") * 2.4;
-  return [Math.cos(angle) * r, horizon.unlocated[1] + (hash(ip + "@") - .5) * 1.2, Math.sin(angle) * r];
+// Turns the globe so the local site faces the network and default camera, slightly below the equator line of sight.
+export function globeOrientation(site: GeoPoint | null) {
+  const view = site ?? DEFAULT_VIEW, [x, , z] = geoDirection(0, view.lon);
+  return { alpha: -Math.atan2(x, z), gamma: view.lat * DEG + TILT };
+}
+export function globePoint(globe: Pick<Globe, "center" | "radius" | "alpha" | "gamma">, lat: number, lon: number, scale = 1): Vec3 {
+  return add(globe.center, rotate(geoDirection(lat, lon), globe.alpha, globe.gamma), globe.radius * scale);
+}
+function createGlobe(lanRadius: number, site: GeoPoint | null): Globe {
+  const radius = Math.min(20, Math.max(7, lanRadius * .62)), center: Vec3 = [0, radius + 7 + lanRadius * .15, -lanRadius * .35];
+  const { alpha, gamma } = globeOrientation(site), facing: Vec3 = [0, -Math.sin(TILT), Math.cos(TILT)];
+  const base = { radius, center, alpha, gamma };
+  // Without a local site the uplink floats off the surface, so no location is implied.
+  const uplink = site ? globePoint(base, site.lat, site.lon) : add(center, facing, radius * 1.3);
+  return { ...base, site, uplink, unlocated: add(center, [-1.55, -.3, .25], radius) };
+}
+function unlocatedPoint(ip: string, globe: Globe): Vec3 {
+  const angle = hash(ip) * Math.PI * 2, r = 1 + hash(ip + "#") * 1.6;
+  return add(globe.unlocated, [Math.cos(angle) * r, (hash(ip + "@") - .5) * 1.2, Math.sin(angle) * r]);
+}
+
+// Route of a link: a cable rising from the device into the uplink, then a great-circle arc
+// lifted above the globe to the pin. Resampled evenly so pulses move at constant speed.
+export function linkPath(globe: Globe, start: Vec3, remote: TopologyNode, direction: TrafficDirection): Vec3[] {
+  const u = globe.uplink, points: Vec3[] = [];
+  const control: Vec3 = [start[0], start[1] + (u[1] - start[1]) * .62, start[2]];
+  for (let i = 0; i <= 24; i++) {
+    const t = i / 24, w = 1 - t;
+    points.push([0, 1, 2].map(k => w * w * start[k] + 2 * w * t * control[k] + t * t * u[k]) as Vec3);
+  }
+  const end = remote.position;
+  if (remote.located) {
+    const from = sub(u, globe.center), to = sub(end, globe.center), a = normalize(from), b = normalize(to);
+    const angle = Math.acos(Math.min(1, Math.max(-1, dot(a, b))));
+    // Near-antipodal routes have no unique great circle; pass over the globe's top instead.
+    const via = angle > Math.PI - .05 ? [a, normalize(cross(a, Math.abs(a[1]) < .9 ? [0, 1, 0] : [1, 0, 0])), b] : [a, b];
+    const lift = globe.radius * (.04 + .2 * angle / Math.PI), steps = 64;
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps, leg = Math.min(via.length - 2, Math.floor(t * (via.length - 1))), local = t * (via.length - 1) - leg;
+      const dir = slerp(via[leg], via[leg + 1], local), r = length(from) + (length(to) - length(from)) * t + lift * Math.sin(Math.PI * t);
+      points.push(add(globe.center, dir, r));
+    }
+  } else {
+    const mid: Vec3 = [(u[0] + end[0]) / 2, Math.max(u[1], end[1]) + 2, (u[2] + end[2]) / 2];
+    for (let i = 1; i <= 24; i++) {
+      const t = i / 24, w = 1 - t;
+      points.push([0, 1, 2].map(k => w * w * u[k] + 2 * w * t * mid[k] + t * t * end[k]) as Vec3);
+    }
+  }
+  const path = resample(points, PATH_SAMPLES);
+  return direction === "inbound" ? path.reverse() : path;
+}
+function slerp(a: Vec3, b: Vec3, t: number): Vec3 {
+  const angle = Math.acos(Math.min(1, Math.max(-1, dot(a, b))));
+  if (angle < 1e-5) return a;
+  const s = Math.sin(angle), wa = Math.sin((1 - t) * angle) / s, wb = Math.sin(t * angle) / s;
+  return [a[0] * wa + b[0] * wb, a[1] * wa + b[1] * wb, a[2] * wa + b[2] * wb];
+}
+function resample(points: Vec3[], count: number): Vec3[] {
+  const distances = [0];
+  for (let i = 1; i < points.length; i++) distances.push(distances[i - 1] + length(sub(points[i], points[i - 1])));
+  const total = distances.at(-1)!, result: Vec3[] = [];
+  for (let i = 0, j = 1; i < count; i++) {
+    const target = total * i / (count - 1);
+    while (j < points.length - 1 && distances[j] < target) j++;
+    const span = distances[j] - distances[j - 1] || 1, t = Math.min(1, Math.max(0, (target - distances[j - 1]) / span));
+    result.push(add(points[j - 1], sub(points[j], points[j - 1]), t));
+  }
+  return result;
 }
 
 // Emphasis for hover/selection: the node, its links and their far ends.
