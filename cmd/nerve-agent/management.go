@@ -120,13 +120,17 @@ func enroll(ctx context.Context, apiURL, token string) (*identity, error) {
 // manager runs the management loops for an enrolled agent.
 type manager struct {
 	client            *managementClient
+	agentID           string
 	logger            *slog.Logger
 	heartbeatInterval time.Duration
 	capabilities      func() []string
 	facts             func() agentproto.HostFacts
+	// collectors overrides the built-in collectors (tests only).
+	collectors map[string]collector
 
 	mu        sync.Mutex
 	lastError string
+	executed  map[string]time.Time
 }
 
 func (m *manager) setError(value string) {
@@ -204,9 +208,4 @@ func sleepContext(ctx context.Context, duration time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
-}
-
-// run starts all management loops and returns when ctx ends.
-func (m *manager) run(ctx context.Context) {
-	m.runHeartbeats(ctx)
 }

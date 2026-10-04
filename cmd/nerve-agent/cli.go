@@ -183,7 +183,7 @@ func runAgent(logger *slog.Logger) int {
 	}
 	if id != nil {
 		apiURL := managementAPIURL(id)
-		m := &manager{client: newManagementClient(apiURL, id), logger: logger, heartbeatInterval: 30 * time.Second,
+		m := &manager{client: newManagementClient(apiURL, id), agentID: id.AgentID, logger: logger, heartbeatInterval: 30 * time.Second,
 			capabilities: supportedCapabilities, facts: collectHostFacts}
 		logger.Info("NERVE management agent started", "agent_id", id.AgentID, "fingerprint", id.Fingerprint, "api", apiURL, "version", version)
 		workers.Add(1)
