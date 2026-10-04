@@ -1,22 +1,16 @@
 # NERVE
 
-NERVE is a self-hosted network management, infrastructure visualization, and remote management platform. The network is the product's primary navigation model: physical devices, virtual machines, containers, services, ports, and their relationships are represented in one provenance-aware entity graph.
+NERVE is a self-hosted network inventory, discovery and traffic-visualization platform. Its goal is a provenance-aware view of the network: devices, services and their relationships, plus what is observed versus what is derived.
 
-This repository currently contains the Milestone 1 foundation, the Milestone 2 device inventory slice, the first functional Milestone 3 local discovery slice, and the Milestone 3.5 reliability hardening:
+## What NERVE does today
 
-- a restrained, responsive Next.js application shell with individually tuned Light, Dark, and System themes;
-- real login and first-administrator setup flows against the API;
-- a Go control plane with versioned endpoints, structured logs, security headers, bounded authentication rate-limit state, health/readiness checks, and SSE;
-- PostgreSQL migrations for authentication, graph entities, observations, events, integrations, actions, and immutable audit records;
-- Docker Compose deployment with an Nginx reverse proxy;
-- isolated typed frontend API access with explicit connection, authentication, loading, and empty states;
-- PostgreSQL-backed repositories and authenticated read APIs for devices, interfaces, IP addresses, service endpoints, and relationships;
-- a live device inventory with server-side search, sorting, filtering, pagination, and a device detail view;
-- an authenticated local discovery workflow with subnet configuration, persistent scan jobs, visible status/errors, and a native host agent for ICMP/TCP reachability, ARP/NDP neighbor evidence, and parallel reverse DNS;
-- identity-aware device upserts that preserve `first_seen`, advance `last_seen`, avoid repeat-scan duplicates, and keep device/interface/IP lifecycle state consistent; and
-- a database-enforced single-active-scan invariant plus a shared PostgreSQL event listener that fans realtime notifications out to SSE clients without consuming one database connection per browser tab.
+- **Sign-in and roles**: first-administrator setup, hashed server-side sessions, rate-limited login, and immutable audit records for authentication events.
+- **Device inventory**: PostgreSQL-backed devices, interfaces, addresses, services and relationships, with server-side search, sort, filter and paging, and a device detail view.
+- **Local discovery**: an administrator configures one subnet and starts scans. A native host agent (Windows or Linux) collects ICMP/TCP reachability, ARP/NDP neighbours and reverse DNS. Core reconciles devices by MAC first, then subnet/IP, and tracks online/offline state.
+- **Live traffic**: a native Windows ETW traffic sensor (host traffic only) or an external ntopng source, exposed as a normalized, bounded snapshot with explicit error states.
+- **Traffic Map**: a geographic **World** view, and a **Topology 3D** view that places inventory devices on derived /24 plates and routes measured flows through the local uplink to remote endpoints on a globe. See [3D view](docs/TRAFFIC_MAP_3D.md).
 
-No inventory screen uses static device data. Topology, Proxmox, and Docker integrations remain deliberately unavailable until their own backend slices are implemented.
+Not available yet: editing device names, tags, notes or trust state; merge/split; multiple or scheduled discovery targets; observed local topology (LLDP/CDP/SNMP, switch ports, device-to-device links); Proxmox and Docker integrations; remote management; releases and backup tooling. No screen uses static or demo data. The plan for these is in [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md), and the remote-management direction is in [docs/REMOTE_MANAGEMENT.md](docs/REMOTE_MANAGEMENT.md).
 
 ## Run with Docker Compose
 
@@ -123,6 +117,7 @@ The service applies ordered `.up.sql` migrations at startup while holding a Post
 - `POST /api/v1/discovery/scans` — administrator-only scan request
 - `GET /api/v1/stream` — authenticated server-sent event stream
 - `GET /api/v1/traffic/live` — authenticated, normalized Windows-native or ntopng v2 active-flow snapshot
+- `POST /api/v1/discovery/agent/heartbeat`, `.../agent/jobs/claim`, `.../agent/jobs/{scanID}/report`, `.../agent/jobs/{scanID}/complete` — discovery-agent endpoints, authenticated by the agent token, never by browser sessions
 
 ## Live traffic map (Windows native / ntopng)
 
@@ -164,7 +159,7 @@ container is the API container, not the Windows host. A reverse-proxy path prefi
 supported; configure its final URL because redirects other than login are rejected.
 The ntopng user must have permission to read the selected interface.
 
-After building this branch, apply configuration changes by recreating the API:
+After changing traffic configuration, rebuild if needed and recreate the API:
 
 ```sh
 docker compose build api web
@@ -210,7 +205,7 @@ Map → Diagnostics shows the code, last success, sampled counts, and unmapped c
 On failure, the last statistics are visibly stale and old arcs fade out. An empty
 success, unmatched filters, and flows without geography have separate messages.
 
-Map implementation and limits:
+Map implementation and limits (World view and the shared snapshot; the 3D view is described in [docs/TRAFFIC_MAP_3D.md](docs/TRAFFIC_MAP_3D.md)):
 
 - Natural Earth 1:50m countries are bundled in `public/maps`, rendered once with
   d3-geo Natural Earth projection and topojson-client. No CDN, tiles, street map,
@@ -243,7 +238,7 @@ Map implementation and limits:
   follow curved routes in session direction; width follows throughput. The date line
   is split, never joined across the whole map. Animation targets 30 FPS, caps DPR at
   two, and respects reduced motion. Static cartography is not regenerated on polls.
-- This branch has no production demo flow source. Automated tests use isolated fixtures.
+- NERVE ships no demo flow source. Automated tests use isolated fixtures.
 
 Manual acceptance test:
 
@@ -268,12 +263,16 @@ go vet ./...
 # Use a disposable PostgreSQL database; integration tests create isolated schemas.
 # Set NERVE_TEST_DATABASE_URL before this command.
 go test -tags=integration -count=1 ./...
+npm ci
 npm run typecheck
 npm run test:map
 npm run build
 docker compose build api web
 ```
 
+CI (`.github/workflows/ci.yml`) runs all of the above against PostgreSQL 17. It also builds the
+web and API images, the Windows and Linux discovery-agent artifacts, and the Windows traffic sensor.
+
 ## Architecture and next work
 
-See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the target structure, normalized database model, milestone order, privilege boundary, integration credential requirements, risks, and next concrete development tasks.
+See [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) for the current state, architecture, data model, forward plan, risks and privilege boundary, and [docs/REMOTE_MANAGEMENT.md](docs/REMOTE_MANAGEMENT.md) for the remote-management proposal.
