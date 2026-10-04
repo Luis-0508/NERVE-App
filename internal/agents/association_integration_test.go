@@ -129,4 +129,18 @@ func TestHeartbeatAndDeviceAssociation(t *testing.T) {
 	if _, err := repo.UpdateAssociation(ctx, b.AgentID, agents.AssociationAction{Action: "nonsense"}, actor); !errors.Is(err, agents.ErrInvalidInput) {
 		t.Fatalf("invalid action: %v", err)
 	}
+
+	// A device discovered after enrollment is linked on the next heartbeat, even with unchanged facts.
+	lateFacts := hostFacts("late-host", "02:00:00:00:00:55", "203.0.113.55")
+	late := newAgent(lateFacts)
+	if agent := get(late.AgentID); agent.Association.Status != "unassociated" {
+		t.Fatalf("late agent unexpectedly associated: %+v", agent.Association)
+	}
+	lateDevice := testsupport.CreateDevice(t, pool, "discovered-later", "02:00:00:00:00:55", "")
+	if err := repo.Heartbeat(ctx, late, agentproto.HeartbeatRequest{Host: lateFacts}); err != nil {
+		t.Fatal(err)
+	}
+	if agent := get(late.AgentID); agent.Association.Status != "automatic" || agent.Device == nil || agent.Device.ID != lateDevice {
+		t.Fatalf("late device was not associated: %+v", agent.Association)
+	}
 }
