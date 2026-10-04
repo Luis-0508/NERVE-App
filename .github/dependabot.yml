@@ -19,6 +19,11 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    ignore:
+      # pgx 5.11 adds Rows.TypeMap; pgxmock v4.9.0 (latest) does not implement it yet,
+      # so inventory tests stop compiling. Remove once a pgxmock release supports pgx 5.11.
+      - dependency-name: "github.com/jackc/pgx/v5"
+        versions: [">= 5.11.0"]
     groups:
       go-minor-patch:
         patterns:
