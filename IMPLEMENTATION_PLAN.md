@@ -1,80 +1,147 @@
 # NERVE implementation plan
 
-## Repository state
+This plan records what NERVE actually contains today, how the delivery order diverged
+from the original sequence, and the forward plan. User-facing capabilities are described
+in [README.md](./README.md); this file is for sequencing, architecture and risk.
 
-The repository began as an empty Git worktree. Milestones 1 through 3 now provide the working foundation, database-backed device inventory, and local network discovery. Milestone 3.5 hardens those slices before new product surface is added.
+## Current state (October 2026)
 
-## Target structure
+### Implemented
+
+| Area | What exists | Where |
+| --- | --- | --- |
+| Foundation | Next.js static UI, Go API, PostgreSQL with checksummed ordered migrations, Compose + Nginx proxy, health/readiness, SSE with one shared PostgreSQL listener | `app/`, `cmd/nerve-server`, `internal/platform`, `deploy/` |
+| Authentication | First-admin bootstrap, hashed opaque sessions, bounded login rate limiting, roles (`administrator`, `technician`, `read_only`), immutable `audit_log` (trigger-enforced) for auth events | `internal/auth`, `migrations/000001` |
+| Inventory | Normalized devices/interfaces/addresses/services/relationships; server-side search, sort, filter, paging; device detail view | `internal/inventory`, `components/devices` |
+| Discovery | One administrator-configured CIDR, persistent scan jobs, database-enforced single active scan, MAC-first reconciliation, consistent online/offline lifecycle | `internal/discovery` |
+| Native discovery agent | Go agent for Windows/Linux: ICMP, ARP/NDP neighbour cache, bounded TCP fallback, parallel reverse DNS | `cmd/nerve-agent`, `Dockerfile.agent` |
+| Windows traffic sensor | Native .NET ETW sensor as a Windows service; HMAC-signed, nonce/timestamp-protected reports to a loopback-only ingest listener | `native/windows-sensor`, `internal/traffic/sensor.go` |
+| ntopng | Read-only REST v2 active-flow adapter; credentials stay server-side | `internal/integrations/ntopng` |
+| Live traffic API | `GET /api/v1/traffic/live`: normalized, aggregated, bounded snapshot with explicit error codes and capture scope | `internal/traffic`, `internal/httpapi` |
+| Geographic Traffic Map | Natural Earth map, offline DB-IP City Lite geolocation, honest local-site provenance | `components/map` |
+| 3D Traffic Map | Inventory devices on derived /24 plates, measured flows routed through the uplink to remote endpoints on a 3D globe | `components/map/topology*` |
+
+### Missing
+
+- Device intelligence: human-owned names/aliases, tags, notes, trust/approval state,
+  identity evidence, manual-vs-discovered provenance, merge/split workflows. The
+  `devices` table has `owner`, `location`, `notes` and `approved_at` columns, but no API or
+  UI writes them.
+- Discovery 2.0: multiple targets, scheduled scans (`subnets.discovery_interval_seconds`
+  exists but nothing schedules), incremental progress, idempotent report ingestion.
+- Agent identity: every discovery agent shares one global `NERVE_DISCOVERY_AGENT_TOKEN`;
+  the traffic sensor shares one `NERVE_SENSOR_TOKEN`. No enrollment, rotation or revocation.
+- Real local topology: no LLDP/CDP/SNMP, switch-port, gateway or device-to-device
+  relationships are collected. The `relationships` table is unused by any collector.
+- Audit coverage: only bootstrap/login/logout write `audit_log`. Administrator discovery
+  changes (target, scan requests) are not yet audited.
+- Integrations: Proxmox and Docker (schema tables exist, no adapters).
+- Change intelligence: no "what changed?" view beyond raw discovery events.
+- Remote management: the `actions`/`action_runs` tables exist, but nothing creates or
+  executes actions.
+- Operations: no releases, tags, changelog, licence file, backup/restore, retention policy,
+  diagnostics bundle or upgrade/rollback procedure.
+
+## How delivery diverged from the original plan
+
+The original sequence was Foundation → Inventory → Discovery → Reliability (3.5) →
+**Device intelligence (4)** → Discovery 2.0 (4.5) → **Topology (5)** → Proxmox → Docker →
+Change intelligence → Remote actions → Operations.
+
+Milestones 1–3.5 shipped in that order. After 3.5 the next work became traffic
+visualization instead of Milestone 4. Live traffic (Windows ETW sensor, ntopng, geographic
+map) shipped as "Milestone 5: map" (PR #21), and the 3D view followed (PR #27). That 3D
+view is **not** the planned Milestone 5 topology. It has no server-side graph
+projection and no observed local links. It derives /24 plates from addresses, and it draws
+only measured flows from local hosts to remote endpoints. The original plan warned not to
+build topology before identity semantics were stable, and Milestone 4 is still open. The 3D
+view stays honest by labelling all derived structure. A real topology still needs
+Milestone 4 and real link collection.
+
+## Forward plan
+
+The order is set by dependencies. Remote management needs a trustworthy device identity
+and a trustworthy agent identity, so both come first.
+
+1. **Device identity & intelligence** (former Milestone 4). Human-owned name/alias,
+   tags, notes, owner/location, trust/approval state; per-field provenance (manual vs
+   discovered, so discovery never overwrites operator input); an identity-evidence view
+   built on `device_identities`; merge/split with audit records; secondary-address
+   matching in the Traffic Map. This is the anchor that agents, MeshCentral nodes,
+   Proxmox VMs and containers all map to.
+2. **Agent identity & enrollment.** Per-agent keys or certificates, one-time enrollment
+   tokens, revocation, rotation, `discovery_agents` keyed by enrolled identity, and
+   capability reporting. Retire the shared discovery token and the shared sensor token.
+   This is a hard prerequisite for any remote execution (see
+   [Remote management proposal](docs/REMOTE_MANAGEMENT.md)).
+3. **Remote management, phase 1.** Read-only endpoint presence and deep links/handoff
+   through the chosen execution layer. Every request is audited.
+4. **Remote management, phase 2.** Confirmed, capability-checked, time-bounded actions
+   with operator identity, output limits and immutable audit.
+5. **Discovery 2.0.** Multiple targets, scheduled scans, idempotent incremental reports.
+6. **Local topology.** LLDP/CDP/SNMP and switch-port awareness, gateway/ARP-derived
+   relationships, all with provenance and confidence, then a server-side graph projection
+   that the 3D view can render instead of derived /24 plates.
+7. **Proxmox, then Docker.** Read-only inventory first. Lifecycle actions reuse the
+   remote-management action pipeline. Docker access only through a protected socket proxy
+   or a mutually authenticated remote API.
+8. **Change intelligence.** Explainable unknown-device, identity, address, service and
+   offline/return events.
+9. **Operations & releases.** Versioned releases and changelog, licence, backup/restore,
+   retention, diagnostics bundle, upgrade/rollback, SBOM/provenance. Start versioning and
+   tagging as early as remote management ships agents, because agent upgrades need
+   releases.
+
+## Architecture
 
 ```text
-app/                         Next.js routes and shared design tokens
-components/                  Product-specific React UI
-lib/                         Typed frontend API boundary
-cmd/nerve-server/            Go control-plane entrypoint
-cmd/nerve-agent/             Native host discovery worker
-internal/
-  auth/                      Password and session handling
-  config/                    Environment configuration
-  discovery/                 Scan jobs, reconciliation, persistence
-  httpapi/                   Versioned HTTP API, middleware, realtime fan-out
-  platform/database/         PostgreSQL connection and migration runner
-migrations/                  Ordered PostgreSQL migrations
-deploy/                      Reverse-proxy configuration
+app/, components/, lib/      Next.js static UI; typed same-origin /api/v1 client
+cmd/nerve-server/            Go Core (API, SSE, migrations, traffic-check)
+cmd/nerve-agent/             Native discovery agent (Windows/Linux)
+native/windows-sensor/       .NET ETW traffic sensor (Windows service)
+internal/auth|config|discovery|httpapi|inventory|traffic|platform/database
+internal/integrations/<x>/   One package per external adapter (ntopng today)
+migrations/                  Ordered, checksummed PostgreSQL migrations; never edit applied ones
+deploy/                      Nginx reverse proxy
 ```
 
-Integrations will live under `internal/integrations/<adapter>`. Domain packages are introduced with their first real behavior instead of being generated empty.
-
-## Data model
-
-`entities` provides stable IDs, names, kinds, lifecycle status, and adapter metadata for graphable objects. Typed tables hold normalized fields for devices, interfaces, IP addresses, subnets, physical ports, services/endpoints, hypervisors/VMs, and container resources. `relationships` joins any two entities and records provenance, confidence, observation times, and manual confirmation.
-
-Immutable histories are kept in `observations`, `events`, `metrics`, and `audit_log`. Integrations, encrypted credentials, declared actions, and action runs are separated so secrets never enter browser responses or audit parameters. Authentication uses users, roles, user-role assignments, and hashed opaque sessions.
-
-## Milestone sequence
-
-1. **Foundation** — web shell, themes, Go API, PostgreSQL, migrations, authentication, SSE, health/readiness, Compose, documentation.
-2. **Entity model / inventory** — repository/query layer plus device, interface, address, service, relationship, event, and observation APIs; real sortable/filterable device inventory and detail views.
-3. **Local discovery** — subnet configuration, persistent scan jobs, host agent, reachability evidence, identity reconciliation, and discovered-device UI.
-3.5. **Reliability & quality gate** — database-enforced scan concurrency, consistent child lifecycle state, bounded login-rate state, shared realtime listener, faster reverse DNS, stronger CI production builds, dependency-update grouping, and current documentation.
-4. **Device intelligence** — edit/override device names and metadata, notes, tags, classification, approval/trust state, identity evidence, merge/split workflows, and explicit manual-vs-discovered provenance.
-4.5. **Discovery 2.0** — multiple discovery targets, scheduled scans, incremental progress/report batches, configurable probing, stronger agent identity, and durable service installation where appropriate.
-5. **Topology** — normalized graph projection API, XYFlow rendering, inspector, progressive disclosure, saved layouts, filters, provenance/confidence views, and realtime updates.
-6. **Proxmox** — credential configuration, read-only node/VM/LXC/network inventory first; audited start/stop/restart actions only after capability and permission checks are proven.
-7. **Docker** — host/container/network/port inventory first; audited lifecycle actions and logs after a protected socket-proxy or mutually authenticated remote API boundary exists.
-8. **Change intelligence / security** — explainable unknown-device, identity-change, address-change, service/port-change, offline/return events, and a first-class “what changed?” view.
-9. **Remote actions** — capability-driven, confirmed, idempotent where possible, timeout-bounded actions for VMs/containers and later managed endpoints.
-10. **Operations & releases** — backup/restore, retention, diagnostics bundle, upgrade/rollback guidance, release versioning, SBOM/provenance, and production deployment guidance.
-
-## Completed slices
-
-Milestone 2 delivered the read-only device inventory slice: normalized repositories and APIs, database-backed facets and queries, a sortable/filterable inventory table, and device detail sections for network identity, services, events, relationships, and notes.
-
-Milestone 3 delivered the first functional local-discovery slice. Administrators configure a bounded CIDR and queue a persistent scan from Devices. A token-authenticated native host agent claims work, performs bounded concurrent ICMP/TCP reachability checks, reads the host ARP/NDP cache, resolves reverse DNS, and reports per-host evidence without aborting on isolated failures. The Core reconciles primarily by MAC and secondarily by the subnet/IP binding, persists normalized devices/interfaces/addresses/observations/events, preserves first-seen timestamps, advances last-seen timestamps, and marks previously bound devices offline when they are absent from a successfully completed follow-up scan.
-
-Milestone 3.5 closes reliability gaps exposed by that first live slice. PostgreSQL now owns the single-active-scan invariant so concurrent callers cannot create duplicate active jobs. Local-discovery device, interface, and IP entities transition together between online and offline states. Guessed remote interface media types are removed rather than presenting invented facts. Reverse DNS is bounded and parallel. Realtime event delivery uses one PostgreSQL listener with bounded per-client buffers instead of holding a database connection per browser tab. Login rate-limit entries are pruned after their window expires. CI verifies Go tests/vet, PostgreSQL integration flows, frontend type/build checks, the actual web production image, the API image, and both Windows and Linux discovery-agent artifacts.
-
-Windows uses a native agent because Docker Desktop's Linux VM and layer-4 host networking cannot provide the host's real layer-2 neighbor view. Linux server/VM deployments use the same agent binary directly in the target host namespace. The Core container receives no raw-socket, host-network, or Docker-socket privileges.
+`entities` gives stable IDs, names, kinds and lifecycle status to everything graphable.
+Typed tables hold devices, interfaces, IP addresses, subnets, physical ports,
+services/endpoints, hypervisors/VMs and containers. `relationships` joins any two
+entities with provenance, confidence, observation times and manual confirmation.
+`observations`, `events`, `metrics` and `audit_log` are append-only histories.
+`integrations`/`integration_credentials` and `actions`/`action_runs` keep adapters,
+encrypted secrets and future control actions apart, so secrets never enter browser
+responses or audit parameters. Domain packages are added with their first real behaviour,
+never as empty scaffolding.
 
 ## Technical risks
 
-- Identity reconciliation must tolerate changing IPs, duplicate hostnames, randomized MACs, multiple interfaces, and contradictory sources. Milestone 4 must expose evidence instead of silently pretending certainty.
-- Network discovery is platform-specific and must run with narrowly scoped privileges.
-- Incremental scan progress must not double-count report retries; report ingestion should become idempotent before batched progress is introduced.
-- Dense topology needs server-side projection and frontend level-of-detail to avoid graph-wide rerenders.
-- Integration credentials require authenticated encryption, key rotation, redaction, and recovery guidance.
-- Realtime delivery now has bounded fan-out, but reconnect/resume semantics and event IDs are still required before realtime becomes critical UI state.
-- Control actions must enforce server-side capabilities, idempotency where possible, confirmation, timeouts, and immutable auditing.
-- Docker socket access is effectively root-equivalent and must not be granted directly to the web/API process.
-- Observation, event, metric, and audit retention must be defined before high-frequency discovery or telemetry is enabled.
+- Identity reconciliation must tolerate changing IPs, duplicate hostnames, randomized
+  MACs, multiple interfaces and contradictory sources, and show evidence rather than false
+  certainty.
+- Shared agent secrets are acceptable for read-only discovery on one host. They are not
+  acceptable once agents can execute actions.
+- Report ingestion must be idempotent before batched progress or remote command results
+  are introduced.
+- Dense topology needs server-side projection and level of detail. The 3D view currently
+  caps inventory at 1,000 devices and flows at 500 groups.
+- Integration credentials need authenticated encryption, key rotation, redaction and
+  recovery guidance before the first adapter stores one.
+- Realtime needs reconnect/resume semantics and event IDs before UI state depends on it.
+- Docker socket access is root-equivalent and must never reach the web/API process.
+- Observation, event, metric and audit retention must be defined before high-frequency
+  telemetry.
+- Dependencies: pgx is held at 5.10 until pgxmock supports pgx 5.11 (`.github/dependabot.yml`).
 
 ## Privileges and credentials
 
-Raw ICMP, ARP/NDP, low-port probing, passive packet capture, and NetFlow/sFlow listeners may require `CAP_NET_RAW`, `CAP_NET_ADMIN`, or privileged host networking depending on the deployment. Docker discovery/actions require a protected socket proxy or mutually authenticated remote API. Future switch changes and endpoint management require adapter-specific privileges.
+Raw ICMP, ARP/NDP, low-port probing, packet capture and flow listeners may need
+`CAP_NET_RAW`, `CAP_NET_ADMIN` or host networking, so they run in native host agents, never in
+the Core container. Windows ETW capture runs as a dedicated service. Its ingest
+listener is published only on host loopback and never through Nginx.
 
-Local discovery requires only the randomly generated agent token used to authenticate host-to-Core reports; it needs no external network credentials. Proxmox API tokens, Docker TLS/SSH material, SNMP communities, SSH/WinRM accounts, network-vendor API credentials, and GeoIP licensing are introduced only with their adapters.
-
-## Next concrete tasks
-
-After Milestone 3.5 is manually smoke-tested and merged, start **Milestone 4 — Device intelligence**. The first vertical slice should let an administrator inspect why NERVE believes a device identity, approve/classify it, add human-owned metadata without discovery overwriting it, and safely merge duplicate identities. Do not start topology until those identity and provenance semantics are stable enough that the graph is visualizing trusted state rather than raw discovery guesses.
-
-Vendor/OUI enrichment may be added from a versioned local database; observed MAC addresses must never be sent to a third party merely for enrichment.
+Discovery needs only the agent token. Proxmox tokens, Docker TLS/SSH material, SNMP
+communities, SSH/WinRM accounts, MeshCentral credentials and vendor API keys are
+introduced only with their adapters, encrypted at rest, and never sent to the browser.
+Observed MAC addresses are never sent to third parties for enrichment.
