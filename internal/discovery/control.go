@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/nerve-labs/nerve/internal/audit"
 )
 
 // RecoverStaleScans clears jobs that can no longer be healthy. The agent has a
@@ -35,7 +36,7 @@ func (r *Repository) RecoverStaleScans(ctx context.Context) error {
 // existing status enum predates an explicit cancelled state, so cancellation is
 // represented as failed with a clear operator-facing reason until the discovery
 // lifecycle schema is expanded in a later milestone.
-func (r *Repository) CancelActiveScan(ctx context.Context, targetID, userID string) (Scan, error) {
+func (r *Repository) CancelActiveScan(ctx context.Context, targetID, userID, sourceAddress string) (Scan, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return Scan{}, fmt.Errorf("begin discovery cancellation: %w", err)
@@ -60,6 +61,10 @@ func (r *Repository) CancelActiveScan(ctx context.Context, targetID, userID stri
 		VALUES ('discovery.scan.cancelled', 'info', 'discovery', 'Local network discovery was cancelled by an administrator.',
 			jsonb_build_object('scanId', $1::text, 'requestedBy', $2::text))`, scanID, userID); err != nil {
 		return Scan{}, fmt.Errorf("record discovery cancellation event: %w", err)
+	}
+	if err := audit.Write(ctx, tx, audit.Entry{ActorUserID: userID, Action: "discovery.scan.cancelled", TargetType: "discovery_scan",
+		TargetID: scanID, SourceAddress: sourceAddress, Parameters: map[string]any{"targetId": targetID}}); err != nil {
+		return Scan{}, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

@@ -62,6 +62,7 @@ func main() {
 
 	shutdownContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go api.RunMaintenance(shutdownContext, 30*time.Second)
 	go func() {
 		<-shutdownContext.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

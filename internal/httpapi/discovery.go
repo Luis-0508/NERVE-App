@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/nerve-labs/nerve/internal/authz"
 	"github.com/nerve-labs/nerve/internal/discovery"
 )
 
@@ -38,12 +39,8 @@ func (s *Server) discoveryState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) saveDiscoveryTarget(w http.ResponseWriter, r *http.Request) {
-	user, _, ok := s.requireSession(w, r)
+	user, ok := s.requirePermission(w, r, authz.DiscoveryManage)
 	if !ok {
-		return
-	}
-	if user.Role != "administrator" {
-		writeError(w, http.StatusForbidden, "administrator_required", "Administrator access is required.")
 		return
 	}
 	var input struct {
@@ -54,7 +51,7 @@ func (s *Server) saveDiscoveryTarget(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return
 	}
-	target, err := s.discovery.SaveTarget(r.Context(), input.Name, input.CIDR, user.ID)
+	target, err := s.discovery.SaveTarget(r.Context(), input.Name, input.CIDR, user.ID, s.clientAddress(r))
 	if errors.Is(err, discovery.ErrInvalidCIDR) {
 		writeError(w, http.StatusUnprocessableEntity, "invalid_subnet", err.Error())
 		return
@@ -68,16 +65,12 @@ func (s *Server) saveDiscoveryTarget(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) queueDiscoveryScan(w http.ResponseWriter, r *http.Request) {
-	user, _, ok := s.requireSession(w, r)
+	user, ok := s.requirePermission(w, r, authz.DiscoveryManage)
 	if !ok {
 		return
 	}
-	if user.Role != "administrator" {
-		writeError(w, http.StatusForbidden, "administrator_required", "Administrator access is required.")
-		return
-	}
 	var input struct {
-		TargetID    string `json:"targetId"`
+		TargetID     string `json:"targetId"`
 		CancelActive bool   `json:"cancelActive,omitempty"`
 	}
 	if err := decodeJSON(r, &input); err != nil || !isUUID(input.TargetID) {
@@ -86,7 +79,7 @@ func (s *Server) queueDiscoveryScan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if input.CancelActive {
-		scan, err := s.discovery.CancelActiveScan(r.Context(), input.TargetID, user.ID)
+		scan, err := s.discovery.CancelActiveScan(r.Context(), input.TargetID, user.ID, s.clientAddress(r))
 		if errors.Is(err, discovery.ErrNoJob) {
 			writeError(w, http.StatusConflict, "no_active_scan", "No active discovery scan exists.")
 			return
@@ -106,7 +99,7 @@ func (s *Server) queueDiscoveryScan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	scan, err := s.discovery.Queue(r.Context(), input.TargetID, user.ID)
+	scan, err := s.discovery.Queue(r.Context(), input.TargetID, user.ID, s.clientAddress(r))
 	if errors.Is(err, discovery.ErrScanActive) {
 		writeError(w, http.StatusConflict, "scan_active", err.Error())
 		return

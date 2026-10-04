@@ -74,7 +74,7 @@ func TestDiscoveryHardeningInvariants(t *testing.T) {
 	}
 
 	repository := discovery.NewRepository(pool)
-	target, err := repository.SaveTarget(ctx, "Hardening network", "192.168.178.0/24", userID)
+	target, err := repository.SaveTarget(ctx, "Hardening network", "192.168.178.0/24", userID, "")
 	if err != nil {
 		t.Fatalf("save discovery target: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestDiscoveryHardeningInvariants(t *testing.T) {
 		go func() {
 			defer workers.Done()
 			<-start
-			_, err := repository.Queue(ctx, target.ID, userID)
+			_, err := repository.Queue(ctx, target.ID, userID, "")
 			results <- err
 		}()
 	}
@@ -157,7 +157,7 @@ func TestDiscoveryHardeningInvariants(t *testing.T) {
 
 func runHardeningScan(t *testing.T, ctx context.Context, repository *discovery.Repository, targetID, userID, agentID string, observations []discovery.Observation) {
 	t.Helper()
-	scan, err := repository.Queue(ctx, targetID, userID)
+	scan, err := repository.Queue(ctx, targetID, userID, "")
 	if err != nil {
 		t.Fatalf("queue discovery scan: %v", err)
 	}

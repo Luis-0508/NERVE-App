@@ -12,6 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nerve-labs/nerve/internal/authz"
 )
 
 var (
@@ -22,9 +23,31 @@ var (
 )
 
 type User struct {
-	ID    string
-	Email string
-	Role  string
+	ID          string
+	Email       string
+	Role        string
+	Permissions authz.Set
+}
+
+// Can reports whether the user holds a permission through any assigned role.
+func (u User) Can(permission authz.Permission) bool {
+	return u.Permissions.Has(permission)
+}
+
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// loadPermissions returns the union of permissions granted by all roles of a user.
+func loadPermissions(ctx context.Context, db rowQuerier, userID string) (authz.Set, error) {
+	var keys []string
+	err := db.QueryRow(ctx, `SELECT COALESCE(array_agg(DISTINCT rp.permission_key ORDER BY rp.permission_key), '{}')
+		FROM user_roles ur JOIN role_permissions rp ON rp.role_id = ur.role_id
+		WHERE ur.user_id = $1::uuid`, userID).Scan(&keys)
+	if err != nil {
+		return nil, fmt.Errorf("load permissions: %w", err)
+	}
+	return authz.NewSet(keys...), nil
 }
 
 type Service struct {
@@ -73,6 +96,9 @@ func (s *Service) Bootstrap(ctx context.Context, email, password, remoteAddress 
 	if err != nil {
 		return User{}, "", time.Time{}, err
 	}
+	if user.Permissions, err = loadPermissions(ctx, tx, user.ID); err != nil {
+		return User{}, "", time.Time{}, err
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (actor_id, action, target_type, target_id, result, source_address) VALUES ($1::uuid, 'auth.bootstrap', 'user', $2, 'success', $3::inet)`, user.ID, user.ID, remoteAddress); err != nil {
 		return User{}, "", time.Time{}, fmt.Errorf("audit administrator setup: %w", err)
 	}
@@ -112,6 +138,9 @@ func (s *Service) Login(ctx context.Context, email, password, remoteAddress stri
 	if _, err := tx.Exec(ctx, `INSERT INTO audit_log (actor_id, action, target_type, target_id, result, source_address) VALUES ($1::uuid, 'auth.login', 'session', $2, 'success', $3::inet)`, user.ID, user.ID, remoteAddress); err != nil {
 		return User{}, "", time.Time{}, fmt.Errorf("audit login: %w", err)
 	}
+	if user.Permissions, err = loadPermissions(ctx, tx, user.ID); err != nil {
+		return User{}, "", time.Time{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return User{}, "", time.Time{}, fmt.Errorf("commit login: %w", err)
 	}
@@ -134,6 +163,9 @@ func (s *Service) Session(ctx context.Context, token string) (User, error) {
 		LIMIT 1`, digest[:]).Scan(&user.ID, &user.Email, &user.Role)
 	if err != nil {
 		return User{}, ErrInvalidSession
+	}
+	if user.Permissions, err = loadPermissions(ctx, s.db, user.ID); err != nil {
+		return User{}, err
 	}
 	_, _ = s.db.Exec(ctx, `UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1`, digest[:])
 	return user, nil

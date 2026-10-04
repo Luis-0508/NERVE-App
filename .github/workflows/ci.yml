@@ -61,11 +61,12 @@ jobs:
       - name: Run Go vet
         run: go vet ./...
 
-      - name: Run discovery integration tests
-        run: go test -tags=integration ./internal/discovery -count=1
+      - name: Run Go vet for integration tests
+        run: go vet -tags=integration ./...
 
-      - name: Run API integration smoke test
-        run: go test -tags=integration ./internal/httpapi -run '^TestAPIFlow$' -count=1
+      - name: Run PostgreSQL integration tests
+        # -p 1: packages share one database; migrations create the pgcrypto extension.
+        run: go test -tags=integration -count=1 -p 1 ./...
 
       - name: Run API process startup smoke test
         env:

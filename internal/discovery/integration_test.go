@@ -76,7 +76,7 @@ func TestDiscoveryInventoryFlow(t *testing.T) {
 
 	discoveryRepository := discovery.NewRepository(pool)
 	inventoryRepositories := inventory.NewRepositories(pool)
-	target, err := discoveryRepository.SaveTarget(ctx, "Integration network", "192.168.178.0/24", userID)
+	target, err := discoveryRepository.SaveTarget(ctx, "Integration network", "192.168.178.0/24", userID, "")
 	if err != nil {
 		t.Fatalf("save discovery target: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestDiscoveryInventoryFlow(t *testing.T) {
 
 func runSuccessfulScan(t *testing.T, ctx context.Context, repository *discovery.Repository, targetID, userID, agentID string, observations []discovery.Observation) {
 	t.Helper()
-	scan, err := repository.Queue(ctx, targetID, userID)
+	scan, err := repository.Queue(ctx, targetID, userID, "")
 	if err != nil {
 		t.Fatalf("queue discovery scan: %v", err)
 	}

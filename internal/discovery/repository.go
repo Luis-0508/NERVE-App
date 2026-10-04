@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nerve-labs/nerve/internal/audit"
 )
 
 var (
@@ -41,7 +42,8 @@ func NormalizeCIDR(value string) (string, int, error) {
 	return prefix.String(), total, nil
 }
 
-func (r *Repository) SaveTarget(ctx context.Context, name, cidr, userID string) (Target, error) {
+// SaveTarget upserts the discovery subnet and audits the change in the same transaction.
+func (r *Repository) SaveTarget(ctx context.Context, name, cidr, userID, sourceAddress string) (Target, error) {
 	normalized, _, err := NormalizeCIDR(cidr)
 	if err != nil {
 		return Target{}, err
@@ -50,8 +52,13 @@ func (r *Repository) SaveTarget(ctx context.Context, name, cidr, userID string) 
 	if name == "" {
 		name = normalized
 	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return Target{}, fmt.Errorf("begin discovery target: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
 	var target Target
-	err = r.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO discovery_targets (name, cidr, created_by)
 		VALUES ($1, $2::cidr, $3::uuid)
 		ON CONFLICT (cidr) DO UPDATE SET name = EXCLUDED.name, enabled = true, updated_at = now()
@@ -60,6 +67,13 @@ func (r *Repository) SaveTarget(ctx context.Context, name, cidr, userID string) 
 	)
 	if err != nil {
 		return Target{}, fmt.Errorf("save discovery target: %w", err)
+	}
+	if err := audit.Write(ctx, tx, audit.Entry{ActorUserID: userID, Action: "discovery.target.saved", TargetType: "discovery_target",
+		TargetID: target.ID, SourceAddress: sourceAddress, Parameters: map[string]any{"cidr": target.CIDR, "name": target.Name}}); err != nil {
+		return Target{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Target{}, fmt.Errorf("commit discovery target: %w", err)
 	}
 	return target, nil
 }
@@ -101,7 +115,8 @@ func (r *Repository) State(ctx context.Context) (State, error) {
 	return state, nil
 }
 
-func (r *Repository) Queue(ctx context.Context, targetID, userID string) (Scan, error) {
+// Queue creates a scan request and audits it in the same transaction.
+func (r *Repository) Queue(ctx context.Context, targetID, userID, sourceAddress string) (Scan, error) {
 	var active bool
 	if err := r.db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM discovery_scans WHERE status IN ('queued', 'running'))`).Scan(&active); err != nil {
 		return Scan{}, fmt.Errorf("check active discovery scans: %w", err)
@@ -109,8 +124,13 @@ func (r *Repository) Queue(ctx context.Context, targetID, userID string) (Scan, 
 	if active {
 		return Scan{}, ErrScanActive
 	}
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return Scan{}, fmt.Errorf("begin discovery scan: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
 	var scan Scan
-	err := r.db.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO discovery_scans (target_id, requested_by)
 		SELECT id, $2::uuid FROM discovery_targets WHERE id = $1::uuid AND enabled
 		RETURNING id::text, target_id::text, status, requested_at, addresses_total, addresses_reachable, error_count`, targetID, userID).Scan(
@@ -126,8 +146,15 @@ func (r *Repository) Queue(ctx context.Context, targetID, userID string) (Scan, 
 		}
 		return Scan{}, fmt.Errorf("queue discovery scan: %w", err)
 	}
-	if err := r.db.QueryRow(ctx, `SELECT cidr::text FROM discovery_targets WHERE id = $1::uuid`, targetID).Scan(&scan.TargetCIDR); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT cidr::text FROM discovery_targets WHERE id = $1::uuid`, targetID).Scan(&scan.TargetCIDR); err != nil {
 		return Scan{}, fmt.Errorf("read queued discovery target: %w", err)
+	}
+	if err := audit.Write(ctx, tx, audit.Entry{ActorUserID: userID, Action: "discovery.scan.requested", TargetType: "discovery_scan",
+		TargetID: scan.ID, SourceAddress: sourceAddress, Parameters: map[string]any{"targetId": targetID, "cidr": scan.TargetCIDR}}); err != nil {
+		return Scan{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Scan{}, fmt.Errorf("commit discovery scan: %w", err)
 	}
 	scan.Errors = []ScanError{}
 	return scan, nil
