@@ -27,7 +27,7 @@ export function TopologyInspector({ node, flows, stale, speed, date, onSelectFlo
           {device.operatingSystem && <Row label="Operating system" value={device.operatingSystem}/>}
           <Row label="Last seen" value={date(device.lastSeenAt)}/>
         </>}
-        {node.kind === "observed" && <Row label="Inventory" value="Not in the device inventory"/>}
+        {node.kind === "observed" && <Row label="Inventory" value="No device with this primary address"/>}
         {node.kind === "remote" && <>
           <Row label="Approximate location" value={[node.city, node.countryName].filter(Boolean).join(", ") || "Unknown"}/>
           <Row label="Location source" value={nodeFlows[0]?.remoteLocationSource === "dbip-city-lite" ? "DB-IP City Lite (approximate)" : nodeFlows[0]?.remoteLocationSource === "country-representative" ? "Country only" : "Unlocated"}/>

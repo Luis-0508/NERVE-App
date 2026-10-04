@@ -173,7 +173,7 @@ export class TopologyScene {
   constructor(private container: HTMLElement, private callbacks: SceneCallbacks) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.enabled = true; this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.domElement.className = "topology-canvas";
     this.renderer.domElement.tabIndex = 0;
     this.renderer.domElement.setAttribute("aria-label", "3D network map. Drag to orbit, right-drag or arrow keys to pan, scroll to zoom. Select a device or pin for details.");
@@ -319,6 +319,7 @@ export class TopologyScene {
     if (this.grid) { this.grid.geometry.dispose(); (this.grid.material as THREE.Material).dispose(); }
     this.floor.geometry.dispose(); this.floor.material.dispose(); this.plateGeometry.dispose();
     [this.plateMaterial, this.outlineMaterial, this.faintMaterial, this.bodyMaterial, this.ghostMaterial, this.ringMaterial, this.remoteMaterial].forEach(m => m.dispose());
+    this.sun.shadow.dispose();
     this.renderer.dispose(); this.renderer.forceContextLoss();
     this.renderer.domElement.remove(); this.labelRenderer.domElement.remove();
   }
@@ -553,7 +554,7 @@ export class TopologyScene {
       plate.scale.set(w, PLATE_HEIGHT, d); plate.position.set(x, PLATE_HEIGHT, z); plate.receiveShadow = true; plate.castShadow = true;
       const corners = [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2], [-w / 2, -d / 2]].map(([cx, cz]) => new THREE.Vector3(x + cx, PLATE_HEIGHT + .005, z + cz));
       const outline = new THREE.Line(new THREE.BufferGeometry().setFromPoints(corners), this.outlineMaterial);
-      const label = this.label(group.label, "plate", `${group.count} ${group.count === 1 ? "host" : "hosts"}`);
+      const label = this.label(group.label, "plate", `${group.count} ${group.count === 1 ? "host" : "hosts"} · address group`);
       label.position.set(x - w / 2, PLATE_HEIGHT, z + d / 2 + .9); label.center.set(0, 0);
       this.plates.add(plate, outline, label);
     }
@@ -587,7 +588,8 @@ export class TopologyScene {
     for (const node of t.nodes) {
       if (node.kind === "remote") { remotes.push(node); continue; }
       locals.push(node);
-      const key = this.shapeKey(node); byLayer.set(key, [...(byLayer.get(key) ?? []), node]);
+      const key = this.shapeKey(node), members = byLayer.get(key);
+      if (members) members.push(node); else byLayer.set(key, [node]);
     }
     const matrix = new THREE.Matrix4(), color = new THREE.Color(), scale = new THREE.Vector3(), rotation = new THREE.Quaternion();
     for (const key of Object.keys(this.layers) as ShapeKey[]) {
@@ -718,7 +720,7 @@ export class TopologyScene {
       let label = this.labelObjects.get(node.id);
       if (!wanted.has(node.id)) { if (label) label.visible = false; continue; }
       const detailed = node.id === this.selection || node.id === this.hovered;
-      const detail = !detailed ? undefined : node.kind === "remote" ? [node.city, node.countryName].filter(Boolean).join(", ") || "Location unknown" : node.kind === "observed" ? "Not in inventory" : node.ip;
+      const detail = !detailed ? undefined : node.kind === "remote" ? [node.city, node.countryName].filter(Boolean).join(", ") || "Location unknown" : node.kind === "observed" ? "No matching inventory device" : node.ip;
       if (!label || label.userData.text !== `${node.label}|${detail ?? ""}`) {
         if (label) { this.labels.remove(label); label.element.remove(); }
         label = this.label(node.label, node.kind, detail); label.userData.text = `${node.label}|${detail ?? ""}`; label.center.set(.5, 1);

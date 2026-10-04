@@ -9,7 +9,7 @@ flow inspector and diagnostics. The last chosen view is remembered in the browse
 | Element | Source | Provenance |
 | --- | --- | --- |
 | Devices | `GET /api/v1/devices` (up to 1,000, refreshed every 30 s) | Inventory |
-| Hosts marked "Not in inventory" | `localIp` of live flows without a matching device `primaryIpAddress` | Observed traffic |
+| Hosts marked "Seen in traffic" | `localIp` of live flows that is not the `primaryIpAddress` of any inventory device | Observed traffic |
 | Remote endpoints | `remoteIp` of live flows | Observed traffic |
 | Links and pulses | Live flow groups, aggregated per local host, remote IP and direction | Measured |
 | Plates | Derived /24 address block of each host (IPv6 and hosts without an address are grouped separately) | Derived, not a verified VLAN or segment |
@@ -18,7 +18,17 @@ flow inspector and diagnostics. The last chosen view is remembered in the browse
 
 NERVE does not yet record links between local devices, gateways or switches, so the view
 draws none. Devices classified as routers, switches or servers are placed at the back of
-their plate. They are not wired to other devices.
+their plate. They are not wired to other devices, and cables never pass through a gateway
+device: the shared uplink only means "traffic leaves the local site".
+
+Known limits of the derivation:
+
+- Only a device's primary address is matched. Traffic on a secondary address of an
+  inventory device appears as a separate "Seen in traffic" host.
+- When several devices share a primary address, traffic is attributed to the online,
+  most recently seen one; the others stay visible without traffic.
+- Inventory devices hidden by the device filter are not re-added as traffic-only hosts.
+- While the traffic source is unavailable, links are removed instead of showing stale flows.
 
 ## Visual encoding
 
@@ -29,8 +39,9 @@ their plate. They are not wired to other devices.
 - The status ring under each device uses the NERVE status colours. Offline devices are
   dimmed. Warning and starting rings pulse gently.
 - A globe floats above the network. It uses the same Natural Earth data as the World view,
-  so pins, land and the World map all show one geography. Pins that share a location stack
-  outward instead of moving.
+  so pins, land and the World map all show one geography. Up to six pins that share a
+  location stack outward. Further pins form small columns spiralling around that spot; the
+  spread is a display aid, not a location difference.
 - Each link runs from its device up to the uplink, then along a great-circle arc over the
   globe to its pin. When a local site is set, the uplink is that site on the globe, and the
   globe turns so the site faces the network. Without a local site, the uplink floats below

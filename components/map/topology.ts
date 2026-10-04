@@ -81,20 +81,29 @@ export function hash(value: string) {
 
 type Options = { devices: DeviceSummary[]; flows: TrafficFlow[]; deviceFilter?: "all" | "traffic" | "online"; site?: GeoPoint | null };
 
+// When several inventory devices report the same primary address, traffic belongs to the
+// online, most recently seen one; the others stay visible without traffic.
+function preferred(a: DeviceSummary, b: DeviceSummary) {
+  return Number(a.status === "online") - Number(b.status === "online") || (Date.parse(a.lastSeenAt) || 0) - (Date.parse(b.lastSeenAt) || 0) || b.id.localeCompare(a.id);
+}
+
 export function buildTopology({ devices, flows, deviceFilter = "all", site = null }: Options): Topology {
   const localByIP = new Map<string, TopologyNode>();
   const local: TopologyNode[] = [];
   const trafficIPs = new Set(flows.map(f => f.localIp));
+  const inventoryIPs = new Set(devices.map(d => d.primaryIpAddress).filter((ip): ip is string => !!ip));
   for (const device of devices) {
     if (deviceFilter === "online" && device.status !== "online") continue;
     if (deviceFilter === "traffic" && !(device.primaryIpAddress && trafficIPs.has(device.primaryIpAddress))) continue;
     const node: TopologyNode = { id: `device:${device.id}`, kind: "device", role: roleFor(device.classification), label: device.name, ip: device.primaryIpAddress, status: device.status, device, position: [0, 0, 0], bytesPerSecond: 0, flowIds: [] };
     local.push(node);
-    if (device.primaryIpAddress && !localByIP.has(device.primaryIpAddress)) localByIP.set(device.primaryIpAddress, node);
+    const ip = device.primaryIpAddress, holder = ip ? localByIP.get(ip) : undefined;
+    if (ip && (!holder || preferred(device, holder.device!) > 0)) localByIP.set(ip, node);
   }
-  // Hosts seen in traffic but absent from inventory stay visible, marked as observed-only.
+  // Hosts seen in traffic without an inventory device at that primary address stay visible as
+  // observed-only. Addresses of inventory devices hidden by the device filter are not relabelled.
   for (const ip of [...trafficIPs].sort()) {
-    if (localByIP.has(ip)) continue;
+    if (localByIP.has(ip) || inventoryIPs.has(ip)) continue;
     const node: TopologyNode = { id: `host:${ip}`, kind: "observed", role: "unknown", label: ip, ip, status: "unknown", position: [0, 0, 0], bytesPerSecond: 0, flowIds: [] };
     local.push(node); localByIP.set(ip, node);
   }
@@ -125,12 +134,15 @@ export function buildTopology({ devices, flows, deviceFilter = "all", site = nul
   }
   const remoteNodes = [...remotes.values()].sort((a, b) => a.id.localeCompare(b.id));
   // Pins sit exactly on their location; endpoints sharing a location stack outward instead of shifting.
+  // Beyond PIN_STACK_MAX, further columns spiral tightly around the spot so busy CDN cities stay bounded.
   const stacks = new Map<string, number>();
   for (const remote of remoteNodes) {
     if (!remote.located) { remote.position = unlocatedPoint(remote.ip!, globe); continue; }
-    const key = `${remote.lat!.toFixed(3)},${remote.lon!.toFixed(3)}`, level = stacks.get(key) ?? 0;
-    stacks.set(key, level + 1);
-    remote.position = globePoint(globe, remote.lat!, remote.lon!, PIN_HEIGHT + level * PIN_STACK);
+    const key = `${remote.lat!.toFixed(3)},${remote.lon!.toFixed(3)}`, index = stacks.get(key) ?? 0;
+    stacks.set(key, index + 1);
+    const column = Math.floor(index / PIN_STACK_MAX), level = index % PIN_STACK_MAX;
+    const [lat, lon] = column ? spiralOffset(remote.lat!, remote.lon!, column, globe.radius) : [remote.lat!, remote.lon!];
+    remote.position = globePoint(globe, lat, lon, PIN_HEIGHT + level * PIN_STACK);
     if (!remote.countryCode) continue;
     const direction = geoDirection(remote.lat!, remote.lon!), total = countryTotals.get(remote.countryCode) ?? { name: remote.countryName ?? remote.countryCode, bytes: 0, x: 0, y: 0, z: 0, n: 0 };
     total.bytes += remote.bytesPerSecond; total.x += direction[0]; total.y += direction[1]; total.z += direction[2]; total.n++;
@@ -201,7 +213,8 @@ function layoutGroups(local: TopologyNode[]): TopologyGroup[] {
 // --- Globe geometry. geoDirection matches three.js SphereGeometry UVs, so an equirectangular
 // texture, pins and arcs all agree on where a latitude/longitude is.
 const DEG = Math.PI / 180, TILT = 20 * DEG, DEFAULT_VIEW: GeoPoint = { lat: 30, lon: 10 };
-export const PIN_HEIGHT = 1.06, PIN_STACK = .035, PATH_SAMPLES = 48;
+export const PIN_HEIGHT = 1.06, PIN_STACK = .035, PIN_STACK_MAX = 6, PATH_SAMPLES = 48;
+const PIN_SPACING = .55, GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const add = (a: Vec3, b: Vec3, scale = 1): Vec3 => [a[0] + b[0] * scale, a[1] + b[1] * scale, a[2] + b[2] * scale];
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
 const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
@@ -233,6 +246,12 @@ function createGlobe(lanRadius: number, site: GeoPoint | null): Globe {
   // Without a local site the uplink floats off the surface, so no location is implied.
   const uplink = site ? globePoint(base, site.lat, site.lon) : add(center, facing, radius * 1.3);
   return { ...base, site, uplink, unlocated: add(center, [-1.55, -.3, .25], radius) };
+}
+// Vogel spiral around a location, spaced by pin size on the globe surface (display aid only).
+function spiralOffset(lat: number, lon: number, column: number, radius: number): [number, number] {
+  const distance = PIN_SPACING / radius / DEG * Math.sqrt(column), angle = column * GOLDEN_ANGLE;
+  const shiftedLat = Math.max(-89, Math.min(89, lat + distance * Math.cos(angle)));
+  return [shiftedLat, lon + distance * Math.sin(angle) / Math.max(.2, Math.cos(shiftedLat * DEG))];
 }
 function unlocatedPoint(ip: string, globe: Globe): Vec3 {
   const angle = hash(ip) * Math.PI * 2, r = 1 + hash(ip + "#") * 1.6;

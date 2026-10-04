@@ -78,6 +78,22 @@ assert.ok(linkPath(antipode.globe,start,antipode.nodes.find(n=>n.kind==='remote'
 assert.equal(buildTopology({devices,flows,deviceFilter:'online'}).nodes.some(n=>n.id==='device:d3'),false);
 assert.deepEqual(buildTopology({devices,flows,deviceFilter:'traffic'}).nodes.filter(n=>n.kind==='device').map(n=>n.id),['device:d4']);
 
+// A device hidden by the device filter must not reappear as an observed host "not in inventory".
+const offlineTraffic=buildTopology({devices,flows:[flow('o','192.168.1.3','8.8.4.4')],deviceFilter:'online'});
+assert.equal(offlineTraffic.nodes.some(n=>n.kind==='observed'),false,'filtered inventory devices are not relabelled as observed');
+assert.equal(offlineTraffic.links.length,0);
+// Duplicate primary addresses: traffic belongs to the online, most recently seen device.
+const dupes=buildTopology({devices:[device(7,{status:'offline',lastSeenAt:'2026-09-01T00:00:00Z'}),device(8,{primaryIpAddress:'192.168.1.7',lastSeenAt:'2026-09-02T00:00:00Z'})],flows:[flow('d','192.168.1.7','8.8.4.4')]});
+assert.deepEqual(dupes.links.map(l=>l.source),['device:d8'],'traffic attaches to the preferred duplicate');
+assert.equal(dupes.nodes.filter(n=>n.kind!=='remote').length,2,'both duplicates stay visible');
+// Many endpoints at one city stay bounded instead of forming a tower.
+const crowd=buildTopology({devices,site:berlin,flows:Array.from({length:120},(_,i)=>flow(`c${i}`,'192.168.1.4',`9.8.${i>>8}.${i&255}`,{remoteLatitude:50.11,remoteLongitude:8.68}))});
+const heights=crowd.nodes.filter(n=>n.kind==='remote').map(n=>Math.hypot(...n.position.map((v,i)=>v-crowd.globe.center[i]))/crowd.globe.radius);
+assert.ok(Math.max(...heights)<1.3,'stacked pins stay close to the globe');
+const pins=crowd.nodes.filter(n=>n.kind==='remote').map(n=>n.position);
+for(let i=0;i<pins.length;i++) for(let j=i+1;j<pins.length;j++) assert.ok(Math.hypot(...pins[i].map((v,k)=>v-pins[j][k]))>.05,'crowded pins do not coincide');
+assert.ok(pins.every(p=>Math.hypot(...p.map((v,i)=>v-globePoint(crowd.globe,50.11,8.68)[i]))<crowd.globe.radius*.5),'crowded pins stay near their location');
+
 const focus=neighborhood(topology,'device:d4',null);
 assert.ok(focus.active&&focus.nodes.has('remote:8.8.8.8')&&focus.links.size===2&&!focus.nodes.has('device:d1'));
 assert.equal(neighborhood(topology,null,'f4').links.size,1);
