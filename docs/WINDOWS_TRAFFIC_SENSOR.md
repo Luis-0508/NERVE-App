@@ -1,7 +1,8 @@
 # Native Windows traffic sensor
 
-Milestone 5 remains on `milestone-5-map`. A passing build or mocked flow test is
-not a Windows capture acceptance result. See the repair report for executed tests.
+The sensor shipped with the Traffic Map (PR #21). A passing build or mocked flow test
+is not a Windows capture acceptance result; use the acceptance steps below on a real
+host. Historical test records are in [TRAFFIC_MAP_REPAIR.md](TRAFFIC_MAP_REPAIR.md).
 
 ## Normal installation
 
@@ -172,6 +173,6 @@ listed in the main traffic setup document.
 
 If UAC is declined, Core/discovery still start and the map reports capture
 unavailable. Run `start.bat` again when the protected installation can be approved.
-Do not mark the milestone accepted from a connected service alone: compare the
+Do not treat a connected service alone as accepted capture: compare the
 controlled download's actual local/remote addresses, both directions and byte
 counts, then verify the real browser map and recovery.

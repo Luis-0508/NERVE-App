@@ -1,5 +1,10 @@
 # Traffic-Map: Reparaturbericht
 
+> Historical engineering log (September 2026, mostly German). It records what was tested
+> at the time and is not maintained. Current behaviour: [README](../README.md),
+> [Traffic sensor setup](TRAFFIC_SENSOR_SETUP.md), [Windows sensor](WINDOWS_TRAFFIC_SENSOR.md),
+> [Geolocation](TRAFFIC_GEOLOCATION.md), [3D view](TRAFFIC_MAP_3D.md).
+
 ## Ergänzung: Sensor-Einrichtung vom 12.09.2026
 
 Ausgangsbasis dieser Folgearbeit war Commit `278a050` auf `milestone-5-map`.

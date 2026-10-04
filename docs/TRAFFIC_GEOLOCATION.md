@@ -91,4 +91,4 @@ After `start.bat` rebuilds the images, open Map. An old site should be unset wit
 candidate available under Local site. Save your coordinates or consciously select
 Browser, inspect source/accuracy in Diagnostics, then reload. Generate real HTTPS
 traffic, inspect a remote point's city/region and location source, and compare dark,
-light and mobile views. Milestone 5 remains open until the user's visual acceptance.
+light and mobile views.
