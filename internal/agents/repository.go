@@ -308,6 +308,8 @@ func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519
 		if err := r.associateFromEnrollment(ctx, tx, agentID, deviceID, createdBy); err != nil {
 			return EnrollResult{}, err
 		}
+	} else if err := evaluateAssociation(ctx, tx, agentID); err != nil {
+		return EnrollResult{}, err
 	}
 	if err := audit.Write(ctx, tx, audit.Entry{ActorAgentID: agentID, Action: "agent.enrollment.completed", TargetType: "agent",
 		TargetID: agentID, SourceAddress: sourceAddress, Parameters: map[string]any{

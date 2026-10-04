@@ -400,3 +400,70 @@ func permissionList(set authz.Set) []string {
 	sort.Strings(items)
 	return items
 }
+
+func (s *Server) agentHeartbeat(w http.ResponseWriter, r *http.Request, principal agents.Principal, body []byte) {
+	var input agentproto.HeartbeatRequest
+	if err := decodeAgentBody(body, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	err := s.agents.Heartbeat(r.Context(), principal, input)
+	switch {
+	case errors.Is(err, agents.ErrInvalidInput):
+		writeError(w, http.StatusUnprocessableEntity, "invalid_heartbeat", err.Error())
+		return
+	case errors.Is(err, agents.ErrCredentialRevoked):
+		writeError(w, http.StatusUnauthorized, agentproto.CodeCredentialRevoked, "The agent credential was revoked. Re-enroll the agent.")
+		return
+	case err != nil:
+		s.logger.Error("record agent heartbeat", "error", err, "agent_id", principal.AgentID)
+		writeError(w, http.StatusInternalServerError, "heartbeat_failed", "The heartbeat could not be recorded.")
+		return
+	}
+	writeJSON(w, http.StatusOK, agentproto.HeartbeatResponse{ServerTime: time.Now().Unix(), HeartbeatIntervalSeconds: int(agents.HeartbeatInterval.Seconds())})
+}
+
+func (s *Server) updateAgentAssociation(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requirePermission(w, r, authz.AgentsManage)
+	if !ok {
+		return
+	}
+	agentID := r.PathValue("agentID")
+	if !isUUID(agentID) {
+		writeError(w, http.StatusBadRequest, "invalid_agent_id", "Agent ID must be a UUID.")
+		return
+	}
+	var input struct {
+		Action   string `json:"action"`
+		DeviceID string `json:"deviceId"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	agent, err := s.agents.UpdateAssociation(r.Context(), agentID, agents.AssociationAction{Action: input.Action, DeviceID: input.DeviceID}, s.actor(r, user))
+	if s.writeAgentError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, agent)
+}
+
+// deviceRemote lists remote-management endpoints for a device across all
+// providers, so the UI never needs to know which provider serves a capability.
+func (s *Server) deviceRemote(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requirePermission(w, r, authz.AgentsView); !ok {
+		return
+	}
+	deviceID := r.PathValue("deviceID")
+	if !isUUID(deviceID) {
+		writeError(w, http.StatusBadRequest, "invalid_device_id", "Device ID must be a UUID.")
+		return
+	}
+	endpoints, err := s.remote.DeviceEndpoints(r.Context(), deviceID)
+	if err != nil {
+		s.logger.Error("list device remote endpoints", "error", err)
+		writeError(w, http.StatusInternalServerError, "remote_unavailable", "Remote-management state could not be loaded.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"endpoints": endpoints})
+}

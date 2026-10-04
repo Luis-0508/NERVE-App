@@ -16,12 +16,14 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nerve-labs/nerve/internal/agentproto"
 	"github.com/nerve-labs/nerve/internal/agents"
 	"github.com/nerve-labs/nerve/internal/auth"
 	"github.com/nerve-labs/nerve/internal/config"
 	"github.com/nerve-labs/nerve/internal/discovery"
 	"github.com/nerve-labs/nerve/internal/integrations/ntopng"
 	"github.com/nerve-labs/nerve/internal/inventory"
+	"github.com/nerve-labs/nerve/internal/remote"
 	"github.com/nerve-labs/nerve/internal/traffic"
 )
 
@@ -33,6 +35,7 @@ type Server struct {
 	inventory      *inventory.Repositories
 	discovery      *discovery.Repository
 	agents         *agents.Repository
+	remote         *remote.Registry
 	eventHub       *eventHub
 	cfg            config.Config
 	logger         *slog.Logger
@@ -103,7 +106,7 @@ func (s *Server) SensorHandler() http.Handler {
 }
 
 func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version string, source traffic.Source) *Server {
-	return &Server{
+	server := &Server{
 		db:             db,
 		auth:           auth.NewService(db, cfg.SessionTTL),
 		inventory:      inventory.NewRepositories(db),
@@ -118,6 +121,8 @@ func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, ve
 		loginAttempts:  make(map[string]*rateWindow),
 		enrollAttempts: make(map[string]*rateWindow),
 	}
+	server.remote = remote.NewRegistry(remote.NativeProvider{Agents: server.agents})
+	return server
 }
 
 func (s *Server) Handler() http.Handler {
@@ -160,6 +165,9 @@ func (s *Server) Handler() http.Handler {
 	// Agent-authenticated API: Ed25519-signed requests only, never browser sessions.
 	mux.HandleFunc("POST /api/v1/agent/enroll", s.agentEnroll)
 	mux.HandleFunc("POST /api/v1/agent/identity", s.agentEndpoint(4<<10, s.agentIdentity))
+	mux.HandleFunc("POST /api/v1/agent/heartbeat", s.agentEndpoint(agentproto.MaxEnrollRequestBytes, s.agentHeartbeat))
+	mux.HandleFunc("POST /api/v1/agents/{agentID}/association", s.updateAgentAssociation)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/remote", s.deviceRemote)
 	return s.middleware(mux)
 }
 

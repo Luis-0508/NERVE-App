@@ -13,12 +13,10 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
-	"os/signal"
 	"regexp"
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/nerve-labs/nerve/internal/discovery"
@@ -46,25 +44,17 @@ type probeResult struct {
 }
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	os.Exit(runCLI(os.Args[1:]))
+}
+
+// newDiscoveryAgent configures the legacy discovery worker, which still
+// authenticates with the shared local NERVE_DISCOVERY_AGENT_TOKEN.
+func newDiscoveryAgent(apiURL, token string, logger *slog.Logger) *agent {
 	hostname, _ := os.Hostname()
-	apiURL := strings.TrimRight(envOr("NERVE_AGENT_API_URL", "http://localhost:3000/api/v1"), "/")
-	token := strings.TrimSpace(os.Getenv("NERVE_DISCOVERY_AGENT_TOKEN"))
-	if token == "" || token == "change-me" {
-		logger.Error("NERVE_DISCOVERY_AGENT_TOKEN is not configured")
-		os.Exit(1)
-	}
-	a := &agent{
+	return &agent{
 		apiURL: apiURL, token: token, id: hostname + "-" + runtime.GOOS,
 		hostname: hostname, client: &http.Client{Timeout: 20 * time.Second}, logger: logger,
 		heartbeatInterval: 10 * time.Second, claimInterval: 2 * time.Second,
-	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	logger.Info("NERVE discovery agent started", "id", a.id, "api", apiURL, "version", version)
-	if err := a.run(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		logger.Error("discovery agent stopped", "error", err)
-		os.Exit(1)
 	}
 }
 

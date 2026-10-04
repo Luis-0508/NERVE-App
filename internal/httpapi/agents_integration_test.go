@@ -232,3 +232,57 @@ func TestAgentEnrollmentAPIBoundaries(t *testing.T) {
 		t.Fatalf("discovery change not audited: %s", body)
 	}
 }
+
+func TestAgentHeartbeatAndDeviceRemoteAPI(t *testing.T) {
+	pool := testsupport.MigratedPool(t, "http_heartbeat")
+	testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
+	testsupport.CreateUser(t, pool, "tech@example.invalid", "integration-password", "technician")
+	deviceID := testsupport.CreateDevice(t, pool, "workstation", "02:00:00:00:00:31", "192.0.2.31")
+	server := httptest.NewServer(httpapi.New(pool, config.Config{AllowedOrigin: "http://localhost:3000", SessionTTL: time.Hour},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), "test").Handler())
+	defer server.Close()
+	admin := login(t, server.URL, "admin@example.invalid", "integration-password")
+	technician := login(t, server.URL, "tech@example.invalid", "integration-password")
+
+	var created struct {
+		Token string `json:"token"`
+	}
+	decodeResponse(t, doJSON(t, admin, http.MethodPost, server.URL+"/api/v1/agent-enrollments", `{}`, nil), &created)
+	agent := enrollTestAgent(t, server.URL, created.Token, "workstation")
+
+	heartbeat, _ := json.Marshal(agentproto.HeartbeatRequest{Capabilities: []string{"system.info", "remote.desktop", "bogus"},
+		Host: agentproto.HostFacts{Hostname: "workstation", OS: "windows", Architecture: "amd64", AgentVersion: "1.2.3",
+			Interfaces: []agentproto.InterfaceFact{{Name: "Ethernet", MAC: "02-00-00-00-00-31", Addresses: []string{"192.0.2.31"}}}}})
+	if status, body := send(t, http.DefaultClient, agent.request("POST", "/agent/heartbeat", heartbeat, agent.credentialID, nil)); status != http.StatusOK {
+		t.Fatalf("heartbeat status = %d: %s", status, body)
+	}
+	invalid, _ := json.Marshal(agentproto.HeartbeatRequest{Host: agentproto.HostFacts{OS: "linux"}})
+	if status, _ := send(t, http.DefaultClient, agent.request("POST", "/agent/heartbeat", invalid, agent.credentialID, nil)); status != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid heartbeat status = %d", status)
+	}
+
+	remote := readBody(doJSON(t, technician, http.MethodGet, server.URL+"/api/v1/devices/"+deviceID+"/remote", "", nil))
+	for _, expected := range []string{`"provider":"nerve-agent"`, `"endpointId":"` + agent.agentID + `"`, `"association":"automatic"`,
+		`"name":"system.info"`, `"name":"remote.desktop"`, `"online":true`, `"version":"1.2.3"`} {
+		if !strings.Contains(remote, expected) {
+			t.Fatalf("device remote response lacks %s: %s", expected, remote)
+		}
+	}
+	if strings.Contains(remote, "bogus") {
+		t.Fatal("unknown capability was exposed")
+	}
+
+	// Association changes need agents.manage.
+	denied := doJSON(t, technician, http.MethodPost, server.URL+"/api/v1/agents/"+agent.agentID+"/association", `{"action":"dismiss"}`, nil)
+	if denied.StatusCode != http.StatusForbidden {
+		t.Fatalf("technician association status = %d", denied.StatusCode)
+	}
+	_ = denied.Body.Close()
+	dismissed := readBody(doJSON(t, admin, http.MethodPost, server.URL+"/api/v1/agents/"+agent.agentID+"/association", `{"action":"dismiss"}`, nil))
+	if !strings.Contains(dismissed, `"status":"dismissed"`) {
+		t.Fatalf("dismiss response: %s", dismissed)
+	}
+	if body := readBody(doJSON(t, admin, http.MethodGet, server.URL+"/api/v1/devices/"+deviceID+"/remote", "", nil)); !strings.Contains(body, `"endpoints":[]`) {
+		t.Fatalf("dismissed agent still listed for device: %s", body)
+	}
+}
