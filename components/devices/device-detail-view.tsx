@@ -5,12 +5,13 @@ import { ArrowLeft, Cable, CircleOff, RefreshCw, Server, Waypoints } from "lucid
 import { useCallback, useEffect, useState } from "react";
 import { APIError, api } from "@/lib/api";
 import type { DeviceDetail, NerveEvent } from "@/lib/types";
+import { DeviceRemotePanel } from "@/components/remote/device-remote-panel";
 import { DeviceStatus } from "./device-status";
 
-type Tab = "overview" | "network" | "services" | "events" | "relationships" | "notes";
+type Tab = "overview" | "network" | "services" | "remote" | "events" | "relationships" | "notes";
 const tabs: Array<{ id: Tab; label: string }> = [
   { id: "overview", label: "Overview" }, { id: "network", label: "Network" },
-  { id: "services", label: "Services" }, { id: "events", label: "Events" },
+  { id: "services", label: "Services" }, { id: "remote", label: "Remote" }, { id: "events", label: "Events" },
   { id: "relationships", label: "Relationships" }, { id: "notes", label: "Notes" },
 ];
 
@@ -36,6 +37,7 @@ export function DeviceDetailView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
+  const [permissions, setPermissions] = useState<string[]>([]);
 
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("id");
@@ -47,8 +49,8 @@ export function DeviceDetailView() {
     if (!deviceID) return;
     setLoading(true); setError(null); setAuthRequired(false);
     try {
-      const [nextDetail, nextEvents] = await Promise.all([api.device(deviceID), api.events(25, deviceID)]);
-      setDetail(nextDetail); setEvents(nextEvents.items);
+      const [nextDetail, nextEvents, session] = await Promise.all([api.device(deviceID), api.events(25, deviceID), api.session()]);
+      setDetail(nextDetail); setEvents(nextEvents.items); setPermissions(session.user?.permissions ?? []);
     } catch (requestError) {
       if (requestError instanceof APIError && requestError.status === 401) setAuthRequired(true);
       else if (requestError instanceof APIError && requestError.status === 404) setError("The requested device does not exist.");
@@ -83,6 +85,7 @@ export function DeviceDetailView() {
       {tab === "overview" && <OverviewTab detail={detail} />}
       {tab === "network" && <NetworkTab detail={detail} />}
       {tab === "services" && <ServicesTab detail={detail} />}
+      {tab === "remote" && <DeviceRemotePanel deviceId={device.id} permissions={permissions} />}
       {tab === "events" && <EventsTab events={events} />}
       {tab === "relationships" && <RelationshipsTab detail={detail} />}
       {tab === "notes" && <NotesTab notes={device.notes} />}

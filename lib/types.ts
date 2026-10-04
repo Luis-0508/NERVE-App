@@ -17,7 +17,7 @@ export type NerveEvent = {
 };
 
 export type EventList = { items: NerveEvent[] };
-export type Session = { authenticated: boolean; user?: { id: string; email: string; role: string } };
+export type Session = { authenticated: boolean; user?: { id: string; email: string; role: string; permissions: string[] } };
 
 export type DeviceStatus = "online" | "offline" | "warning" | "unknown" | "stopped" | "starting";
 
@@ -118,3 +118,79 @@ export type TrafficDirection = "inbound" | "outbound";
 export type TrafficFlow = { id: string; localIp: string; remoteIp: string; localPort: number; remotePort: number; localPorts: number[]; remotePorts: number[]; flowCount: number; direction: TrafficDirection; protocol: string; application: string; bytes: number; bytesPerSecond: number; firstSeenAt: string; lastSeenAt: string; remoteCountryCode?: string; remoteCountryName?: string; remoteLatitude?: number; remoteLongitude?: number; remoteCity?: string; remoteRegion?: string; remoteLocationSource?: "dbip-city-lite" | "country-representative" };
 export type TrafficCapture = { mode: string; interfaceId: string; interfaceName?: string; visibility: string; eventsLost?: number; backendStage?: string; backendError?: number };
 export type TrafficSnapshot = { capture?: TrafficCapture; generatedAt: string; source: string; flows: TrafficFlow[]; truncated: boolean; sampledFlows: number; sourceTotalFlows: number; summary: { activeFlows: number; aggregatedFlows: number; unlocatedFlows: number; bytesPerSecond: number; inboundBytesPerSecond: number; outboundBytesPerSecond: number } };
+
+export type AssociationStatus = "unassociated" | "candidate" | "automatic" | "confirmed" | "dismissed";
+export type AssociationEvidence = { deviceId: string; deviceName?: string; strength: "strong" | "weak" | "operator"; note?: string; signals: Array<{ type: string; value: string }> };
+
+export type ManagementAgent = {
+  id: string;
+  displayName: string;
+  status: "active" | "revoked" | "removed";
+  online: boolean;
+  hostname?: string;
+  os?: string;
+  osVersion?: string;
+  architecture?: string;
+  agentVersion?: string;
+  capabilities: string[];
+  macAddresses: string[];
+  ipAddresses: string[];
+  lastIp?: string;
+  lastError?: string;
+  firstEnrolledAt: string;
+  enrolledAt: string;
+  lastHeartbeatAt?: string;
+  lastSeenAt?: string;
+  device?: { id: string; name: string };
+  association: { status: AssociationStatus; evidence: AssociationEvidence[]; associatedAt?: string };
+  credential?: { id: string; fingerprint: string; createdAt: string };
+};
+
+export type AgentEnrollment = {
+  id: string;
+  displayName?: string;
+  deviceId?: string;
+  targetAgentId?: string;
+  createdByEmail?: string;
+  createdAt: string;
+  expiresAt: string;
+  state: "pending" | "used" | "expired" | "revoked";
+  usedAt?: string;
+  enrolledAgentId?: string;
+};
+
+export type RemoteCapability = { name: string; label: string; risk: "read_only" | "privileged" | "interactive"; description: string; executable: boolean };
+
+export type RemoteEndpoint = {
+  provider: string;
+  endpointId: string;
+  displayName: string;
+  status: string;
+  online: boolean;
+  version?: string;
+  lastSeenAt?: string;
+  association: AssociationStatus;
+  capabilities: RemoteCapability[];
+};
+
+export type RemoteCommandStatus = "queued" | "claimed" | "running" | "succeeded" | "failed" | "timed_out" | "cancelled" | "expired";
+
+export type RemoteCommand = {
+  id: string;
+  provider: string;
+  agentId: string;
+  agentName: string;
+  deviceId?: string;
+  type: string;
+  parameters: Record<string, unknown>;
+  requestedByEmail?: string;
+  requestedAt: string;
+  expiresAt: string;
+  timeoutSeconds: number;
+  status: RemoteCommandStatus;
+  completedAt?: string;
+  failureCode?: string;
+  failureReason?: string;
+  resultPruned?: boolean;
+  result?: { output?: unknown; outputTruncated: boolean; outputBytes: number; submittedAt: string };
+};
