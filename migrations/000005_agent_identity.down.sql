@@ -1,0 +1,11 @@
+DROP INDEX IF EXISTS audit_log_agent_time_idx;
+DROP INDEX IF EXISTS audit_log_target_idx;
+ALTER TABLE audit_log DROP COLUMN IF EXISTS actor_agent_id;
+DROP TABLE IF EXISTS agent_request_nonces;
+DROP TABLE IF EXISTS agent_enrollments;
+DROP FUNCTION IF EXISTS guard_agent_enrollment_update();
+DROP TABLE IF EXISTS agent_credentials;
+DROP FUNCTION IF EXISTS guard_agent_credential_update();
+DROP TABLE IF EXISTS agents;
+DROP TABLE IF EXISTS role_permissions;
+DROP TABLE IF EXISTS permissions;

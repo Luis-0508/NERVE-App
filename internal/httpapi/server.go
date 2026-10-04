@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nerve-labs/nerve/internal/agents"
 	"github.com/nerve-labs/nerve/internal/auth"
 	"github.com/nerve-labs/nerve/internal/config"
 	"github.com/nerve-labs/nerve/internal/discovery"
@@ -27,19 +28,25 @@ import (
 const sessionCookie = "nerve_session"
 
 type Server struct {
-	db            *pgxpool.Pool
-	auth          *auth.Service
-	inventory     *inventory.Repositories
-	discovery     *discovery.Repository
-	eventHub      *eventHub
-	cfg           config.Config
-	logger        *slog.Logger
-	startedAt     time.Time
-	version       string
-	traffic       traffic.Source
-	sensor        *traffic.SensorStore
-	loginMu       sync.Mutex
-	loginAttempts map[string]*rateWindow
+	db             *pgxpool.Pool
+	auth           *auth.Service
+	inventory      *inventory.Repositories
+	discovery      *discovery.Repository
+	agents         *agents.Repository
+	eventHub       *eventHub
+	cfg            config.Config
+	logger         *slog.Logger
+	startedAt      time.Time
+	version        string
+	traffic        traffic.Source
+	sensor         *traffic.SensorStore
+	loginMu        sync.Mutex
+	loginAttempts  map[string]*rateWindow
+	enrollAttempts map[string]*rateWindow
+
+	// agentLifecycleHooks run inside the revoke/remove transaction.
+	agentLifecycleHooks []agents.LifecycleHook
+	maintenanceTasks    []func(context.Context) error
 }
 
 type rateWindow struct {
@@ -53,9 +60,10 @@ type sessionResponse struct {
 }
 
 type userResponse struct {
-	ID    string `json:"id"`
-	Email string `json:"email"`
-	Role  string `json:"role"`
+	ID          string   `json:"id"`
+	Email       string   `json:"email"`
+	Role        string   `json:"role"`
+	Permissions []string `json:"permissions"`
 }
 
 type eventResponse struct {
@@ -96,17 +104,19 @@ func (s *Server) SensorHandler() http.Handler {
 
 func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, version string, source traffic.Source) *Server {
 	return &Server{
-		db:            db,
-		auth:          auth.NewService(db, cfg.SessionTTL),
-		inventory:     inventory.NewRepositories(db),
-		discovery:     discovery.NewRepository(db),
-		eventHub:      newEventHub(db, logger),
-		cfg:           cfg,
-		logger:        logger,
-		startedAt:     time.Now().UTC(),
-		version:       version,
-		traffic:       source,
-		loginAttempts: make(map[string]*rateWindow),
+		db:             db,
+		auth:           auth.NewService(db, cfg.SessionTTL),
+		inventory:      inventory.NewRepositories(db),
+		discovery:      discovery.NewRepository(db),
+		agents:         agents.NewRepository(db),
+		eventHub:       newEventHub(db, logger),
+		cfg:            cfg,
+		logger:         logger,
+		startedAt:      time.Now().UTC(),
+		version:        version,
+		traffic:        source,
+		loginAttempts:  make(map[string]*rateWindow),
+		enrollAttempts: make(map[string]*rateWindow),
 	}
 }
 
@@ -139,6 +149,17 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/{scanID}/report", s.discoveryAgentReport)
 	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/{scanID}/complete", s.discoveryAgentComplete)
 	mux.HandleFunc("GET /api/v1/stream", s.stream)
+	mux.HandleFunc("GET /api/v1/audit", s.auditLog)
+	mux.HandleFunc("GET /api/v1/agents", s.listAgents)
+	mux.HandleFunc("GET /api/v1/agents/{agentID}", s.agentDetail)
+	mux.HandleFunc("POST /api/v1/agents/{agentID}/revoke", s.revokeAgent)
+	mux.HandleFunc("POST /api/v1/agents/{agentID}/remove", s.removeAgent)
+	mux.HandleFunc("GET /api/v1/agent-enrollments", s.listEnrollments)
+	mux.HandleFunc("POST /api/v1/agent-enrollments", s.createEnrollment)
+	mux.HandleFunc("POST /api/v1/agent-enrollments/{enrollmentID}/revoke", s.revokeEnrollment)
+	// Agent-authenticated API: Ed25519-signed requests only, never browser sessions.
+	mux.HandleFunc("POST /api/v1/agent/enroll", s.agentEnroll)
+	mux.HandleFunc("POST /api/v1/agent/identity", s.agentEndpoint(4<<10, s.agentIdentity))
 	return s.middleware(mux)
 }
 
@@ -433,21 +454,26 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, token string, expiresAt
 }
 
 func (s *Server) allowLogin(address string) bool {
+	return s.allowAttempt(s.loginAttempts, address, 8)
+}
+
+// allowAttempt applies a fixed 15-minute window per client address.
+func (s *Server) allowAttempt(attempts map[string]*rateWindow, address string, limit int) bool {
 	s.loginMu.Lock()
 	defer s.loginMu.Unlock()
 	now := time.Now()
-	for key, window := range s.loginAttempts {
+	for key, window := range attempts {
 		if now.Sub(window.started) >= 15*time.Minute {
-			delete(s.loginAttempts, key)
+			delete(attempts, key)
 		}
 	}
-	window, exists := s.loginAttempts[address]
+	window, exists := attempts[address]
 	if !exists {
-		s.loginAttempts[address] = &rateWindow{started: now, count: 1}
+		attempts[address] = &rateWindow{started: now, count: 1}
 		return true
 	}
 	window.count++
-	return window.count <= 8
+	return window.count <= limit
 }
 
 func (s *Server) clearLoginAttempts(address string) {
@@ -457,7 +483,7 @@ func (s *Server) clearLoginAttempts(address string) {
 }
 
 func authenticatedResponse(user auth.User) sessionResponse {
-	return sessionResponse{Authenticated: true, User: &userResponse{ID: user.ID, Email: user.Email, Role: user.Role}}
+	return sessionResponse{Authenticated: true, User: &userResponse{ID: user.ID, Email: user.Email, Role: user.Role, Permissions: permissionList(user.Permissions)}}
 }
 
 func decodeJSON(r *http.Request, destination any) error {
