@@ -106,3 +106,11 @@ func TestInterfaceRepositoryGroupsAddresses(t *testing.T) {
 		t.Fatalf("unmet database expectation: %v", err)
 	}
 }
+
+func TestEscapeLike(t *testing.T) {
+	for input, want := range map[string]string{"00_11": `00\_11`, "50%": `50\%`, `a\b`: `a\b`, "plain": "plain"} {
+		if got := escapeLike(input); got != want {
+			t.Fatalf("escapeLike(%q) = %q, want %q", input, got, want)
+		}
+	}
+}

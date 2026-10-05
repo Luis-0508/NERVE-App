@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -100,7 +101,7 @@ func (r *DeviceRepository) List(ctx context.Context, params DeviceListParams) (D
 		ORDER BY %s %s NULLS LAST, e.id
 		LIMIT $4 OFFSET $5`, orderBy, direction)
 
-	rows, err := r.db.Query(ctx, query, params.Search, params.Status, params.Classification, params.Limit, params.Offset, params.Trust, params.Tag)
+	rows, err := r.db.Query(ctx, query, escapeLike(params.Search), params.Status, params.Classification, params.Limit, params.Offset, params.Trust, params.Tag)
 	if err != nil {
 		return DeviceList{}, fmt.Errorf("query devices: %w", err)
 	}
@@ -193,4 +194,10 @@ func (r *DeviceRepository) Facets(ctx context.Context) (DeviceFacets, error) {
 		return DeviceFacets{}, fmt.Errorf("iterate device facets: %w", err)
 	}
 	return result, nil
+}
+
+// escapeLike makes a search term match literally inside ILIKE patterns
+// (PostgreSQL's default escape character is the backslash).
+func escapeLike(value string) string {
+	return strings.NewReplacer(`\`, `\`, `%`, `\%`, `_`, `\_`).Replace(value)
 }

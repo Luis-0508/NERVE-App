@@ -525,6 +525,10 @@ func decodeJSON(r *http.Request, destination any) error {
 	if err := decoder.Decode(destination); err != nil {
 		return fmt.Errorf("invalid JSON request: %w", err)
 	}
+	// Exactly one JSON value: reject trailing data such as `{"a":1}garbage`.
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return errors.New("invalid JSON request: unexpected data after the JSON value")
+	}
 	return nil
 }
 

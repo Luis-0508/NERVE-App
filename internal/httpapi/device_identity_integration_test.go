@@ -59,6 +59,11 @@ func TestDeviceMetadataAndTrustAPI(t *testing.T) {
 	if code, _ := status(admin, metadataURL, `{"secret":"x"}`); code != http.StatusBadRequest {
 		t.Fatalf("unknown field = %d", code)
 	}
+	for _, body := range []string{`{"notes":"a"}garbage`, `{"notes":"a"}{"notes":"b"}`, `null`} {
+		if code, _ := status(admin, metadataURL, body); code != http.StatusBadRequest {
+			t.Fatalf("malformed body %s = %d", body, code)
+		}
+	}
 	// null clears the manual name; the discovered name becomes effective again.
 	if code, body := status(admin, metadataURL, `{"displayName":null}`); code != http.StatusOK || !strings.Contains(body, `"name":"desktop-abc123"`) {
 		t.Fatalf("clear name = %d: %s", code, body)

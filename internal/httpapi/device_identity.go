@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 
 	"github.com/nerve-labs/nerve/internal/auth"
@@ -63,8 +62,7 @@ func (s *Server) updateDeviceMetadata(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var fields map[string]json.RawMessage
-	decoder := json.NewDecoder(io.LimitReader(r.Body, 64<<10))
-	if err := decoder.Decode(&fields); err != nil {
+	if err := decodeJSON(r, &fields); err != nil || fields == nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", "invalid JSON request")
 		return
 	}

@@ -248,7 +248,7 @@ func TestInventorySearchUsesManualMetadataAndAllAddresses(t *testing.T) {
 	scan(t, pool, adminID, discovery.Observation{Address: "192.0.2.140", Reachable: true, MAC: "02:00:00:00:00:40", Method: "icmp"})
 
 	inv := inventory.NewRepositories(pool).Devices
-	for search, want := range map[string]int{"accounting": 1, "finance": 1, "00:00:00:40": 1, "192.0.2.140": 1, "192.0.2.40": 1, "host-": 2} {
+	for search, want := range map[string]int{"accounting": 1, "finance": 1, "00:00:00:40": 1, "192.0.2.140": 1, "192.0.2.40": 1, "host-": 2, "00_00": 0, "%": 0} {
 		params, _ := inventory.NormalizeListParams(inventory.DeviceListParams{Search: search})
 		list, err := inv.List(ctx, params)
 		if err != nil {
@@ -266,4 +266,27 @@ func TestInventorySearchUsesManualMetadataAndAllAddresses(t *testing.T) {
 	if err != nil || strings.Join(facets.Tags, ",") != "finance" || len(facets.TrustStates) != 2 {
 		t.Fatalf("facets: %+v %v", facets, err)
 	}
+}
+
+func TestEffectiveNameFollowsHostnameWithoutDiscoveredName(t *testing.T) {
+	pool := testsupport.MigratedPool(t, "devices_namesync")
+	ctx := context.Background()
+	deviceID := testsupport.CreateDevice(t, pool, "old-name", "02:00:00:00:00:60", "")
+	if _, err := pool.Exec(ctx, `UPDATE devices SET discovered_name = NULL WHERE entity_id = $1::uuid`, deviceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE devices SET hostname = 'new-name' WHERE entity_id = $1::uuid`, deviceID); err != nil {
+		t.Fatal(err)
+	}
+	var name string
+	_ = pool.QueryRow(ctx, `SELECT name FROM entities WHERE id = $1::uuid`, deviceID).Scan(&name)
+	if name != "new-name" {
+		t.Fatalf("entity name did not follow the hostname: %q", name)
+	}
+	// Multi-byte values are truncated on a character boundary, not mid-rune.
+	tx, _ := pool.Begin(ctx)
+	if err := devices.RecordAttribute(ctx, tx, deviceID, "operating_system", "test", strings.Repeat("ü", 300), 10); err != nil {
+		t.Fatalf("long multi-byte value: %v", err)
+	}
+	_ = tx.Commit(ctx)
 }

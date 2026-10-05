@@ -86,7 +86,7 @@ END;
 $$;
 
 CREATE TRIGGER devices_entity_name_sync
-AFTER UPDATE OF display_name, discovered_name ON devices
+AFTER UPDATE OF display_name, discovered_name, hostname ON devices
 FOR EACH ROW EXECUTE FUNCTION sync_device_entity_name();
 
 -- Operator tags: short, lower-case labels.

@@ -33,8 +33,8 @@ func RecordAttribute(ctx context.Context, tx pgx.Tx, deviceID, attribute, source
 	if value == "" {
 		return nil
 	}
-	if len(value) > 256 {
-		value = value[:256]
+	if runes := []rune(value); len(runes) > 256 {
+		value = string(runes[:256])
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO device_attributes (device_id, attribute, source, value, confidence)
 		VALUES ($1::uuid, $2, $3, $4, $5)
