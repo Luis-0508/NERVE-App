@@ -10,6 +10,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+// maxListOffset bounds paging so a request cannot make PostgreSQL skip an
+// arbitrarily large result range.
+const maxListOffset = 100000
+
 var (
 	ErrNotFound    = errors.New("inventory entity not found")
 	ErrInvalidSort = errors.New("unsupported device sort")
@@ -232,6 +236,9 @@ func NormalizeListParams(params DeviceListParams) (DeviceListParams, error) {
 	}
 	if params.Offset < 0 {
 		return DeviceListParams{}, errors.New("offset must not be negative")
+	}
+	if params.Offset > maxListOffset {
+		return DeviceListParams{}, fmt.Errorf("offset must not exceed %d; narrow the search instead", maxListOffset)
 	}
 	return params, nil
 }

@@ -114,3 +114,12 @@ func TestEscapeLike(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeListParamsBoundsOffset(t *testing.T) {
+	if _, err := NormalizeListParams(DeviceListParams{Offset: maxListOffset}); err != nil {
+		t.Fatalf("maximum offset rejected: %v", err)
+	}
+	if _, err := NormalizeListParams(DeviceListParams{Offset: maxListOffset + 1}); err == nil {
+		t.Fatal("offset above the maximum was accepted")
+	}
+}
