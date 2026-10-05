@@ -48,6 +48,13 @@ func validUUIDs(values []string) bool {
 // belong to two. Observations and events stay with the original device:
 // they cannot be attributed reliably after the fact.
 func (s *Service) Split(ctx context.Context, sourceID string, request SplitRequest, actor Actor) (SplitResult, error) {
+	sourceID = strings.ToLower(strings.TrimSpace(sourceID))
+	for index := range request.InterfaceIDs {
+		request.InterfaceIDs[index] = strings.ToLower(strings.TrimSpace(request.InterfaceIDs[index]))
+	}
+	for index := range request.IdentityIDs {
+		request.IdentityIDs[index] = strings.ToLower(strings.TrimSpace(request.IdentityIDs[index]))
+	}
 	if len(request.InterfaceIDs) == 0 && len(request.IdentityIDs) == 0 {
 		return SplitResult{}, fmt.Errorf("%w: choose at least one interface or identity to move", ErrInvalidInput)
 	}
@@ -74,8 +81,8 @@ func (s *Service) Split(ctx context.Context, sourceID string, request SplitReque
 
 	var foreignInterfaces, foreignIdentities int
 	if err := tx.QueryRow(ctx, `SELECT
-		(SELECT count(*) FROM unnest($2::uuid[]) id WHERE NOT EXISTS (SELECT 1 FROM network_interfaces WHERE entity_id = id AND device_id = $1::uuid)),
-		(SELECT count(*) FROM unnest($3::uuid[]) id WHERE NOT EXISTS (SELECT 1 FROM device_identities WHERE device_identities.id = id AND device_id = $1::uuid AND identity_type <> 'agent'))`,
+		(SELECT count(*) FROM unnest($2::uuid[]) AS selected(id) WHERE NOT EXISTS (SELECT 1 FROM network_interfaces ni WHERE ni.entity_id = selected.id AND ni.device_id = $1::uuid)),
+		(SELECT count(*) FROM unnest($3::uuid[]) AS selected(id) WHERE NOT EXISTS (SELECT 1 FROM device_identities di WHERE di.id = selected.id AND di.device_id = $1::uuid AND di.identity_type <> 'agent'))`,
 		sourceID, request.InterfaceIDs, request.IdentityIDs).Scan(&foreignInterfaces, &foreignIdentities); err != nil {
 		return SplitResult{}, fmt.Errorf("check split selection: %w", err)
 	}

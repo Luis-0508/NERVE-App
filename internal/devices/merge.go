@@ -64,6 +64,7 @@ func reasonText(reason string) (string, error) {
 // to the target; the source row stays as a tombstone (merged_into), and a
 // device_merges record keeps a snapshot of its human-owned metadata.
 func (s *Service) Merge(ctx context.Context, sourceID, targetID, reason string, actor Actor) (MergeResult, error) {
+	sourceID, targetID = strings.ToLower(strings.TrimSpace(sourceID)), strings.ToLower(strings.TrimSpace(targetID))
 	if sourceID == targetID {
 		return MergeResult{}, ErrSameDevice
 	}

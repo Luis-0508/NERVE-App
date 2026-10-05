@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/nerve-labs/nerve/internal/audit"
 )
@@ -101,10 +102,16 @@ func (s *Service) Duplicates(ctx context.Context, deviceID string, limit int) ([
 			WHERE (NULLIF($1, '') IS NULL OR a.device_id = NULLIF($1, '')::uuid OR b.device_id = NULLIF($1, '')::uuid)
 			AND NOT EXISTS (SELECT 1 FROM device_duplicate_dismissals x WHERE x.device_a = a.device_id AND x.device_b = b.device_id)
 			GROUP BY 1, 2
+			-- Drop pairs classifyDuplicate would reject before the row cap, so weak
+			-- overlaps (DHCP churn, shared hostnames) cannot crowd out real ones.
+			HAVING bool_or(a.type IN ('machine', 'serial', 'mac'))
+				OR bool_or(a.type = 'ip' AND (a.from_agent OR b.from_agent))
+				OR (bool_or(a.type = 'hostname') AND bool_or(a.type = 'ip'))
 		)
 		SELECT p.device_a::text, ea.name, p.device_b::text, eb.name, p.signals
 		FROM pairs p JOIN entities ea ON ea.id = p.device_a JOIN entities eb ON eb.id = p.device_b
-		ORDER BY ea.name, eb.name LIMIT 1000`, deviceID)
+		ORDER BY jsonb_path_exists(p.signals, '$[*] ? (@.type == "machine" || @.type == "serial" || @.type == "mac")') DESC, ea.name, eb.name
+		LIMIT 1000`, deviceID)
 	if err != nil {
 		return nil, fmt.Errorf("query duplicate candidates: %w", err)
 	}
@@ -134,6 +141,7 @@ func (s *Service) Duplicates(ctx context.Context, deviceID string, limit int) ([
 
 // DismissDuplicate records that two devices are distinct.
 func (s *Service) DismissDuplicate(ctx context.Context, a, b, reason string, actor Actor) error {
+	a, b = strings.ToLower(strings.TrimSpace(a)), strings.ToLower(strings.TrimSpace(b))
 	if a == b {
 		return ErrSameDevice
 	}

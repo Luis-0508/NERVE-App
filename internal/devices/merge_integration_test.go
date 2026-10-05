@@ -5,6 +5,7 @@ package devices_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -101,7 +102,10 @@ func TestDuplicateCandidates(t *testing.T) {
 	if count(t, pool, `SELECT count(*) FROM devices WHERE merged_into IS NOT NULL`) != 0 {
 		t.Fatal("duplicate detection merged devices")
 	}
-	if err := service.DismissDuplicate(ctx, b, a, "two NICs, two hosts", devices.Actor{UserID: adminID}); err != nil {
+	if err := service.DismissDuplicate(ctx, a, strings.ToUpper(a), "", devices.Actor{UserID: adminID}); !errors.Is(err, devices.ErrSameDevice) {
+		t.Fatalf("differently cased self-dismissal: %v", err)
+	}
+	if err := service.DismissDuplicate(ctx, strings.ToUpper(b), a, "two NICs, two hosts", devices.Actor{UserID: adminID}); err != nil {
 		t.Fatal(err)
 	}
 	items, _ = service.Duplicates(ctx, "", 100)
@@ -353,6 +357,11 @@ func TestSplitRequiresExplicitAgentHandling(t *testing.T) {
 	}
 	if _, err := service.Split(ctx, deviceID, devices.SplitRequest{InterfaceIDs: []string{"00000000-0000-4000-8000-000000000000"}, Agent: "keep"}, actor); !errors.Is(err, devices.ErrInvalidInput) {
 		t.Fatalf("foreign interface: %v", err)
+	}
+	// An identity ID that is not this device's must be rejected, not silently skipped.
+	foreign := testsupport.CreateDevice(t, pool, "foreign", "00:11:22:33:77:99", "")
+	if _, err := service.Split(ctx, deviceID, devices.SplitRequest{IdentityIDs: []string{identityID(t, pool, foreign, "mac")}, Agent: "keep"}, actor); !errors.Is(err, devices.ErrInvalidInput) {
+		t.Fatalf("foreign identity: %v", err)
 	}
 	request.Agent = devices.SplitAgentMove
 	result, err := service.Split(ctx, deviceID, request, actor)

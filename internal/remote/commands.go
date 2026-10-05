@@ -161,7 +161,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput, actor agents.Ac
 	// future privileged policies will additionally require "trusted".
 	if deviceID != "" {
 		var trust string
-		if err := tx.QueryRow(ctx, `SELECT trust_state FROM devices WHERE entity_id = $1::uuid`, deviceID).Scan(&trust); err != nil {
+		// FOR SHARE serializes with SetTrust (FOR UPDATE): a device blocked
+		// concurrently cannot slip a command through with its old trust state.
+		if err := tx.QueryRow(ctx, `SELECT trust_state FROM devices WHERE entity_id = $1::uuid FOR SHARE`, deviceID).Scan(&trust); err != nil {
 			return Command{}, fmt.Errorf("read device trust: %w", err)
 		}
 		if trust == "blocked" {
