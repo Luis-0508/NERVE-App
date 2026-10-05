@@ -1,0 +1,14 @@
+DROP INDEX IF EXISTS devices_merged_into_idx;
+DROP TRIGGER IF EXISTS devices_merge_state_guard ON devices;
+DROP FUNCTION IF EXISTS guard_device_merge_state();
+DROP TRIGGER IF EXISTS service_endpoints_not_merged ON service_endpoints;
+DROP TRIGGER IF EXISTS agents_not_merged ON agents;
+DROP TRIGGER IF EXISTS discovery_bindings_not_merged ON discovery_bindings;
+DROP TRIGGER IF EXISTS device_tags_not_merged ON device_tags;
+DROP TRIGGER IF EXISTS device_attributes_not_merged ON device_attributes;
+DROP TRIGGER IF EXISTS device_identities_not_merged ON device_identities;
+DROP TRIGGER IF EXISTS network_interfaces_not_merged ON network_interfaces;
+DROP FUNCTION IF EXISTS reject_merged_device_reference();
+DROP TABLE IF EXISTS device_duplicate_dismissals;
+DROP TABLE IF EXISTS device_splits;
+DROP TABLE IF EXISTS device_merges;

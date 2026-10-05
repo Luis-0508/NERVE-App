@@ -23,6 +23,12 @@ func (s *Server) writeDeviceError(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusNotFound, "device_not_found", "The requested device does not exist.")
 	case errors.Is(err, devices.ErrMerged):
 		writeError(w, http.StatusConflict, "device_merged", err.Error())
+	case errors.Is(err, devices.ErrSameDevice):
+		writeError(w, http.StatusUnprocessableEntity, "same_device", err.Error())
+	case errors.Is(err, devices.ErrAgentConflict):
+		writeError(w, http.StatusConflict, "agent_conflict", err.Error())
+	case errors.Is(err, devices.ErrAgentDecisionRequired):
+		writeError(w, http.StatusUnprocessableEntity, "agent_decision_required", err.Error())
 	case errors.Is(err, devices.ErrInvalidInput):
 		writeError(w, http.StatusUnprocessableEntity, "invalid_device_update", err.Error())
 	default:
@@ -154,4 +160,94 @@ func (s *Server) deviceIdentity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, report)
+}
+
+// deviceDuplicates lists likely duplicate pairs (optionally for one device).
+func (s *Server) deviceDuplicates(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := s.requireSession(w, r); !ok {
+		return
+	}
+	deviceID := r.URL.Query().Get("deviceId")
+	if deviceID != "" && !isUUID(deviceID) {
+		writeError(w, http.StatusBadRequest, "invalid_device_id", "Device ID must be a UUID.")
+		return
+	}
+	items, err := s.identity.Duplicates(r.Context(), deviceID, 100)
+	if s.writeDeviceError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) dismissDuplicate(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requirePermission(w, r, authz.DevicesMerge)
+	if !ok {
+		return
+	}
+	var input struct {
+		DeviceA string `json:"deviceA"`
+		DeviceB string `json:"deviceB"`
+		Reason  string `json:"reason"`
+	}
+	if err := decodeJSON(r, &input); err != nil || !isUUID(input.DeviceA) || !isUUID(input.DeviceB) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Two device IDs are required.")
+		return
+	}
+	if s.writeDeviceError(w, s.identity.DismissDuplicate(r.Context(), input.DeviceA, input.DeviceB, input.Reason, s.deviceActor(r, user))) {
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// mergeDevice folds sourceDeviceId into the device in the path (the survivor).
+func (s *Server) mergeDevice(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requirePermission(w, r, authz.DevicesMerge)
+	if !ok {
+		return
+	}
+	targetID, ok := deviceIDFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		SourceDeviceID string `json:"sourceDeviceId"`
+		Reason         string `json:"reason"`
+	}
+	if err := decodeJSON(r, &input); err != nil || !isUUID(input.SourceDeviceID) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "A source device ID is required.")
+		return
+	}
+	result, err := s.identity.Merge(r.Context(), input.SourceDeviceID, targetID, input.Reason, s.deviceActor(r, user))
+	if s.writeDeviceError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (s *Server) splitDevice(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requirePermission(w, r, authz.DevicesMerge)
+	if !ok {
+		return
+	}
+	sourceID, ok := deviceIDFromRequest(w, r)
+	if !ok {
+		return
+	}
+	var input struct {
+		DisplayName  string   `json:"displayName"`
+		InterfaceIDs []string `json:"interfaceIds"`
+		IdentityIDs  []string `json:"identityIds"`
+		Agent        string   `json:"agent"`
+		Reason       string   `json:"reason"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, err := s.identity.Split(r.Context(), sourceID, devices.SplitRequest{DisplayName: input.DisplayName, InterfaceIDs: input.InterfaceIDs,
+		IdentityIDs: input.IdentityIDs, Agent: input.Agent, Reason: input.Reason}, s.deviceActor(r, user))
+	if s.writeDeviceError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusCreated, result)
 }

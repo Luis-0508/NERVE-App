@@ -118,3 +118,22 @@ func resolveDevice(ctx context.Context, tx pgx.Tx, targetID, address, mac string
 	}
 	return "", reason, nil
 }
+
+// lockLiveDevice takes a share lock on the chosen device for the rest of the
+// report transaction, so an operator merge either completes first (and the
+// observation follows merged_into to the survivor) or waits until this report
+// is committed and then moves its new records too.
+func lockLiveDevice(ctx context.Context, tx pgx.Tx, deviceID string) (string, error) {
+	for attempt := 0; attempt < 4; attempt++ {
+		var merged *string
+		err := tx.QueryRow(ctx, `SELECT merged_into::text FROM devices WHERE entity_id = $1::uuid FOR SHARE`, deviceID).Scan(&merged)
+		if err != nil {
+			return "", fmt.Errorf("lock discovered device: %w", err)
+		}
+		if merged == nil {
+			return deviceID, nil
+		}
+		deviceID = *merged
+	}
+	return "", errors.New("device merge chain is too long")
+}
