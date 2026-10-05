@@ -273,6 +273,11 @@ func (r *Repository) applyObservation(ctx context.Context, tx pgx.Tx, targetID, 
 	if err != nil {
 		return err
 	}
+	if deviceID != "" {
+		if deviceID, err = lockLiveDevice(ctx, tx, deviceID); err != nil {
+			return err
+		}
+	}
 	var boundDeviceID, boundInterfaceID, boundIPID string
 	bindingErr := tx.QueryRow(ctx, `SELECT device_id::text, interface_id::text, ip_address_id::text
 		FROM discovery_bindings WHERE target_id = $1::uuid AND address = $2::inet`, targetID, observation.Address).Scan(

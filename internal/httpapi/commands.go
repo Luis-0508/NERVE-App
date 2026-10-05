@@ -162,6 +162,8 @@ func (s *Server) writeCommandError(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusConflict, "capability_not_supported", err.Error())
 	case errors.Is(err, remote.ErrAgentUnavailable):
 		writeError(w, http.StatusConflict, "agent_unavailable", err.Error())
+	case errors.Is(err, remote.ErrDeviceBlocked):
+		writeError(w, http.StatusConflict, "device_blocked", err.Error())
 	case errors.Is(err, remote.ErrQueueFull):
 		writeError(w, http.StatusTooManyRequests, "command_queue_full", err.Error())
 	case errors.Is(err, remote.ErrNotActive):

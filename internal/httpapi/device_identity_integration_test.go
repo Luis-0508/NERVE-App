@@ -3,6 +3,7 @@
 package httpapi_test
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"net/http"
@@ -94,5 +95,58 @@ func TestDeviceMetadataAndTrustAPI(t *testing.T) {
 	}
 	if strings.Contains(auditBody, `"desk"`) {
 		t.Fatal("notes content leaked into the audit log")
+	}
+}
+
+func TestDeviceMergeAPI(t *testing.T) {
+	pool := testsupport.MigratedPool(t, "http_device_merge")
+	testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
+	testsupport.CreateUser(t, pool, "tech@example.invalid", "integration-password", "technician")
+	a := testsupport.CreateDevice(t, pool, "alpha", "00:11:22:33:99:01", "192.0.2.61")
+	b := testsupport.CreateDevice(t, pool, "alpha-dup", "00:11:22:33:99:02", "192.0.2.62")
+	if _, err := pool.Exec(context.Background(), `INSERT INTO device_identities (device_id, identity_type, value, source, confidence) VALUES ($1::uuid, 'mac', '00:11:22:33:99:01', 'test', 90)`, b); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(httpapi.New(pool, config.Config{AllowedOrigin: "http://localhost:3000", SessionTTL: time.Hour, CoreSigningKey: testsupport.CoreSigningKeyHex},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), "test").Handler())
+	defer server.Close()
+	admin := login(t, server.URL, "admin@example.invalid", "integration-password")
+	technician := login(t, server.URL, "tech@example.invalid", "integration-password")
+
+	duplicates := readBody(doJSON(t, technician, http.MethodGet, server.URL+"/api/v1/devices/duplicates", "", nil))
+	if !strings.Contains(duplicates, `"confidence":"high"`) || !strings.Contains(duplicates, a) || !strings.Contains(duplicates, b) {
+		t.Fatalf("duplicates: %s", duplicates)
+	}
+	mergeURL := server.URL + "/api/v1/devices/" + a + "/merge"
+	denied := doJSON(t, technician, http.MethodPost, mergeURL, `{"sourceDeviceId":"`+b+`"}`, nil)
+	if denied.StatusCode != http.StatusForbidden {
+		t.Fatalf("technician merge = %d", denied.StatusCode)
+	}
+	_ = denied.Body.Close()
+	same := doJSON(t, admin, http.MethodPost, mergeURL, `{"sourceDeviceId":"`+a+`"}`, nil)
+	if same.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("self merge = %d", same.StatusCode)
+	}
+	_ = same.Body.Close()
+	merged := doJSON(t, admin, http.MethodPost, mergeURL, `{"sourceDeviceId":"`+b+`","reason":"duplicate record"}`, nil)
+	body := readBody(merged)
+	if merged.StatusCode != http.StatusOK || !strings.Contains(body, `"targetDeviceId":"`+a+`"`) {
+		t.Fatalf("merge = %d: %s", merged.StatusCode, body)
+	}
+	if retired := readBody(doJSON(t, admin, http.MethodGet, server.URL+"/api/v1/devices/"+b, "", nil)); !strings.Contains(retired, `"mergedInto":"`+a+`"`) {
+		t.Fatalf("retired device: %s", retired)
+	}
+	again := doJSON(t, admin, http.MethodPost, mergeURL, `{"sourceDeviceId":"`+b+`"}`, nil)
+	if again.StatusCode != http.StatusConflict {
+		t.Fatalf("repeat merge = %d", again.StatusCode)
+	}
+	_ = again.Body.Close()
+	split := doJSON(t, technician, http.MethodPost, server.URL+"/api/v1/devices/"+a+"/split", `{"interfaceIds":[]}`, nil)
+	if split.StatusCode != http.StatusForbidden {
+		t.Fatalf("technician split = %d", split.StatusCode)
+	}
+	_ = split.Body.Close()
+	if auditBody := readBody(doJSON(t, admin, http.MethodGet, server.URL+"/api/v1/audit?action=device.merged", "", nil)); !strings.Contains(auditBody, `"actorEmail":"admin@example.invalid"`) {
+		t.Fatalf("merge audit: %s", auditBody)
 	}
 }

@@ -41,6 +41,7 @@ var (
 	ErrResultTooLarge          = errors.New("remote command result exceeds the output limit")
 	ErrInvalidResult           = errors.New("invalid remote command result")
 	ErrNoCommand               = errors.New("no command is queued")
+	ErrDeviceBlocked           = errors.New("the agent's device is blocked; remote actions are refused")
 
 	failureCodePattern = regexp.MustCompile(`^[a-z_]{1,64}$`)
 
@@ -155,6 +156,17 @@ func (s *Service) Create(ctx context.Context, input CreateInput, actor agents.Ac
 	}
 	if !contains(capabilities, input.Type) {
 		return Command{}, ErrCapabilityNotAdvertised
+	}
+	// Device trust is operator-owned. A blocked device gets no remote actions;
+	// future privileged policies will additionally require "trusted".
+	if deviceID != "" {
+		var trust string
+		if err := tx.QueryRow(ctx, `SELECT trust_state FROM devices WHERE entity_id = $1::uuid`, deviceID).Scan(&trust); err != nil {
+			return Command{}, fmt.Errorf("read device trust: %w", err)
+		}
+		if trust == "blocked" {
+			return Command{}, ErrDeviceBlocked
+		}
 	}
 	var active int
 	if err := tx.QueryRow(ctx, `SELECT count(*) FROM remote_commands WHERE agent_id = $1::uuid AND status IN ('queued', 'claimed', 'running')`, input.AgentID).Scan(&active); err != nil {
@@ -620,7 +632,8 @@ func (s *Service) List(ctx context.Context, agentID, deviceID string, limit int)
 	rows, err := s.db.Query(ctx, `SELECT `+commandColumns+` FROM remote_commands c JOIN agents a ON a.id = c.agent_id
 		LEFT JOIN users u ON u.id = c.requested_by
 		WHERE (NULLIF($1, '') IS NULL OR c.agent_id = NULLIF($1, '')::uuid)
-		  AND (NULLIF($2, '') IS NULL OR c.device_id = NULLIF($2, '')::uuid)
+		  AND (NULLIF($2, '') IS NULL OR c.device_id = NULLIF($2, '')::uuid
+			OR c.device_id IN (SELECT entity_id FROM devices WHERE merged_into = NULLIF($2, '')::uuid))
 		ORDER BY c.requested_at DESC, c.id LIMIT $3`, agentID, deviceID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list commands: %w", err)
