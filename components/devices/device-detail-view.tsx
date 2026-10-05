@@ -49,8 +49,9 @@ export function DeviceDetailView() {
     if (!deviceID) return;
     setLoading(true); setError(null); setAuthRequired(false);
     try {
-      const [nextDetail, nextEvents, session] = await Promise.all([api.device(deviceID), api.events(25, deviceID), api.session()]);
-      setDetail(nextDetail); setEvents(nextEvents.items); setPermissions(session.user?.permissions ?? []);
+      // A failed session lookup must not hide the device; the remote panel then fails closed.
+      const [nextDetail, nextEvents, session] = await Promise.all([api.device(deviceID), api.events(25, deviceID), api.session().catch(() => null)]);
+      setDetail(nextDetail); setEvents(nextEvents.items); setPermissions(session?.user?.permissions ?? []);
     } catch (requestError) {
       if (requestError instanceof APIError && requestError.status === 401) setAuthRequired(true);
       else if (requestError instanceof APIError && requestError.status === 404) setError("The requested device does not exist.");
