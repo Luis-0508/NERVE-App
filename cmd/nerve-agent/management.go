@@ -146,10 +146,24 @@ func (m *manager) currentError() string {
 }
 
 func (m *manager) heartbeat(ctx context.Context) error {
-	request := agentproto.HeartbeatRequest{Host: m.facts(), Capabilities: m.capabilities(), LastError: m.currentError()}
+	sent := m.currentError()
+	request := agentproto.HeartbeatRequest{Host: m.facts(), Capabilities: m.capabilities(), LastError: sent}
 	var response agentproto.HeartbeatResponse
 	_, err := m.client.post(ctx, "/agent/heartbeat", request, &response)
+	if err == nil {
+		m.clearError(sent)
+	}
 	return err
+}
+
+// clearError forgets the reported error unless another loop recorded a newer
+// one while the heartbeat was in flight.
+func (m *manager) clearError(reported string) {
+	m.mu.Lock()
+	if m.lastError == reported {
+		m.lastError = ""
+	}
+	m.mu.Unlock()
 }
 
 // runHeartbeats reports liveness until ctx ends. Failures back off with
@@ -170,7 +184,6 @@ func (m *manager) runHeartbeats(ctx context.Context) {
 				m.logger.Info("management heartbeat restored")
 			}
 			failures = 0
-			m.setError("")
 		case ctx.Err() != nil:
 			return
 		case requiresReenrollment(err):
