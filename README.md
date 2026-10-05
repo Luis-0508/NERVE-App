@@ -65,7 +65,7 @@ The following checks all use the same address exposed by the reverse proxy:
 
 ### Local network discovery
 
-Open **Devices**, enter a canonical subnet such as `192.168.178.0/24`, save it, and select **Scan now**. Only users with the `discovery.manage` permission (administrators by default) can configure or start scans, and every change is audited. The page shows whether the host agent is online, the current scan state, reachable/total counts when available, and recent scan errors. Results are written into the normalized device, interface, address, identity, observation, event, and discovery tables; the inventory refreshes when a scan completes.
+Open **Devices**, enter a canonical subnet such as `192.168.178.0/24`, save it, and select **Scan now**. Only users with the `discovery.manage` permission (administrators by default) can configure or start scans. Target changes, scan requests and cancellations are recorded in the audit log; scan results reported by the discovery agent are recorded as observations and events, not audit entries. The page shows whether the host agent is online, the current scan state, reachable/total counts when available, and recent scan errors. Results are written into the normalized device, interface, address, identity, observation, event, and discovery tables; the inventory refreshes when a scan completes.
 
 On Windows with Docker Desktop, discovery intentionally runs as a native host process. Docker Desktop runs Linux containers inside a VM, and its host-network feature exposes TCP/UDP at layer 4 rather than the host's layer-2 interfaces. Running ARP/NDP discovery inside the API container would therefore inspect the wrong network namespace. `start.bat` cross-compiles the Go agent in Docker, writes the generated binary and logs beneath ignored `.nerve/`, and starts it with ordinary user privileges. ICMP uses the operating-system `ping` command; the agent then reads the host ARP/NDP neighbor cache, performs bounded parallel reverse DNS, and uses bounded TCP connection attempts as a fallback.
 
@@ -130,7 +130,7 @@ The service applies ordered `.up.sql` migrations at startup while holding a Post
 - `GET /api/v1/devices/{deviceID}/commands`, `GET /api/v1/agents/{agentID}/commands` — command history without output (`remote.view`)
 - `POST /api/v1/agents/{agentID}/commands` — queue a read-only command (`remote.execute.read_only`); other command types are refused
 - `GET /api/v1/remote/commands/{commandID}` — command state and retained result (`remote.view`); `POST .../cancel` cancels an unfinished command
-- `POST /api/v1/agent/enroll`, `.../identity`, `.../heartbeat`, `.../commands/claim`, `.../commands/{commandID}/start`, `.../commands/{commandID}/result` — management-agent endpoints, authenticated by per-agent Ed25519 request signatures (never browser sessions); every response is signed by Core
+- `POST /api/v1/agent/enroll`, `.../identity`, `.../heartbeat`, `.../commands/claim`, `.../commands/{commandID}/start`, `.../commands/{commandID}/result` — management-agent endpoints, authenticated by per-agent Ed25519 request signatures (never browser sessions). Every response is signed by Core, except the `503 core_signing_key_missing` answer returned when Core has no signing key; agents reject that unsigned answer and log it as an unverifiable HTTP 503
 
 ## Live traffic map (Windows native / ntopng)
 
