@@ -13,6 +13,9 @@ const (
 	RemoteExecuteReadOnly   Permission = "remote.execute.read_only"
 	RemoteExecutePrivileged Permission = "remote.execute.privileged"
 	AuditView               Permission = "audit.view"
+	DevicesManage           Permission = "devices.manage"
+	DevicesTrust            Permission = "devices.trust"
+	DevicesMerge            Permission = "devices.merge"
 )
 
 // Set is an immutable permission set loaded for one authenticated user.

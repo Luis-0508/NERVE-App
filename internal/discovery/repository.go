@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nerve-labs/nerve/internal/audit"
+	"github.com/nerve-labs/nerve/internal/devices"
 )
 
 var (
@@ -297,19 +298,20 @@ func (r *Repository) applyObservation(ctx context.Context, tx pgx.Tx, targetID, 
 			VALUES ('device', $1, 'online', '{"managedBy":"local-discovery"}'::jsonb) RETURNING id::text`, name).Scan(&deviceID); err != nil {
 			return fmt.Errorf("create discovered device entity: %w", err)
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO devices (entity_id, classification, hostname)
-			VALUES ($1::uuid, 'unknown', NULLIF($2, ''))`, deviceID, hostname); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO devices (entity_id, classification, hostname, discovered_name)
+			VALUES ($1::uuid, 'unknown', NULLIF($2, ''), $3)`, deviceID, hostname, name); err != nil {
 			return fmt.Errorf("create discovered device: %w", err)
 		}
 		created = true
 	}
-	if _, err := tx.Exec(ctx, `UPDATE entities SET name = CASE WHEN $2 <> '' THEN $2 ELSE name END,
-		status = 'online', last_seen_at = now(), updated_at = now() WHERE id = $1::uuid`, deviceID, hostname); err != nil {
+	// The display name is never written here: it follows the discovered name
+	// (via trigger) unless an operator has set one.
+	if _, err := tx.Exec(ctx, `UPDATE entities SET status = 'online', last_seen_at = now(), updated_at = now() WHERE id = $1::uuid`, deviceID); err != nil {
 		return fmt.Errorf("update discovered device: %w", err)
 	}
 	if hostname != "" {
-		if _, err := tx.Exec(ctx, `UPDATE devices SET hostname = $2 WHERE entity_id = $1::uuid`, deviceID, hostname); err != nil {
-			return fmt.Errorf("update discovered hostname: %w", err)
+		if err := devices.RecordAttribute(ctx, tx, deviceID, "hostname", devices.SourceReverseDNS, hostname, devices.ConfidenceReverseDNS); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO device_identities (device_id, identity_type, value, source, confidence)
 			VALUES ($1::uuid, 'hostname', lower($2), 'local-discovery', 65)

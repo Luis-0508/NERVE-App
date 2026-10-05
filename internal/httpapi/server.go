@@ -20,6 +20,7 @@ import (
 	"github.com/nerve-labs/nerve/internal/agents"
 	"github.com/nerve-labs/nerve/internal/auth"
 	"github.com/nerve-labs/nerve/internal/config"
+	"github.com/nerve-labs/nerve/internal/devices"
 	"github.com/nerve-labs/nerve/internal/discovery"
 	"github.com/nerve-labs/nerve/internal/integrations/ntopng"
 	"github.com/nerve-labs/nerve/internal/inventory"
@@ -35,6 +36,7 @@ type Server struct {
 	inventory      *inventory.Repositories
 	discovery      *discovery.Repository
 	agents         *agents.Repository
+	identity       *devices.Service
 	commands       *remote.Service
 	remote         *remote.Registry
 	eventHub       *eventHub
@@ -113,6 +115,7 @@ func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, ve
 		inventory:      inventory.NewRepositories(db),
 		discovery:      discovery.NewRepository(db),
 		agents:         agents.NewRepository(db),
+		identity:       devices.NewService(db),
 		eventHub:       newEventHub(db, logger),
 		cfg:            cfg,
 		logger:         logger,
@@ -152,7 +155,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/events", s.events)
 	mux.HandleFunc("GET /api/v1/devices", s.devices)
 	mux.HandleFunc("GET /api/v1/devices/facets", s.deviceFacets)
+	mux.HandleFunc("GET /api/v1/devices/vocabulary", s.deviceVocabulary)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}", s.deviceDetail)
+	mux.HandleFunc("POST /api/v1/devices/{deviceID}/metadata", s.updateDeviceMetadata)
+	mux.HandleFunc("POST /api/v1/devices/{deviceID}/trust", s.setDeviceTrust)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/interfaces", s.deviceInterfaces)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/ip-addresses", s.deviceIPAddresses)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/services", s.deviceServices)
