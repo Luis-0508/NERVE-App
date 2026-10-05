@@ -159,3 +159,17 @@ func TestHostFactsAreValid(t *testing.T) {
 		t.Fatal("machine ID is not digested")
 	}
 }
+
+func TestHeartbeatClearsOnlyTheReportedError(t *testing.T) {
+	m := &manager{}
+	m.setError("first")
+	m.setError("newer")
+	m.clearError("first")
+	if m.currentError() != "newer" {
+		t.Fatal("a newer error was cleared")
+	}
+	m.clearError("newer")
+	if m.currentError() != "" {
+		t.Fatal("the reported error was not cleared")
+	}
+}

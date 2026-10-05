@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // EnrollmentTokenPrefix identifies NERVE enrollment tokens in configuration and
@@ -79,8 +80,13 @@ func (f HostFacts) Validate() error {
 			return errors.New("host facts contain an oversized value")
 		}
 	}
-	if strings.TrimSpace(f.Hostname) == "" || strings.TrimSpace(f.OS) == "" {
+	if strings.TrimSuffix(strings.TrimSpace(f.Hostname), ".") == "" || strings.TrimSpace(f.OS) == "" {
 		return errors.New("host facts require hostname and os")
+	}
+	for _, value := range []string{f.Hostname, f.OS, f.OSVersion, f.Architecture, f.AgentVersion, f.MachineFingerprint} {
+		if !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
+			return errors.New("host facts must be valid UTF-8 without NUL characters")
+		}
 	}
 	if len(f.Interfaces) > MaxInterfaces {
 		return errors.New("host facts contain too many interfaces")

@@ -35,6 +35,7 @@ type Server struct {
 	inventory      *inventory.Repositories
 	discovery      *discovery.Repository
 	agents         *agents.Repository
+	commands       *remote.Service
 	remote         *remote.Registry
 	eventHub       *eventHub
 	cfg            config.Config
@@ -121,7 +122,10 @@ func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, ve
 		loginAttempts:  make(map[string]*rateWindow),
 		enrollAttempts: make(map[string]*rateWindow),
 	}
+	server.commands = remote.NewService(db)
 	server.remote = remote.NewRegistry(remote.NativeProvider{Agents: server.agents})
+	server.agentLifecycleHooks = append(server.agentLifecycleHooks, server.commands.CancelForAgent)
+	server.maintenanceTasks = append(server.maintenanceTasks, server.commands.Sweep)
 	return server
 }
 
@@ -168,6 +172,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/agent/heartbeat", s.agentEndpoint(agentproto.MaxEnrollRequestBytes, s.agentHeartbeat))
 	mux.HandleFunc("POST /api/v1/agents/{agentID}/association", s.updateAgentAssociation)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/remote", s.deviceRemote)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/commands", s.listDeviceCommands)
+	mux.HandleFunc("GET /api/v1/agents/{agentID}/commands", s.listAgentCommands)
+	mux.HandleFunc("POST /api/v1/agents/{agentID}/commands", s.createCommand)
+	mux.HandleFunc("GET /api/v1/remote/commands/{commandID}", s.commandDetail)
+	mux.HandleFunc("POST /api/v1/remote/commands/{commandID}/cancel", s.cancelCommand)
+	mux.HandleFunc("POST /api/v1/agent/commands/claim", s.agentEndpoint(4<<10, s.agentClaimCommand))
+	mux.HandleFunc("POST /api/v1/agent/commands/{commandID}/start", s.agentEndpoint(4<<10, s.agentStartCommand))
+	mux.HandleFunc("POST /api/v1/agent/commands/{commandID}/result", s.agentEndpoint(agentproto.MaxResultRequestBytes, s.agentSubmitResult))
 	return s.middleware(mux)
 }
 

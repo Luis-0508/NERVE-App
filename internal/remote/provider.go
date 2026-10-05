@@ -102,5 +102,6 @@ func Capabilities(names []string) []Capability {
 // Privileged and interactive capabilities stay disabled until their security
 // prerequisites (confirmation, signed commands, policies) exist.
 func Executable(name string) bool {
-	return false
+	_, ok := PolicyFor(name)
+	return ok
 }

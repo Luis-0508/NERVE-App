@@ -14,7 +14,7 @@ import (
 )
 
 // Heartbeat records liveness, refreshes host facts and capabilities, and
-// re-evaluates the device association only when the reported facts changed.
+// re-evaluates the device association when facts change or it is unresolved.
 func (r *Repository) Heartbeat(ctx context.Context, principal Principal, request agentproto.HeartbeatRequest) error {
 	if err := request.Host.Validate(); err != nil {
 		return fmt.Errorf("%w: %v", ErrInvalidInput, err)
@@ -30,8 +30,8 @@ func (r *Repository) Heartbeat(ctx context.Context, principal Principal, request
 		return fmt.Errorf("begin heartbeat: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	var previousDigest string
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(facts_digest, '') FROM agents WHERE id = $1::uuid AND status = 'active' FOR UPDATE`, principal.AgentID).Scan(&previousDigest); err != nil {
+	var previousDigest, associationStatus string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(facts_digest, ''), association_status FROM agents WHERE id = $1::uuid AND status = 'active' FOR UPDATE`, principal.AgentID).Scan(&previousDigest, &associationStatus); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrCredentialRevoked
 		}
@@ -42,10 +42,16 @@ func (r *Repository) Heartbeat(ctx context.Context, principal Principal, request
 		truncate(request.LastError, agentproto.MaxLastErrorLength)); err != nil {
 		return fmt.Errorf("record heartbeat: %w", err)
 	}
-	if digest := factsDigest(facts); digest != previousDigest {
+	factsChanged := factsDigest(facts) != previousDigest
+	if factsChanged {
 		if err := storeFacts(ctx, tx, principal.AgentID, facts); err != nil {
 			return err
 		}
+	}
+	// Unresolved agents are re-evaluated on every heartbeat so a device that
+	// discovery finds after enrollment is still linked; resolved ones only when
+	// their reported facts change.
+	if factsChanged || associationStatus == "unassociated" || associationStatus == "candidate" {
 		if err := evaluateAssociation(ctx, tx, principal.AgentID); err != nil {
 			return err
 		}
@@ -189,6 +195,10 @@ func evaluateAssociation(ctx context.Context, tx pgx.Tx, agentID string) error {
 	switch {
 	case macDevices == 1 && ordered[0].mac:
 		deviceID := ordered[0].evidence.DeviceID
+		// Lock the device so concurrent evaluations cannot both claim it.
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM devices WHERE entity_id = $1::uuid FOR UPDATE`, deviceID); err != nil {
+			return fmt.Errorf("lock association device: %w", err)
+		}
 		var conflicting string
 		err := tx.QueryRow(ctx, `SELECT id::text FROM agents WHERE device_id = $1::uuid AND status <> 'removed' AND id <> $2::uuid`, deviceID, agentID).Scan(&conflicting)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
@@ -212,7 +222,7 @@ func evaluateAssociation(ctx context.Context, tx pgx.Tx, agentID string) error {
 	}
 	if nextStatus == status && nextDevice == currentDevice {
 		encoded, _ := json.Marshal(evidence)
-		_, err := tx.Exec(ctx, `UPDATE agents SET association_evidence = $2::jsonb WHERE id = $1::uuid`, agentID, string(encoded))
+		_, err := tx.Exec(ctx, `UPDATE agents SET association_evidence = $2::jsonb WHERE id = $1::uuid AND association_evidence IS DISTINCT FROM $2::jsonb`, agentID, string(encoded))
 		return err
 	}
 	if err := setAssociation(ctx, tx, agentID, nextDevice, nextStatus, evidence, ""); err != nil {

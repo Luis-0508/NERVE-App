@@ -20,21 +20,10 @@ import (
 )
 
 // requirePermission authenticates the browser session and checks one explicit
-// permission. Denied state-changing requests are written to the audit log.
+// permission. Denied requests are written to the audit log.
 func (s *Server) requirePermission(w http.ResponseWriter, r *http.Request, permission authz.Permission) (auth.User, bool) {
 	user, _, ok := s.requireSession(w, r)
-	if !ok {
-		return auth.User{}, false
-	}
-	if !user.Can(permission) {
-		if isUnsafe(r.Method) {
-			if err := audit.Write(r.Context(), s.db, audit.Entry{ActorUserID: user.ID, Action: "authz.denied", TargetType: "route",
-				TargetID: r.Method + " " + r.URL.Path, Result: audit.ResultDenied, ErrorCode: "permission_required",
-				SourceAddress: s.clientAddress(r), Parameters: map[string]any{"permission": string(permission)}}); err != nil {
-				s.logger.Error("audit permission denial", "error", err)
-			}
-		}
-		writeError(w, http.StatusForbidden, "permission_required", "Your role does not grant the "+string(permission)+" permission.")
+	if !ok || !s.checkPermission(w, r, user, permission) {
 		return auth.User{}, false
 	}
 	return user, true

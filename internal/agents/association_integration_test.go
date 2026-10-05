@@ -6,7 +6,9 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/nerve-labs/nerve/internal/agentproto"
 	"github.com/nerve-labs/nerve/internal/agents"
@@ -128,5 +130,47 @@ func TestHeartbeatAndDeviceAssociation(t *testing.T) {
 	}
 	if _, err := repo.UpdateAssociation(ctx, b.AgentID, agents.AssociationAction{Action: "nonsense"}, actor); !errors.Is(err, agents.ErrInvalidInput) {
 		t.Fatalf("invalid action: %v", err)
+	}
+
+	// A device discovered after enrollment is linked on the next heartbeat, even with unchanged facts.
+	lateFacts := hostFacts("late-host", "02:00:00:00:00:55", "203.0.113.55")
+	late := newAgent(lateFacts)
+	if agent := get(late.AgentID); agent.Association.Status != "unassociated" {
+		t.Fatalf("late agent unexpectedly associated: %+v", agent.Association)
+	}
+	lateDevice := testsupport.CreateDevice(t, pool, "discovered-later", "02:00:00:00:00:55", "")
+	if err := repo.Heartbeat(ctx, late, agentproto.HeartbeatRequest{Host: lateFacts}); err != nil {
+		t.Fatal(err)
+	}
+	if agent := get(late.AgentID); agent.Association.Status != "automatic" || agent.Device == nil || agent.Device.ID != lateDevice {
+		t.Fatalf("late device was not associated: %+v", agent.Association)
+	}
+}
+
+func TestEnrollRejectsUnusableHostnames(t *testing.T) {
+	pool := testsupport.MigratedPool(t, "agents_hostname")
+	repo := agents.NewRepository(pool)
+	ctx := context.Background()
+	adminID := testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
+	for _, hostname := range []string{".", " . ", "bad\x00host", string([]byte{0xff, 0xfe})} {
+		_, token, err := repo.CreateEnrollment(ctx, agents.CreateEnrollmentInput{}, agents.Actor{UserID: adminID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		public, _, _ := ed25519.GenerateKey(nil)
+		if _, err := repo.Enroll(ctx, token, public, agentproto.HostFacts{Hostname: hostname, OS: "linux"}, ""); !errors.Is(err, agents.ErrInvalidInput) {
+			t.Fatalf("hostname %q: got %v, want ErrInvalidInput", hostname, err)
+		}
+	}
+	// A long multi-byte hostname is truncated on a character boundary.
+	_, token, _ := repo.CreateEnrollment(ctx, agents.CreateEnrollmentInput{}, agents.Actor{UserID: adminID})
+	public, _, _ := ed25519.GenerateKey(nil)
+	result, err := repo.Enroll(ctx, token, public, agentproto.HostFacts{Hostname: strings.Repeat("ü", 120), OS: "linux"}, "")
+	if err != nil {
+		t.Fatalf("multi-byte hostname: %v", err)
+	}
+	agent, _ := repo.Get(ctx, result.AgentID)
+	if len(agent.DisplayName) > 200 || !utf8.ValidString(agent.DisplayName) {
+		t.Fatalf("display name not truncated safely: %d bytes", len(agent.DisplayName))
 	}
 }

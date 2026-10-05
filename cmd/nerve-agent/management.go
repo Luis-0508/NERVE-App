@@ -111,7 +111,7 @@ func enroll(ctx context.Context, apiURL, token string) (*identity, error) {
 		return nil, err
 	}
 	if response.Fingerprint != agentproto.Fingerprint(public) {
-		return nil, errors.New("Core acknowledged a different public key; enrollment aborted")
+		return nil, errors.New("core acknowledged a different public key; enrollment aborted")
 	}
 	return &identity{AgentID: response.AgentID, CredentialID: response.CredentialID, Fingerprint: response.Fingerprint,
 		APIURL: apiURL, EnrolledAt: time.Now().UTC(), key: private}, nil
@@ -120,13 +120,17 @@ func enroll(ctx context.Context, apiURL, token string) (*identity, error) {
 // manager runs the management loops for an enrolled agent.
 type manager struct {
 	client            *managementClient
+	agentID           string
 	logger            *slog.Logger
 	heartbeatInterval time.Duration
 	capabilities      func() []string
 	facts             func() agentproto.HostFacts
+	// collectors overrides the built-in collectors (tests only).
+	collectors map[string]collector
 
 	mu        sync.Mutex
 	lastError string
+	executed  map[string]time.Time
 }
 
 func (m *manager) setError(value string) {
@@ -142,10 +146,24 @@ func (m *manager) currentError() string {
 }
 
 func (m *manager) heartbeat(ctx context.Context) error {
-	request := agentproto.HeartbeatRequest{Host: m.facts(), Capabilities: m.capabilities(), LastError: m.currentError()}
+	sent := m.currentError()
+	request := agentproto.HeartbeatRequest{Host: m.facts(), Capabilities: m.capabilities(), LastError: sent}
 	var response agentproto.HeartbeatResponse
 	_, err := m.client.post(ctx, "/agent/heartbeat", request, &response)
+	if err == nil {
+		m.clearError(sent)
+	}
 	return err
+}
+
+// clearError forgets the reported error unless another loop recorded a newer
+// one while the heartbeat was in flight.
+func (m *manager) clearError(reported string) {
+	m.mu.Lock()
+	if m.lastError == reported {
+		m.lastError = ""
+	}
+	m.mu.Unlock()
 }
 
 // runHeartbeats reports liveness until ctx ends. Failures back off with
@@ -174,6 +192,7 @@ func (m *manager) runHeartbeats(ctx context.Context) {
 		default:
 			failures++
 			wait = backoff(failures)
+			m.setError("heartbeat: " + err.Error())
 			m.logger.Warn("management heartbeat failed", "error", err, "retry_in", wait.String())
 		}
 		if !sleepContext(ctx, wait) {
@@ -204,9 +223,4 @@ func sleepContext(ctx context.Context, duration time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
-}
-
-// run starts all management loops and returns when ctx ends.
-func (m *manager) run(ctx context.Context) {
-	m.runHeartbeats(ctx)
 }
