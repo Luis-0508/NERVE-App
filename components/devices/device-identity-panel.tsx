@@ -39,8 +39,11 @@ export function DeviceIdentityPanel({ detail, permissions, onChanged }: { detail
   useEffect(() => {
     setForm({ displayName: device.displayName ?? "", classification: device.classificationOverridden ? device.classification : "",
       tags: device.tags.join(", "), owner: device.owner ?? "", location: device.location ?? "", notes: device.notes ?? "" });
+  // Reset only when the stored values change (a save, or another operator's edit),
+  // not on every reload, so unsaved edits in other fields survive a refresh.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
     setTrust(device.trustState);
-  }, [device]);
+  }, [device.id, device.metadataUpdatedAt, device.trustChangedAt]);
 
   const load = useCallback(async () => {
     try {
@@ -163,7 +166,7 @@ function SplitForm({ detail, hasAgent, busy, onSplit }: { detail: DeviceDetail; 
       <label className="field"><span>Name of the new device</span><input className="input" value={name} maxLength={200} onChange={(event) => setName(event.target.value)} /></label>
       {hasAgent && <label className="field"><span>Management agent</span><select className="input" value={agent} onChange={(event) => setAgent(event.target.value)}><option value="">Choose…</option><option value="keep">Keep on this device</option><option value="move">Move to the new device</option><option value="detach">Detach from both</option></select></label>}
       <button className="button" type="button" disabled={busy || selected.length === 0 || selected.length === detail.interfaces.length || (hasAgent && !agent)}
-        onClick={() => { if (window.confirm("Split the selected interfaces into a new device?")) onSplit({ displayName: name, interfaceIds: selected, agent: agent || undefined, reason: "operator split" }); }}>Split</button>
+        onClick={() => { if (window.confirm("Split the selected interfaces into a new device?")) onSplit({ displayName: name, interfaceIds: selected, agent: hasAgent ? agent || undefined : undefined, reason: "operator split" }); }}>Split</button>
     </div>
   </section>;
 }

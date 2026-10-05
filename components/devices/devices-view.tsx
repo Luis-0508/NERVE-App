@@ -108,7 +108,7 @@ export function DevicesView() {
     </div>
 
     <DiscoveryPanel onCompleted={load} />
-    <DuplicatesNotice />
+    <DuplicatesNotice refreshKey={result} />
 
     <section className="device-table-panel" aria-label="Device inventory">
       <div className="device-toolbar">
@@ -255,9 +255,10 @@ function DeviceTableLoading() {
 }
 
 /** Shows likely duplicate records; nothing is merged without an operator. */
-function DuplicatesNotice() {
+function DuplicatesNotice({ refreshKey }: { refreshKey: unknown }) {
   const [items, setItems] = useState<DuplicateCandidate[]>([]);
-  useEffect(() => { api.deviceDuplicates().then((result) => setItems(result.items)).catch(() => setItems([])); }, []);
+  // Reload whenever the inventory reloads (refresh button, finished scan).
+  useEffect(() => { api.deviceDuplicates().then((result) => setItems(result.items)).catch(() => setItems([])); }, [refreshKey]);
   if (items.length === 0) return null;
   return <section className="duplicates-notice" aria-label="Possible duplicate devices">
     <strong>{items.length} possible duplicate record{items.length === 1 ? "" : "s"}</strong>
