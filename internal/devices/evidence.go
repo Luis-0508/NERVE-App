@@ -158,6 +158,9 @@ func Identity(ctx context.Context, db *pgxpool.Pool, deviceID string) (IdentityR
 		var agent AgentRef
 		if err := agentRows.Scan(&agent.ID, &agent.DisplayName, &agent.Status, &agent.Online, &agent.Association, &agent.LastSeenAt); err != nil {
 			agentRows.Close()
+	if err := agentRows.Err(); err != nil {
+		return IdentityReport{}, fmt.Errorf("iterate device agents: %w", err)
+	}
 			return IdentityReport{}, err
 		}
 		report.Agents = append(report.Agents, agent)
@@ -174,6 +177,9 @@ func Identity(ctx context.Context, db *pgxpool.Pool, deviceID string) (IdentityR
 		var match MatchCount
 		if err := matchRows.Scan(&match.Reason, &match.Count, &match.Last); err != nil {
 			matchRows.Close()
+	if err := matchRows.Err(); err != nil {
+		return IdentityReport{}, fmt.Errorf("iterate discovery matches: %w", err)
+	}
 			return IdentityReport{}, err
 		}
 		report.Matches = append(report.Matches, match)
