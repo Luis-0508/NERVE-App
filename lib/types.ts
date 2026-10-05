@@ -21,11 +21,21 @@ export type Session = { authenticated: boolean; user?: { id: string; email: stri
 
 export type DeviceStatus = "online" | "offline" | "warning" | "unknown" | "stopped" | "starting";
 
+export type TrustState = "unknown" | "reviewed" | "trusted" | "blocked";
+
+// The effective device: name and classification are resolved by Core
+// (operator override first, then discovered values).
 export type DeviceSummary = {
   id: string;
   name: string;
+  displayName?: string;
+  discoveredName?: string;
   status: DeviceStatus;
   classification: string;
+  discoveredClassification: string;
+  classificationOverridden: boolean;
+  trustState: TrustState;
+  tags: string[];
   hostname?: string;
   primaryIpAddress?: string;
   primaryMac?: string;
@@ -42,6 +52,11 @@ export type Device = DeviceSummary & {
   location?: string;
   notes?: string;
   approvedAt?: string;
+  metadataUpdatedAt?: string;
+  metadataUpdatedBy?: string;
+  trustChangedAt?: string;
+  trustChangedBy?: string;
+  mergedInto?: string;
 };
 
 export type IPAddress = {
@@ -92,8 +107,25 @@ export type Relationship = {
 };
 
 export type DeviceList = { items: DeviceSummary[]; total: number; limit: number; offset: number };
-export type DeviceFacets = { statuses: string[]; classifications: string[] };
-export type DeviceDetail = { device: Device; interfaces: NetworkInterface[]; ipAddresses: IPAddress[]; services: ServiceEndpoint[]; relationships: Relationship[] };
+export type DeviceFacets = { statuses: string[]; classifications: string[]; trustStates?: string[]; tags?: string[] };
+export type DeviceFact = { attribute: string; source: string; value: string; confidence: number; firstSeenAt: string; lastSeenAt: string; effective: boolean };
+export type DeviceDetail = { device: Device; interfaces: NetworkInterface[]; ipAddresses: IPAddress[]; services: ServiceEndpoint[]; relationships: Relationship[]; facts: DeviceFact[] };
+export type DeviceRef = { id: string; name: string };
+export type EvidenceStrength = "strong" | "moderate" | "weak" | "none";
+export type IdentityEvidence = { type: string; value: string; source: string; confidence: number; strength: EvidenceStrength; note?: string; firstSeenAt: string; lastSeenAt: string; manuallyConfirmed: boolean; sharedWith: DeviceRef[] };
+export type IdentityReport = {
+  deviceId: string;
+  mergedInto?: string;
+  strength: EvidenceStrength;
+  summary: string;
+  evidence: IdentityEvidence[];
+  agents: Array<{ id: string; displayName: string; status: string; online: boolean; association: string; lastSeenAt?: string }>;
+  facts: DeviceFact[];
+  discoveryMatches: Array<{ reason: string; count: number; last: string }>;
+};
+export type DuplicateCandidate = { deviceA: DeviceRef; deviceB: DeviceRef; confidence: "high" | "medium"; reasons: string[]; signals: Array<{ type: string; value: string; fromAgent: boolean }> };
+export type DeviceVocabulary = { trustStates: TrustState[]; classifications: string[] };
+export type DeviceMetadataUpdate = { displayName?: string | null; notes?: string | null; owner?: string | null; location?: string | null; classification?: string | null; tags?: string[] };
 
 export type DiscoveryTarget = { id: string; name: string; cidr: string; enabled: boolean; createdAt: string; updatedAt: string };
 export type DiscoveryAgent = { id: string; hostname: string; platform: string; version: string; capabilities: string[]; lastHeartbeatAt: string; lastError?: string; online: boolean };

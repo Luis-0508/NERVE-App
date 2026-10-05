@@ -11,7 +11,7 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
 | Area | What exists | Where |
 | --- | --- | --- |
 | Foundation | Next.js static UI, Go API, PostgreSQL with checksummed ordered migrations, Compose + Nginx proxy, health/readiness, SSE with one shared PostgreSQL listener | `app/`, `cmd/nerve-server`, `internal/platform`, `deploy/` |
-| Authentication & authorization | First-admin bootstrap, hashed opaque sessions, bounded login rate limiting, roles mapped to explicit permissions in `role_permissions`, immutable `audit_log` (trigger-enforced) for auth, discovery administration, agents and remote commands | `internal/auth`, `internal/authz`, `internal/audit`, `migrations/000001`, `000005` |
+| Authentication & authorization | First-admin bootstrap, hashed opaque sessions, bounded login rate limiting, roles mapped to explicit permissions in `role_permissions`, immutable `audit_log` (trigger-enforced) for auth, discovery administration, device identity, agents and remote commands | `internal/auth`, `internal/authz`, `internal/audit`, `migrations/000001`, `000005` |
 | Inventory | Normalized devices/interfaces/addresses/services/relationships; server-side search, sort, filter, paging; device detail view | `internal/inventory`, `components/devices` |
 | Discovery | One administrator-configured CIDR, persistent scan jobs, database-enforced single active scan, MAC-first reconciliation, consistent online/offline lifecycle | `internal/discovery` |
 | Native discovery agent | Go agent for Windows/Linux: ICMP, ARP/NDP neighbour cache, bounded TCP fallback, parallel reverse DNS | `cmd/nerve-agent`, `Dockerfile.agent` |
@@ -22,13 +22,13 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
 | 3D Traffic Map | Inventory devices on derived /24 plates, measured flows routed through the uplink to remote endpoints on a 3D globe | `components/map/topology*` |
 | Agent identity | Single-use, expiring enrollment tokens (digest only); per-agent Ed25519 keys (public key only in PostgreSQL); signed requests with nonce replay protection; revoke, re-enroll, remove; Core signs every agent-API response with a key pinned at enrollment | `internal/agents`, `internal/agentproto`, `migrations/000005`, `000006` |
 | Remote management foundation | Heartbeat and capabilities, evidence-based device association, provider-neutral `remote.Provider` registry, audited at-most-once command pipeline with five read-only commands, minimal device and settings UI | `internal/remote`, `cmd/nerve-agent`, `components/remote`, `migrations/000007` |
+| Device identity | Human-owned name, type, tags, owner, location, notes and trust state (trigger-protected from discovery); sourced facts with confidence; identity evidence with strength; explicit discovery match rules; agent facts as device evidence; duplicate candidates; transactional merge and split with tombstones and append-only records | `internal/devices`, `internal/discovery/match.go`, `migrations/000008`, `000009`, `components/devices` |
 
 ### Missing
 
-- Device intelligence: human-owned names/aliases, tags, notes, trust/approval state,
-  identity evidence, manual-vs-discovered provenance, merge/split workflows. The
-  `devices` table has `owner`, `location`, `notes` and `approved_at` columns, but no API or
-  UI writes them.
+- Device identity follow-ups: vendor (OUI) lookup and automatic classification; more
+  evidence sources (DHCP, SNMP, LLDP, ARP history); the Traffic Map still correlates devices
+  by one primary address; `devices.approved_at` is superseded by trust state and unused.
 - Discovery 2.0: multiple targets, scheduled scans (`subnets.discovery_interval_seconds`
   exists but nothing schedules), incremental progress, idempotent report ingestion.
 - Shared local secrets: the discovery worker still uses the shared `NERVE_DISCOVERY_AGENT_TOKEN`
@@ -57,23 +57,21 @@ map) shipped as "Milestone 5: map" (PR #21), and the 3D view followed (PR #27). 
 view is **not** the planned Milestone 5 topology. It has no server-side graph
 projection and no observed local links. It derives /24 plates from addresses, and it draws
 only measured flows from local hosts to remote endpoints. The original plan warned not to
-build topology before identity semantics were stable, and Milestone 4 is still open. The 3D
-view stays honest by labelling all derived structure. A real topology still needs
-Milestone 4 and real link collection.
+build topology before identity semantics were stable. Milestone 4 (device identity) shipped
+in October 2026; the 3D view stays honest by labelling all derived structure. A real
+topology still needs real link collection.
 
 ## Forward plan
 
 The order is set by dependencies. Remote management needs a trustworthy device identity
-and a trustworthy agent identity. Agent identity and the read-only remote-management
-foundation shipped first (October 2026); device identity is the next milestone and a
-prerequisite for privileged remote actions.
+and a trustworthy agent identity. Both shipped in October 2026: agent identity with the read-only
+remote-management foundation, then device identity.
 
-1. **Device identity & intelligence** (former Milestone 4). Human-owned name/alias,
-   tags, notes, owner/location, trust/approval state; per-field provenance (manual vs
-   discovered, so discovery never overwrites operator input); an identity-evidence view
-   built on `device_identities`; merge/split with audit records; secondary-address
-   matching in the Traffic Map. This is the anchor that agents, MeshCentral nodes,
-   Proxmox VMs and containers all map to.
+1. **Device identity — implemented (October 2026)** (former Milestone 4). Human-owned
+   metadata and trust state, provenance, identity evidence, duplicate candidates, merge and
+   split; agents and discovery converge on one record. See
+   [Device identity](docs/DEVICE_IDENTITY.md). Still open: OUI/vendor and classification,
+   more evidence sources, multi-address matching in the Traffic Map.
 2. **Remote management foundation — implemented (October 2026).** Agent enrollment and
    identity, Core-signed responses, heartbeat, capabilities, device association, audited
    read-only command pipeline. See [Remote management](docs/REMOTE_MANAGEMENT.md).
@@ -81,7 +79,9 @@ prerequisite for privileged remote actions.
    identities; agent-initiated key rotation; Core key rotation without re-enrollment.
 3. **Remote management, privileged actions.** Blocked until all of these exist: HTTPS
    enforced for agents that may run privileged capabilities (Core-signed responses give
-   authenticity, not confidentiality); explicit operator confirmation showing target
+   authenticity, not confidentiality); the target device in the operator-owned
+   `trusted` state (the trust model exists; the policy check comes with the first privileged
+   command); explicit operator confirmation showing target
    identity and evidence; per-device/group authorization scope and command policies;
    a privileged helper separate from the unprivileged agent; signed agent releases and
    updates; transcript retention and redaction rules for stdout/stderr.
@@ -130,8 +130,10 @@ never as empty scaffolding.
 ## Technical risks
 
 - Identity reconciliation must tolerate changing IPs, duplicate hostnames, randomized
-  MACs, multiple interfaces and contradictory sources, and show evidence rather than false
-  certainty.
+  MACs, multiple interfaces and contradictory sources. Device identity now records the
+  evidence and match rule for every observation and surfaces conflicts as duplicate
+  candidates instead of merging. Remaining gap: devices seen only by IP (no MAC, no agent)
+  can still be split across records when addresses change.
 - Shared agent secrets remain only for local discovery and the traffic sensor. Management
   agents use per-agent keys; privileged actions additionally need HTTPS (see the forward plan).
 - Discovery report ingestion is still not idempotent; remote command results are.

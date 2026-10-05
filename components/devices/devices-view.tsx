@@ -4,10 +4,11 @@ import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, MonitorCog, Play, Radar, RefreshCw, Save, Search, SlidersHorizontal, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { APIError, api } from "@/lib/api";
-import type { DeviceFacets, DeviceList, DeviceSummary, DiscoveryState } from "@/lib/types";
+import type { DeviceFacets, DeviceList, DeviceSummary, DiscoveryState, DuplicateCandidate } from "@/lib/types";
+import { TrustBadge } from "./device-identity-panel";
 import { DeviceStatus } from "./device-status";
 
-type SortKey = "name" | "status" | "classification" | "hostname" | "ip" | "vendor" | "first_seen" | "last_seen";
+type SortKey = "name" | "status" | "classification" | "trust" | "hostname" | "ip" | "vendor" | "first_seen" | "last_seen";
 type Direction = "asc" | "desc";
 type Density = "compact" | "normal";
 
@@ -45,12 +46,14 @@ export function DevicesView() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
   const [classification, setClassification] = useState("");
+  const [trust, setTrust] = useState("");
+  const [tag, setTag] = useState("");
   const [sort, setSort] = useState<SortKey>("name");
   const [direction, setDirection] = useState<Direction>("asc");
   const [offset, setOffset] = useState(0);
   const [density, setDensity] = useState<Density>("compact");
   const [result, setResult] = useState<DeviceList | null>(null);
-  const [facets, setFacets] = useState<DeviceFacets>({ statuses: [], classifications: [] });
+  const [facets, setFacets] = useState<DeviceFacets>({ statuses: [], classifications: [], trustStates: [], tags: [] });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
@@ -69,7 +72,7 @@ export function DevicesView() {
     const sequence = ++requestSequence.current;
     setLoading(true); setError(null); setAuthRequired(false);
     try {
-      const devices = await api.devices({ search, status, classification, sort, direction, limit: pageSize, offset });
+      const devices = await api.devices({ search, status, classification, trust, tag, sort, direction, limit: pageSize, offset });
       if (sequence === requestSequence.current) setResult(devices);
     } catch (requestError) {
       if (sequence !== requestSequence.current) return;
@@ -78,7 +81,7 @@ export function DevicesView() {
     } finally {
       if (sequence === requestSequence.current) setLoading(false);
     }
-  }, [classification, direction, offset, search, sort, status]);
+  }, [classification, direction, offset, search, sort, status, tag, trust]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -96,7 +99,7 @@ export function DevicesView() {
 
   const shownStart = result && result.total > 0 ? result.offset + 1 : 0;
   const shownEnd = result ? Math.min(result.offset + result.items.length, result.total) : 0;
-  const filtersActive = Boolean(search || status || classification);
+  const filtersActive = Boolean(search || status || classification || trust || tag);
 
   return <div className="page devices-page">
     <div className="page-heading">
@@ -105,12 +108,15 @@ export function DevicesView() {
     </div>
 
     <DiscoveryPanel onCompleted={load} />
+    <DuplicatesNotice />
 
     <section className="device-table-panel" aria-label="Device inventory">
       <div className="device-toolbar">
-        <label className="search-control"><Search aria-hidden="true" /><span className="sr-only">Search devices</span><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search name, hostname, IP, MAC, vendor" /></label>
+        <label className="search-control"><Search aria-hidden="true" /><span className="sr-only">Search devices</span><input value={searchInput} onChange={(event) => setSearchInput(event.target.value)} placeholder="Search name, alias, hostname, any IP or MAC, tag, vendor" /></label>
         <div className="filter-control"><SlidersHorizontal aria-hidden="true" /><label htmlFor="device-status-filter">Status</label><select id="device-status-filter" value={status} onChange={(event) => { setStatus(event.target.value); setOffset(0); }}><option value="">All</option>{facets.statuses.map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
         <div className="filter-control"><label htmlFor="device-type-filter">Type</label><select id="device-type-filter" value={classification} onChange={(event) => { setClassification(event.target.value); setOffset(0); }}><option value="">All</option>{facets.classifications.map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+        <div className="filter-control"><label htmlFor="device-trust-filter">Trust</label><select id="device-trust-filter" value={trust} onChange={(event) => { setTrust(event.target.value); setOffset(0); }}><option value="">All</option>{(facets.trustStates ?? []).map((item) => <option key={item} value={item}>{item}</option>)}</select></div>
+        {(facets.tags ?? []).length > 0 && <div className="filter-control"><label htmlFor="device-tag-filter">Tag</label><select id="device-tag-filter" value={tag} onChange={(event) => { setTag(event.target.value); setOffset(0); }}><option value="">All</option>{(facets.tags ?? []).map((item) => <option key={item} value={item}>{item}</option>)}</select></div>}
         <button className="icon-button density-button" type="button" onClick={() => setDensity((current) => current === "compact" ? "normal" : "compact")} aria-label={`Table density: ${density}. Change density.`} title={`Density: ${density}`}><Columns3 aria-hidden="true" /></button>
       </div>
 
@@ -118,7 +124,7 @@ export function DevicesView() {
       : error ? <div className="error-state"><h2>Device inventory unavailable</h2><p>{error}</p><button className="button" type="button" onClick={() => void load()}>Retry</button></div>
       : loading && !result ? <DeviceTableLoading />
       : result && result.items.length > 0 ? <DeviceTable items={result.items} density={density} sortButton={sortButton} />
-      : <div className="empty-state"><MonitorCog aria-hidden="true" /><h2>{filtersActive ? "No matching devices" : "No devices discovered"}</h2><p>{filtersActive ? "Change or clear the current filters." : "The inventory will populate when a discovery source or integration records device observations."}</p>{filtersActive && <button className="button" type="button" onClick={() => { setSearchInput(""); setSearch(""); setStatus(""); setClassification(""); setOffset(0); }}>Clear filters</button>}</div>}
+      : <div className="empty-state"><MonitorCog aria-hidden="true" /><h2>{filtersActive ? "No matching devices" : "No devices discovered"}</h2><p>{filtersActive ? "Change or clear the current filters." : "The inventory will populate when a discovery source or integration records device observations."}</p>{filtersActive && <button className="button" type="button" onClick={() => { setSearchInput(""); setSearch(""); setStatus(""); setClassification(""); setTrust(""); setTag(""); setOffset(0); }}>Clear filters</button>}</div>}
 
       <footer className="table-footer">
         <span>{loading && result ? "Updating…" : `${shownStart}–${shownEnd} of ${result?.total ?? 0}`}</span>
@@ -239,11 +245,26 @@ function DiscoveryPanel({ onCompleted }: { onCompleted: () => void | Promise<voi
 
 function DeviceTable({ items, density, sortButton }: { items: DeviceSummary[]; density: Density; sortButton: (label: string, key: SortKey) => React.ReactNode }) {
   return <div className="table-wrap"><table className="data-table device-table" data-density={density}>
-    <thead><tr><th>{sortButton("Device", "name")}</th><th>{sortButton("Status", "status")}</th><th>{sortButton("IP address", "ip")}</th><th>{sortButton("Hostname", "hostname")}</th><th>MAC address</th><th>{sortButton("Vendor", "vendor")}</th><th>{sortButton("Type", "classification")}</th><th>{sortButton("Last seen", "last_seen")}</th></tr></thead>
-    <tbody>{items.map((device) => <tr key={device.id}><td><Link className="device-link" href={`/devices/detail?id=${encodeURIComponent(device.id)}`}>{device.name}</Link></td><td><DeviceStatus status={device.status} /></td><td className="mono">{displayValue(device.primaryIpAddress)}</td><td>{displayValue(device.hostname)}</td><td className="mono">{displayValue(device.primaryMac)}</td><td>{displayValue(device.vendor)}</td><td>{device.classification}</td><td title={formatDate(device.lastSeenAt)}>{formatDate(device.lastSeenAt)}</td></tr>)}</tbody>
+    <thead><tr><th>{sortButton("Device", "name")}</th><th>{sortButton("Status", "status")}</th><th>{sortButton("Trust", "trust")}</th><th>{sortButton("IP address", "ip")}</th><th>{sortButton("Hostname", "hostname")}</th><th>MAC address</th><th>{sortButton("Vendor", "vendor")}</th><th>{sortButton("Type", "classification")}</th><th>{sortButton("Last seen", "last_seen")}</th></tr></thead>
+    <tbody>{items.map((device) => <tr key={device.id}><td><Link className="device-link" href={`/devices/detail?id=${encodeURIComponent(device.id)}`}>{device.name}</Link>{device.displayName && device.discoveredName && device.discoveredName !== device.name && <small className="device-alias">{device.discoveredName}</small>}{device.tags.map((item) => <span key={item} className="tag-chip">{item}</span>)}</td><td><DeviceStatus status={device.status} /></td><td><TrustBadge state={device.trustState} /></td><td className="mono">{displayValue(device.primaryIpAddress)}</td><td>{displayValue(device.hostname)}</td><td className="mono">{displayValue(device.primaryMac)}</td><td>{displayValue(device.vendor)}</td><td>{device.classification}</td><td title={formatDate(device.lastSeenAt)}>{formatDate(device.lastSeenAt)}</td></tr>)}</tbody>
   </table></div>;
 }
 
 function DeviceTableLoading() {
-  return <div className="table-wrap" aria-label="Loading devices"><table className="data-table device-table"><thead><tr><th>Device</th><th>Status</th><th>IP address</th><th>Hostname</th><th>MAC address</th><th>Vendor</th><th>Type</th><th>Last seen</th></tr></thead><tbody>{Array.from({ length: 6 }, (_, index) => <tr key={index}>{Array.from({ length: 8 }, (_, cell) => <td key={cell}><span className="skeleton-line" /></td>)}</tr>)}</tbody></table></div>;
+  return <div className="table-wrap" aria-label="Loading devices"><table className="data-table device-table"><thead><tr><th>Device</th><th>Status</th><th>Trust</th><th>IP address</th><th>Hostname</th><th>MAC address</th><th>Vendor</th><th>Type</th><th>Last seen</th></tr></thead><tbody>{Array.from({ length: 6 }, (_, index) => <tr key={index}>{Array.from({ length: 9 }, (_, cell) => <td key={cell}><span className="skeleton-line" /></td>)}</tr>)}</tbody></table></div>;
+}
+
+/** Shows likely duplicate records; nothing is merged without an operator. */
+function DuplicatesNotice() {
+  const [items, setItems] = useState<DuplicateCandidate[]>([]);
+  useEffect(() => { api.deviceDuplicates().then((result) => setItems(result.items)).catch(() => setItems([])); }, []);
+  if (items.length === 0) return null;
+  return <section className="duplicates-notice" aria-label="Possible duplicate devices">
+    <strong>{items.length} possible duplicate record{items.length === 1 ? "" : "s"}</strong>
+    <ul>{items.slice(0, 5).map((item) => <li key={`${item.deviceA.id}:${item.deviceB.id}`}>
+      <Link className="device-link" href={`/devices/detail?id=${encodeURIComponent(item.deviceA.id)}`}>{item.deviceA.name}</Link> and{" "}
+      <Link className="device-link" href={`/devices/detail?id=${encodeURIComponent(item.deviceB.id)}`}>{item.deviceB.name}</Link>
+      <span className="muted"> · {item.confidence}: {item.reasons[0]}</span></li>)}</ul>
+    <span className="muted">Review them on a device&apos;s Identity tab. NERVE never merges automatically.</span>
+  </section>;
 }

@@ -180,8 +180,29 @@ Evidence (signal type and value per candidate device) is stored on the agent and
 in the API. Operator decisions (`confirmed`, `dismissed`) are never overridden
 automatically. Unresolved agents are re-evaluated on every heartbeat, so a device
 discovered later is still linked. Resolved agents are re-evaluated only when their
-facts change. An associated agent is also recorded as an `agent` row in
-`device_identities`, which feeds the Device Identity milestone.
+facts change.
+
+Discovery and remote management converge on one device record. An associated agent is
+recorded as an `agent` row in `device_identities`. Its machine ID, MACs, hostname and
+addresses become identity evidence, and its hostname, OS and architecture become sourced
+facts on the device (see [Device identity](DEVICE_IDENTITY.md)). The association survives
+IP changes, moves with the device when operators merge records, and is handled explicitly
+(keep, move, detach) when they split one. An agent that is moved or removed takes its
+evidence with it.
+
+## Device trust
+
+Every device has an operator-owned trust state (`unknown`, `reviewed`, `trusted`,
+`blocked`). Discovery never changes it, and merges never raise it.
+
+| Device trust | Remote management today | Intended for privileged actions |
+| --- | --- | --- |
+| `blocked` | Commands are refused (`device_blocked`) | Refused |
+| `unknown` / `reviewed` | Read-only commands allowed | Refused: inventory and read-only only |
+| `trusted` | Read-only commands allowed | Eligible, subject to the remaining prerequisites below |
+
+Agents that are not associated with any device can run read-only commands. Privileged
+actions will additionally require an associated device in the `trusted` state.
 
 ## Command pipeline
 
@@ -240,6 +261,9 @@ Permissions live in `permissions` and `role_permissions`, and every check is ser
 | `remote.execute.privileged` (reserved; no command uses it yet) | ✓ | | |
 | `audit.view` (`GET /api/v1/audit`) | ✓ | | |
 | `discovery.manage` (discovery target and scans) | ✓ | | |
+| `devices.manage` (device name, type, tags, owner, location, notes) | ✓ | ✓ | |
+| `devices.trust` (device trust state) | ✓ | | |
+| `devices.merge` (merge, split, dismiss duplicate candidates) | ✓ | | |
 
 A user's permissions are the union over all their roles. Changing a role is a data
 change, not a code change. Denied state-changing requests are audited as `authz.denied`.
@@ -390,6 +414,8 @@ all of these exist:
   (implemented) give authenticity and integrity, not confidentiality.
 - A per-command operator approval record that the agent can verify (today the agent trusts
   any command Core signs; a compromised Core can therefore still order read-only commands).
+- Device trust: the target device must be `trusted`. The trust model exists; the policy
+  check will be added together with the first privileged command.
 - Explicit operator confirmation showing the target identity and evidence.
 - Per-device or per-group authorization scope, plus policies or allowlists.
 - A privileged helper separated from the unprivileged agent.
