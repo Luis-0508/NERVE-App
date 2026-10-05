@@ -23,7 +23,7 @@ func TestRemoteCommandLifecycleOverHTTP(t *testing.T) {
 	testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	testsupport.CreateUser(t, pool, "tech@example.invalid", "integration-password", "technician")
 	testsupport.CreateUser(t, pool, "viewer@example.invalid", "integration-password", "read_only")
-	server := httptest.NewServer(httpapi.New(pool, config.Config{AllowedOrigin: "http://localhost:3000", SessionTTL: time.Hour},
+	server := httptest.NewServer(httpapi.New(pool, config.Config{AllowedOrigin: "http://localhost:3000", SessionTTL: time.Hour, CoreSigningKey: testsupport.CoreSigningKeyHex},
 		slog.New(slog.NewTextHandler(io.Discard, nil)), "test").Handler())
 	defer server.Close()
 	admin := login(t, server.URL, "admin@example.invalid", "integration-password")

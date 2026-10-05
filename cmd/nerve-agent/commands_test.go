@@ -61,7 +61,7 @@ func commandTestManager(t *testing.T, handler func(route string, body []byte) (i
 		mu.Unlock()
 		return handler(route, body)
 	})
-	m := &manager{client: newManagementClient(server.URL+"/api/v1", &identity{CredentialID: "cred", key: private}), agentID: "agent-1",
+	m := &manager{client: newManagementClient(server.URL+"/api/v1", &identity{CredentialID: "cred", key: private, coreKey: testCorePublic}), agentID: "agent-1",
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)), capabilities: func() []string { return []string{"system.info"} },
 		facts: collectHostFacts, collectors: map[string]collector{
 			"system.info": func(ctx context.Context, _ map[string]any) (map[string]any, error) {

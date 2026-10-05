@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/nerve-labs/nerve/internal/agentproto"
 )
 
 type Config struct {
@@ -20,6 +22,7 @@ type Config struct {
 	SessionTTL          time.Duration
 	LogLevel            slog.Level
 	DiscoveryAgentToken string
+	CoreSigningKey      string
 	NtopngURL           string
 	NtopngUsername      string
 	NtopngPassword      string
@@ -42,6 +45,7 @@ func Load() (Config, error) {
 		SessionTTL:          24 * time.Hour,
 		LogLevel:            slog.LevelInfo,
 		DiscoveryAgentToken: os.Getenv("NERVE_DISCOVERY_AGENT_TOKEN"),
+		CoreSigningKey:      os.Getenv("NERVE_CORE_SIGNING_KEY"),
 		NtopngURL:           os.Getenv("NERVE_NTOPNG_URL"),
 		NtopngUsername:      os.Getenv("NERVE_NTOPNG_USERNAME"),
 		NtopngPassword:      os.Getenv("NERVE_NTOPNG_PASSWORD"),
@@ -94,6 +98,11 @@ func Load() (Config, error) {
 		}
 		if _, err := netip.ParsePrefix(strings.TrimSpace(raw)); err != nil {
 			return Config{}, fmt.Errorf("NERVE_TRAFFIC_LOCAL_CIDRS contains an invalid CIDR")
+		}
+	}
+	if strings.TrimSpace(cfg.CoreSigningKey) != "" {
+		if _, err := agentproto.ParseCoreSigningKey(cfg.CoreSigningKey); err != nil {
+			return Config{}, err
 		}
 	}
 	switch cfg.TrafficCaptureMode {

@@ -6,6 +6,7 @@ package testsupport
 
 import (
 	"context"
+	"crypto/ed25519"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nerve-labs/nerve/internal/agentproto"
+	"github.com/nerve-labs/nerve/internal/agents"
 	"github.com/nerve-labs/nerve/internal/auth"
 	"github.com/nerve-labs/nerve/internal/platform/database"
 )
@@ -125,4 +128,28 @@ func CreateDevice(t *testing.T, pool *pgxpool.Pool, name, mac, address string) s
 		}
 	}
 	return id
+}
+
+// CoreSigningKeyHex is a fixed test-only NERVE_CORE_SIGNING_KEY.
+const CoreSigningKeyHex = "4e45525645207465737420636f7265207369676e696e67206b65792030303031"
+
+// CoreKey returns the test Core signing key.
+func CoreKey() ed25519.PrivateKey {
+	key, err := agentproto.ParseCoreSigningKey(CoreSigningKeyHex)
+	if err != nil {
+		panic(err)
+	}
+	return key
+}
+
+// AgentRepository returns an agents repository configured with the test Core key.
+func AgentRepository(pool *pgxpool.Pool) *agents.Repository {
+	repository := agents.NewRepository(pool)
+	repository.SetCoreSigningKey(CoreKey())
+	return repository
+}
+
+// CoreFingerprint is the fingerprint embedded in test enrollment tokens.
+func CoreFingerprint() string {
+	return agentproto.CoreFingerprint(CoreKey().Public().(ed25519.PublicKey))
 }

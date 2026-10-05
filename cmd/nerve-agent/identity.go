@@ -24,9 +24,11 @@ type identity struct {
 	Fingerprint  string    `json:"fingerprint"`
 	APIURL       string    `json:"apiUrl"`
 	PrivateKey   string    `json:"privateKey"`
+	CoreKey      string    `json:"coreKey"`
 	EnrolledAt   time.Time `json:"enrolledAt"`
 
-	key ed25519.PrivateKey
+	key     ed25519.PrivateKey
+	coreKey ed25519.PublicKey
 }
 
 // defaultStateDir picks a per-installation location that only the agent's
@@ -69,6 +71,11 @@ func loadIdentity(dir string) (*identity, error) {
 	if err != nil || len(seed) != ed25519.SeedSize || value.Version != 1 || value.AgentID == "" || value.CredentialID == "" {
 		return nil, errors.New("agent identity file is invalid; re-enroll the agent")
 	}
+	coreKey, err := base64.StdEncoding.DecodeString(value.CoreKey)
+	if err != nil || len(coreKey) != ed25519.PublicKeySize {
+		return nil, errors.New("agent identity has no pinned NERVE Core key; re-enroll the agent")
+	}
+	value.coreKey = coreKey
 	value.key = ed25519.NewKeyFromSeed(seed)
 	return &value, nil
 }
@@ -84,6 +91,7 @@ func saveIdentity(dir string, value *identity) error {
 	}
 	value.Version = 1
 	value.PrivateKey = base64.StdEncoding.EncodeToString(value.key.Seed())
+	value.CoreKey = base64.StdEncoding.EncodeToString(value.coreKey)
 	encoded, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
 		return err

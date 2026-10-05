@@ -30,6 +30,7 @@ var (
 	ErrAgentRemoved        = errors.New("agent was removed")
 	ErrDeviceNotFound      = errors.New("device not found")
 	ErrDeviceHasAgent      = errors.New("device is already associated with another live agent")
+	ErrCoreKeyMissing      = errors.New("NERVE_CORE_SIGNING_KEY is not configured; run setup.bat or set it in .env")
 
 	ErrAuthentication    = errors.New("agent authentication failed")
 	ErrCredentialRevoked = errors.New("agent credential was revoked")

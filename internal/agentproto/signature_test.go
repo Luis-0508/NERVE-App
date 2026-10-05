@@ -98,16 +98,20 @@ func TestEnrollmentTokenFormat(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := "3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e"
-	parsedID, raw, err := ParseEnrollmentToken(FormatEnrollmentToken(id, secret))
-	if err != nil || parsedID != id || len(raw) != 32 {
-		t.Fatalf("round trip failed: %q %d %v", parsedID, len(raw), err)
+	corePublic, _, _ := ed25519.GenerateKey(nil)
+	fingerprint := CoreFingerprint(corePublic)
+	parsed, err := ParseEnrollmentToken(FormatEnrollmentToken(id, secret, fingerprint))
+	if err != nil || parsed.ID != id || len(parsed.Secret) != 32 || parsed.CoreFingerprint != fingerprint {
+		t.Fatalf("round trip failed: %+v %v", parsed, err)
 	}
 	for _, token := range []string{
-		"", "nerve-enroll-v1." + id, "nerve-enroll-v2." + id + "." + secret,
-		"nerve-enroll-v1.not-a-uuid." + secret, "nerve-enroll-v1." + id + ".short",
-		"nerve-enroll-v1." + strings.ToUpper(id) + "." + secret,
+		"", "nerve-enroll-v2." + id, "nerve-enroll-v2." + id + "." + secret,
+		"nerve-enroll-v1." + id + "." + secret + "." + fingerprint,
+		"nerve-enroll-v2.not-a-uuid." + secret + "." + fingerprint, "nerve-enroll-v2." + id + ".short." + fingerprint,
+		"nerve-enroll-v2." + strings.ToUpper(id) + "." + secret + "." + fingerprint,
+		"nerve-enroll-v2." + id + "." + secret + ".shortfingerprint",
 	} {
-		if _, _, err := ParseEnrollmentToken(token); err == nil {
+		if _, err := ParseEnrollmentToken(token); err == nil {
 			t.Fatalf("malformed token accepted: %q", token)
 		}
 	}

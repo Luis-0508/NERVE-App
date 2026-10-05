@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -21,7 +22,7 @@ import (
 func TestIdentityRoundTripIsPrivate(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "state")
 	_, private, _ := ed25519.GenerateKey(nil)
-	original := &identity{AgentID: "a1", CredentialID: "c1", Fingerprint: "f", APIURL: "http://core/api/v1", key: private}
+	original := &identity{AgentID: "a1", CredentialID: "c1", Fingerprint: "f", APIURL: "http://core/api/v1", key: private, coreKey: testCorePublic}
 	if err := saveIdentity(dir, original); err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +48,10 @@ func TestIdentityRoundTripIsPrivate(t *testing.T) {
 	}
 }
 
-// fakeCore verifies agent signatures exactly as Core does.
+// testCorePublic and testCoreKey stand in for NERVE Core's signing key.
+var testCorePublic, testCoreKey, _ = ed25519.GenerateKey(nil)
+
+// fakeCore verifies agent signatures and signs its responses exactly as Core does.
 func fakeCore(t *testing.T, public *ed25519.PublicKey, handler func(route string, body []byte) (int, any)) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -61,21 +65,25 @@ func fakeCore(t *testing.T, public *ed25519.PublicKey, handler func(route string
 			key, _ = agentproto.DecodePublicKey(request.PublicKey)
 			*public = key
 		}
-		if err != nil || headers.Verify(key, r.Method, route, body) != nil || headers.CheckTimestamp(time.Now()) != nil {
-			w.WriteHeader(http.StatusUnauthorized)
-			_, _ = w.Write([]byte(`{"error":{"code":"agent_authentication_failed","message":"bad signature"}}`))
-			return
+		status, encoded := http.StatusUnauthorized, []byte(`{"error":{"code":"agent_authentication_failed","message":"bad signature"}}`)
+		if err == nil && headers.Verify(key, r.Method, route, body) == nil && headers.CheckTimestamp(time.Now()) == nil {
+			var response any
+			status, response = handler(route, body)
+			encoded, _ = json.Marshal(response)
+			if status == http.StatusNoContent {
+				encoded = nil
+			}
 		}
-		status, response := handler(route, body)
 		w.Header().Set("Content-Type", "application/json")
+		agentproto.SignCoreResponse(w.Header(), testCoreKey, r.Header.Get(agentproto.HeaderSignature), status, encoded)
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(response)
+		_, _ = w.Write(encoded)
 	}))
 }
 
 func TestEnrollSignsWithNewKeyAndChecksFingerprint(t *testing.T) {
 	var public ed25519.PublicKey
-	token := agentproto.FormatEnrollmentToken("3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+	token := agentproto.FormatEnrollmentToken("3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e", "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", agentproto.CoreFingerprint(testCorePublic))
 	wrongFingerprint := false
 	server := fakeCore(t, &public, func(route string, body []byte) (int, any) {
 		var request agentproto.EnrollRequest
@@ -123,7 +131,7 @@ func TestHeartbeatIsSignedAndClassifiesRevocation(t *testing.T) {
 		return 200, agentproto.HeartbeatResponse{ServerTime: time.Now().Unix()}
 	})
 	defer server.Close()
-	m := &manager{client: newManagementClient(server.URL+"/api/v1", &identity{CredentialID: "cred-1", key: private}),
+	m := &manager{client: newManagementClient(server.URL+"/api/v1", &identity{CredentialID: "cred-1", key: private, coreKey: testCorePublic}),
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)), capabilities: supportedCapabilities, facts: collectHostFacts}
 	if err := m.heartbeat(context.Background()); err != nil || heartbeats.Load() != 1 {
 		t.Fatalf("heartbeat failed: %v", err)
@@ -171,5 +179,51 @@ func TestHeartbeatClearsOnlyTheReportedError(t *testing.T) {
 	m.clearError("newer")
 	if m.currentError() != "" {
 		t.Fatal("the reported error was not cleared")
+	}
+}
+
+func TestEnrollPinsCoreKeyFromToken(t *testing.T) {
+	var public ed25519.PublicKey
+	server := fakeCore(t, &public, func(route string, body []byte) (int, any) {
+		return 201, agentproto.EnrollResponse{AgentID: "agent-1", CredentialID: "cred-1", Fingerprint: agentproto.Fingerprint(public)}
+	})
+	defer server.Close()
+	id := "3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e"
+	secret := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	enrolled, err := enroll(context.Background(), server.URL+"/api/v1", agentproto.FormatEnrollmentToken(id, secret, agentproto.CoreFingerprint(testCorePublic)))
+	if err != nil || !enrolled.coreKey.Equal(testCorePublic) {
+		t.Fatalf("Core key not pinned: %v", err)
+	}
+	// A token that pins a different Core key refuses this server (for example a MITM).
+	otherCore, _, _ := ed25519.GenerateKey(nil)
+	if _, err := enroll(context.Background(), server.URL+"/api/v1", agentproto.FormatEnrollmentToken(id, secret, agentproto.CoreFingerprint(otherCore))); !errors.Is(err, agentproto.ErrUnverifiedResponse) {
+		t.Fatalf("enrollment trusted an unpinned Core key: %v", err)
+	}
+}
+
+func TestForgedCoreResponsesAreIgnored(t *testing.T) {
+	agentPublic, agentKey, _ := ed25519.GenerateKey(nil)
+	// An attacker answers with a correct-looking but self-signed "revoked" response.
+	_, attackerKey, _ := ed25519.GenerateKey(nil)
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body := []byte(`{"error":{"code":"agent_credential_revoked","message":"forged"}}`)
+		agentproto.SignCoreResponse(w.Header(), attackerKey, r.Header.Get(agentproto.HeaderSignature), 401, body)
+		w.WriteHeader(401)
+		_, _ = w.Write(body)
+	}))
+	defer attacker.Close()
+	_ = agentPublic
+	m := &manager{client: newManagementClient(attacker.URL+"/api/v1", &identity{CredentialID: "cred", key: agentKey, coreKey: testCorePublic}),
+		logger: slog.New(slog.NewTextHandler(io.Discard, nil)), capabilities: supportedCapabilities, facts: collectHostFacts}
+	err := m.heartbeat(context.Background())
+	if !errors.Is(err, agentproto.ErrUnverifiedResponse) || requiresReenrollment(err) {
+		t.Fatalf("forged revocation was trusted: %v", err)
+	}
+	// A forged command is never executed.
+	executed := false
+	m.collectors = map[string]collector{"system.info": func(context.Context, map[string]any) (map[string]any, error) { executed = true; return nil, nil }}
+	var command agentproto.Command
+	if _, err := m.client.post(context.Background(), "/agent/commands/claim", agentproto.ClaimRequest{}, &command); err == nil || command.ID != "" || executed {
+		t.Fatalf("forged claim response accepted: %v %+v", err, command)
 	}
 }
