@@ -2,7 +2,8 @@
 
 Status: **foundation implemented** (October 2026): per-agent enrollment and identity,
 heartbeat and capabilities, evidence-based device association, and an audited command
-pipeline with five read-only commands. Interactive sessions (desktop, terminal, files)
+pipeline with five read-only commands, with both directions of the agent channel
+authenticated (agent request signatures and Core response signatures). Interactive sessions (desktop, terminal, files)
 and privileged commands are **not** implemented. Agent installation is described in
 [Agent setup](AGENT_SETUP.md); sequencing lives in
 [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
@@ -44,8 +45,9 @@ nerve-agent enroll ── generates Ed25519 key pair ── POST /api/v1/agent/e
 Core: lock enrollment, verify digest/expiry/single use ──▶ agent ID + credential ID
 ```
 
-- **Enrollment tokens** look like `nerve-enroll-v1.<enrollment id>.<secret>` with a
-  256-bit secret. Core stores only `SHA-256(secret)`. They expire after 5 minutes to 24
+- **Enrollment tokens** look like `nerve-enroll-v2.<enrollment id>.<secret>.<Core key
+  fingerprint>` with a 256-bit secret. The fingerprint (base64url SHA-256 of Core's public
+  key) lets the agent authenticate Core during and after enrollment; see below. Core stores only `SHA-256(secret)`. They expire after 5 minutes to 24
   hours (default 60 minutes) and are consumed exactly once under `SELECT … FOR UPDATE`.
   Operators can revoke unused tokens. Rejected attempts against an existing enrollment
   (wrong secret, expired, revoked, already used, key reuse) are audited. Attempts with
@@ -85,6 +87,38 @@ Core rejects timestamps more than ±2 minutes away (and returns its time in
 `X-NERVE-Server-Time`). It verifies the signature **before** any write, then records the
 nonce in `agent_request_nonces` for 4 minutes, so a replay inside the window fails. The
 maintenance loop prunes expired nonces.
+
+### Core authentication (agent side)
+
+Agents also authenticate Core. Core signs **every** response on `/api/v1/agent/*`,
+including errors, with an Ed25519 key from `NERVE_CORE_SIGNING_KEY`:
+
+```text
+NERVE-CORE-SIG-V1
+<core key id>
+<the request's X-NERVE-Signature>
+<HTTP status>
+<sha256(response body) hex>
+```
+
+- The agent learns which key to trust **out of band**: the enrollment token carries the
+  key's fingerprint, and the operator copies the token from the NERVE UI. The agent checks
+  the key in the enroll response against that fingerprint, verifies the signature and
+  pins the key in its identity file. A network attacker cannot substitute a key, even if
+  enrollment runs over plain HTTP.
+- Because the signature covers the request's own signature, a response is valid only for
+  the single request it answers. Captured responses cannot be replayed for other requests,
+  commands cannot be forged or altered, and a fake "credential revoked" or "cancelled"
+  answer is rejected.
+- The agent treats an unverifiable response as a transport failure: it never executes a
+  command, records a result as delivered, or pauses because of one.
+- Core refuses agent enrollment and the whole agent API (HTTP 503) when no signing key is
+  configured, rather than running unauthenticated. `setup.bat` generates the key
+  (`start.bat` runs setup, so existing installations get one on their next start).
+  Compose passes it only to the API container, and it is never stored in PostgreSQL.
+- Tokens that pin a different Core key (for example issued before the key changed) are
+  rejected and audited as `core_key_mismatch`. Changing the key requires re-enrolling
+  every agent; rotation without re-enrollment is not implemented.
 
 ### Separation of browser and agent APIs
 
@@ -234,16 +268,13 @@ referenced by command ID.
 
 ## Current limitations
 
-- **No server-to-agent authentication on plain HTTP.**
-  - The agent authenticates to Core, but Core does not sign commands, and the agent does
-    not pin a server key.
-  - On plain HTTP, an active man-in-the-middle could feed the agent read-only commands and
-    read the results. Today's commands are read-only, so the impact is information
-    disclosure.
-  - **Use HTTPS (a reverse proxy with a trusted certificate) for agents outside a trusted
-    network.**
-  - Server-signed commands with a pinned key are a hard prerequisite for privileged
-    commands.
+- **No confidentiality on plain HTTP.** Both directions are authenticated (agent request
+  signatures, Core response signatures), so commands cannot be forged and responses cannot
+  be redirected to another request. But NERVE does not encrypt payloads itself: on plain
+  HTTP, anyone on the network path can **read** command results, host facts and
+  inventory data, and can block traffic. **Use HTTPS (a reverse proxy with a trusted
+  certificate) for agents outside a trusted network.** Enforcing HTTPS for agents that may
+  run privileged capabilities is a **blocker for privileged remote actions**.
 - No agent-initiated key rotation, no Windows service or installer, and no signed agent
   updates. The agent runs as the account that starts it.
 - The discovery worker and the Windows traffic sensor still use their shared local
@@ -353,8 +384,10 @@ with key rotation first.
 `command.shell`, `command.powershell`, `script.run` and `system.reboot` stay disabled until
 all of these exist:
 
-- Server-signed commands with a key pinned at enrollment, and HTTPS by default for remote
-  agents.
+- HTTPS enforced for agents that may run privileged capabilities. Core-signed responses
+  (implemented) give authenticity and integrity, not confidentiality.
+- A per-command operator approval record that the agent can verify (today the agent trusts
+  any command Core signs; a compromised Core can therefore still order read-only commands).
 - Explicit operator confirmation showing the target identity and evidence.
 - Per-device or per-group authorization scope, plus policies or allowlists.
 - A privileged helper separated from the unprivileged agent.
