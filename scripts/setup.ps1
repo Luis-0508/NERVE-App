@@ -33,7 +33,7 @@ foreach ($line in [IO.File]::ReadAllLines((Join-Path $Root '.env.example'))) {
         if (-not ($lines | Where-Object { $_ -match ('^\s*' + $key + '\s*=') })) { Set-Value $key $value }
     }
 }
-foreach ($key in @('POSTGRES_PASSWORD','NERVE_DISCOVERY_AGENT_TOKEN','NERVE_SENSOR_TOKEN')) {
+foreach ($key in @('POSTGRES_PASSWORD','NERVE_DISCOVERY_AGENT_TOKEN','NERVE_SENSOR_TOKEN','NERVE_CORE_SIGNING_KEY')) {
     if ((Get-Value $key) -in @('', 'change-me')) { Set-Value $key (New-Secret) }
 }
 if ((Get-Value 'NERVE_DATABASE_URL') -match ':change-me@') {

@@ -22,7 +22,7 @@ func hostFacts(hostname, mac, address string) agentproto.HostFacts {
 
 func TestHeartbeatAndDeviceAssociation(t *testing.T) {
 	pool := testsupport.MigratedPool(t, "agents_hb")
-	repo := agents.NewRepository(pool)
+	repo := testsupport.AgentRepository(pool)
 	ctx := context.Background()
 	adminID := testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	actor := agents.Actor{UserID: adminID}
@@ -149,7 +149,7 @@ func TestHeartbeatAndDeviceAssociation(t *testing.T) {
 
 func TestEnrollRejectsUnusableHostnames(t *testing.T) {
 	pool := testsupport.MigratedPool(t, "agents_hostname")
-	repo := agents.NewRepository(pool)
+	repo := testsupport.AgentRepository(pool)
 	ctx := context.Background()
 	adminID := testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	for _, hostname := range []string{".", " . ", "bad\x00host", string([]byte{0xff, 0xfe})} {

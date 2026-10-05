@@ -29,7 +29,7 @@ type fixture struct {
 func newFixture(t *testing.T, prefix string) fixture {
 	pool := testsupport.MigratedPool(t, prefix)
 	adminID := testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
-	return fixture{pool: pool, agents: agents.NewRepository(pool), commands: remote.NewService(pool), actor: agents.Actor{UserID: adminID}}
+	return fixture{pool: pool, agents: testsupport.AgentRepository(pool), commands: remote.NewService(pool), actor: agents.Actor{UserID: adminID}}
 }
 
 func (f fixture) agent(t *testing.T, capabilities ...string) agents.Principal {

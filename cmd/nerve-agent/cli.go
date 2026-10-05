@@ -93,7 +93,8 @@ func runEnroll(args []string) int {
 		fmt.Fprintln(os.Stderr, "Revoke agent", id.AgentID, "in NERVE and enroll again.")
 		return 1
 	}
-	fmt.Printf("Enrolled as agent %s\nKey fingerprint (compare in NERVE): %s\nIdentity: %s\n", id.AgentID, id.Fingerprint, *stateDir)
+	fmt.Printf("Enrolled as agent %s\nKey fingerprint (compare in NERVE): %s\nPinned NERVE Core key: %s\nIdentity: %s\n",
+		id.AgentID, id.Fingerprint, agentproto.CoreKeyID(id.coreKey), *stateDir)
 	fmt.Println("The enrollment token is now used up; remove it from any configuration.")
 	return 0
 }
@@ -110,7 +111,8 @@ func runStatus(args []string) int {
 		return 1
 	}
 	apiURL := managementAPIURL(id)
-	fmt.Printf("Agent:       %s\nCredential:  %s\nFingerprint: %s\nCore:        %s\n", id.AgentID, id.CredentialID, id.Fingerprint, apiURL)
+	fmt.Printf("Agent:       %s\nCredential:  %s\nFingerprint: %s\nCore:        %s\nCore key:    %s (pinned)\n",
+		id.AgentID, id.CredentialID, id.Fingerprint, apiURL, agentproto.CoreKeyID(id.coreKey))
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	var response agentproto.IdentityResponse
@@ -118,7 +120,7 @@ func runStatus(args []string) int {
 		fmt.Fprintln(os.Stderr, "Core check failed:", err)
 		return 1
 	}
-	fmt.Println("Core accepts this identity.")
+	fmt.Println("Core accepts this identity, and its response is signed by the pinned Core key.")
 	return 0
 }
 

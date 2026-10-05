@@ -13,6 +13,8 @@ $agent = Value 'NERVE_DISCOVERY_AGENT_TOKEN'
 $native = Value 'NERVE_SENSOR_TOKEN'
 Assert ($native -match '^[a-f0-9]{64}$' -and $native -ne $agent -and $native -ne $db) 'Native sensor needs an independent random token.'
 Assert ($db -match '^[a-f0-9]{64}$' -and $agent -match '^[a-f0-9]{64}$' -and $db -ne $agent) 'Fresh secrets are missing or reused.'
+$core = Value 'NERVE_CORE_SIGNING_KEY'
+Assert ($core -match '^[a-f0-9]{64}$' -and $core -notin @($db, $agent, $native)) 'Core signing key is missing or reused.'
 Assert ((Value 'NERVE_TRAFFIC_CAPTURE_MODE') -eq 'windows-native') 'Fresh capture mode is dishonest.'
 & "$PSScriptRoot/setup.ps1" -Root $fixture -NonInteractive
 Assert ((EnvText) -ceq $first) 'Repeated setup changed existing configuration.'

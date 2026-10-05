@@ -11,8 +11,13 @@ import (
 )
 
 // EnrollmentTokenPrefix identifies NERVE enrollment tokens in configuration and
-// secret scanners. Format: nerve-enroll-v1.<enrollment UUID>.<base64url secret>.
-const EnrollmentTokenPrefix = "nerve-enroll-v1"
+// secret scanners. Format:
+//
+//	nerve-enroll-v2.<enrollment UUID>.<base64url secret>.<base64url SHA-256 of the Core public key>
+//
+// The Core key fingerprint travels out of band with the token, so the agent
+// can authenticate Core even when enrollment itself runs over plain HTTP.
+const EnrollmentTokenPrefix = "nerve-enroll-v2"
 
 var (
 	ErrInvalidEnrollmentToken = errors.New("enrollment token is malformed")
@@ -28,21 +33,31 @@ func NewEnrollmentSecret() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-func FormatEnrollmentToken(enrollmentID, secret string) string {
-	return EnrollmentTokenPrefix + "." + enrollmentID + "." + secret
+// EnrollmentToken is a parsed enrollment token.
+type EnrollmentToken struct {
+	ID              string
+	Secret          []byte
+	CoreFingerprint string
 }
 
-// ParseEnrollmentToken splits a token into its enrollment ID and decoded secret.
-func ParseEnrollmentToken(token string) (string, []byte, error) {
+func FormatEnrollmentToken(enrollmentID, secret, coreFingerprint string) string {
+	return EnrollmentTokenPrefix + "." + enrollmentID + "." + secret + "." + coreFingerprint
+}
+
+// ParseEnrollmentToken splits and validates a token.
+func ParseEnrollmentToken(token string) (EnrollmentToken, error) {
 	parts := strings.Split(strings.TrimSpace(token), ".")
-	if len(parts) != 3 || parts[0] != EnrollmentTokenPrefix || !uuidPattern.MatchString(parts[1]) {
-		return "", nil, ErrInvalidEnrollmentToken
+	if len(parts) != 4 || parts[0] != EnrollmentTokenPrefix || !uuidPattern.MatchString(parts[1]) {
+		return EnrollmentToken{}, ErrInvalidEnrollmentToken
 	}
 	secret, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil || len(secret) != 32 {
-		return "", nil, ErrInvalidEnrollmentToken
+		return EnrollmentToken{}, ErrInvalidEnrollmentToken
 	}
-	return parts[1], secret, nil
+	if fingerprint, err := base64.RawURLEncoding.DecodeString(parts[3]); err != nil || len(fingerprint) != 32 {
+		return EnrollmentToken{}, ErrInvalidEnrollmentToken
+	}
+	return EnrollmentToken{ID: parts[1], Secret: secret, CoreFingerprint: parts[3]}, nil
 }
 
 // HostFacts are self-reported by the agent. Core treats them as evidence, not

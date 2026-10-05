@@ -25,8 +25,23 @@ import (
 )
 
 type Repository struct {
-	db  *pgxpool.Pool
-	now func() time.Time
+	db      *pgxpool.Pool
+	now     func() time.Time
+	coreKey ed25519.PrivateKey
+}
+
+// SetCoreSigningKey configures the key whose fingerprint is embedded in new
+// enrollment tokens and which signs agent-API responses.
+func (r *Repository) SetCoreSigningKey(key ed25519.PrivateKey) { r.coreKey = key }
+
+// CoreSigningKey returns the configured key, or nil.
+func (r *Repository) CoreSigningKey() ed25519.PrivateKey { return r.coreKey }
+
+func (r *Repository) coreFingerprint() string {
+	if r.coreKey == nil {
+		return ""
+	}
+	return agentproto.CoreFingerprint(r.coreKey.Public().(ed25519.PublicKey))
 }
 
 func NewRepository(db *pgxpool.Pool) *Repository {
@@ -39,6 +54,9 @@ func NewRepository(db *pgxpool.Pool) *Repository {
 // CreateEnrollment stores a new enrollment and returns the one-time token.
 // Only the SHA-256 digest of the secret is persisted.
 func (r *Repository) CreateEnrollment(ctx context.Context, input CreateEnrollmentInput, actor Actor) (Enrollment, string, error) {
+	if r.coreKey == nil {
+		return Enrollment{}, "", ErrCoreKeyMissing
+	}
 	input.DisplayName = strings.TrimSpace(input.DisplayName)
 	if len(input.DisplayName) > 200 {
 		return Enrollment{}, "", fmt.Errorf("%w: display name is too long", ErrInvalidInput)
@@ -114,7 +132,7 @@ func (r *Repository) CreateEnrollment(ctx context.Context, input CreateEnrollmen
 	if err != nil {
 		return Enrollment{}, "", err
 	}
-	return enrollment, agentproto.FormatEnrollmentToken(enrollmentID, secret), nil
+	return enrollment, agentproto.FormatEnrollmentToken(enrollmentID, secret, r.coreFingerprint()), nil
 }
 
 const enrollmentColumns = `e.id::text, COALESCE(e.display_name, ''), COALESCE(e.device_id::text, ''), COALESCE(e.target_agent_id::text, ''),
@@ -203,10 +221,11 @@ type EnrollResult struct {
 // the agent's only active credential. The caller has already verified that the
 // request was signed with publicKey (proof of possession).
 func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519.PublicKey, facts agentproto.HostFacts, sourceAddress string) (EnrollResult, error) {
-	enrollmentID, secret, err := agentproto.ParseEnrollmentToken(token)
+	parsed, err := agentproto.ParseEnrollmentToken(token)
 	if err != nil {
 		return EnrollResult{}, ErrEnrollmentRejected
 	}
+	enrollmentID, secret := parsed.ID, parsed.Secret
 	if err := facts.Validate(); err != nil {
 		return EnrollResult{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
@@ -246,6 +265,9 @@ func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519
 		reason = "already_used"
 	case expired:
 		reason = "expired"
+	case parsed.CoreFingerprint != r.coreFingerprint():
+		// The token pins a Core key this server no longer uses.
+		reason = "core_key_mismatch"
 	}
 	if reason != "" {
 		_ = tx.Rollback(ctx)

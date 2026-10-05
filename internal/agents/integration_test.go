@@ -69,7 +69,7 @@ func auditCount(t *testing.T, pool *pgxpool.Pool, action, result string) int {
 
 func TestEnrollmentLifecycle(t *testing.T) {
 	pool := testsupport.MigratedPool(t, "agents")
-	repo := agents.NewRepository(pool)
+	repo := testsupport.AgentRepository(pool)
 	ctx := context.Background()
 	adminID := testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	actor := agents.Actor{UserID: adminID, SourceAddress: "192.0.2.1"}
@@ -82,7 +82,8 @@ func TestEnrollmentLifecycle(t *testing.T) {
 		t.Fatalf("unexpected enrollment %+v / token prefix", enrollment)
 	}
 	// Only a digest of the secret is stored, never the token or the secret.
-	_, secret, _ := agentproto.ParseEnrollmentToken(token)
+	parsedToken, _ := agentproto.ParseEnrollmentToken(token)
+	secret := parsedToken.Secret
 	var stored []byte
 	if err := pool.QueryRow(ctx, `SELECT secret_hash FROM agent_enrollments WHERE id = $1::uuid`, enrollment.ID).Scan(&stored); err != nil {
 		t.Fatal(err)
@@ -98,7 +99,7 @@ func TestEnrollmentLifecycle(t *testing.T) {
 	}
 
 	// Wrong secret for an existing enrollment is rejected and audited.
-	forged := agentproto.FormatEnrollmentToken(enrollment.ID, base64.RawURLEncoding.EncodeToString(make([]byte, 32)))
+	forged := agentproto.FormatEnrollmentToken(enrollment.ID, base64.RawURLEncoding.EncodeToString(make([]byte, 32)), testsupport.CoreFingerprint())
 	if _, err := enroll(t, repo, forged, "attacker"); !errors.Is(err, agents.ErrEnrollmentRejected) {
 		t.Fatalf("forged secret: got %v", err)
 	}
@@ -160,7 +161,7 @@ func TestEnrollmentLifecycle(t *testing.T) {
 		VALUES ($1, $2::uuid, now() - interval '2 hours', now() - interval '1 hour') RETURNING id::text`, expiredDigest[:], adminID).Scan(&expiredID); err != nil {
 		t.Fatal(err)
 	}
-	expiredToken := agentproto.FormatEnrollmentToken(expiredID, base64.RawURLEncoding.EncodeToString(expiredSecret))
+	expiredToken := agentproto.FormatEnrollmentToken(expiredID, base64.RawURLEncoding.EncodeToString(expiredSecret), testsupport.CoreFingerprint())
 	if _, err := enroll(t, repo, expiredToken, "too-late"); !errors.Is(err, agents.ErrEnrollmentRejected) {
 		t.Fatalf("expired token: got %v", err)
 	}
@@ -179,7 +180,7 @@ func TestEnrollmentLifecycle(t *testing.T) {
 
 func TestConcurrentEnrollmentConsumesTokenOnce(t *testing.T) {
 	pool := testsupport.MigratedPool(t, "agents_race")
-	repo := agents.NewRepository(pool)
+	repo := testsupport.AgentRepository(pool)
 	adminID := testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	_, token, err := repo.CreateEnrollment(context.Background(), agents.CreateEnrollmentInput{}, agents.Actor{UserID: adminID})
 	if err != nil {
@@ -213,7 +214,7 @@ func TestConcurrentEnrollmentConsumesTokenOnce(t *testing.T) {
 
 func TestSignedRequestAuthentication(t *testing.T) {
 	pool := testsupport.MigratedPool(t, "agents_auth")
-	repo := agents.NewRepository(pool)
+	repo := testsupport.AgentRepository(pool)
 	ctx := context.Background()
 	adminID := testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	actor := agents.Actor{UserID: adminID}
@@ -322,7 +323,7 @@ func TestSignedRequestAuthentication(t *testing.T) {
 
 func TestCredentialInvariantsAreEnforcedByPostgres(t *testing.T) {
 	pool := testsupport.MigratedPool(t, "agents_db")
-	repo := agents.NewRepository(pool)
+	repo := testsupport.AgentRepository(pool)
 	ctx := context.Background()
 	adminID := testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	enrollmentRow, token, err := repo.CreateEnrollment(ctx, agents.CreateEnrollmentInput{}, agents.Actor{UserID: adminID})
@@ -375,7 +376,7 @@ func TestCredentialInvariantsAreEnforcedByPostgres(t *testing.T) {
 
 func TestEnrollmentDeviceAssociation(t *testing.T) {
 	pool := testsupport.MigratedPool(t, "agents_assoc")
-	repo := agents.NewRepository(pool)
+	repo := testsupport.AgentRepository(pool)
 	ctx := context.Background()
 	adminID := testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	actor := agents.Actor{UserID: adminID}

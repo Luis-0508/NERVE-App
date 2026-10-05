@@ -54,6 +54,12 @@ func send(t *testing.T, client *http.Client, request *http.Request) (int, string
 	}
 	defer response.Body.Close()
 	body, _ := io.ReadAll(response.Body)
+	// Every agent-API response must be signed by Core and bound to this request.
+	if signature := request.Header.Get(agentproto.HeaderSignature); signature != "" && strings.Contains(request.URL.Path, "/api/v1/agent/") {
+		if err := agentproto.VerifyCoreResponse(testsupport.CoreKey().Public().(ed25519.PublicKey), response.Header, signature, response.StatusCode, body); err != nil {
+			t.Fatalf("%s response (HTTP %d) is not signed by Core: %v", request.URL.Path, response.StatusCode, err)
+		}
+	}
 	return response.StatusCode, string(body)
 }
 
@@ -92,7 +98,7 @@ func TestAgentEnrollmentAPIBoundaries(t *testing.T) {
 	testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	testsupport.CreateUser(t, pool, "tech@example.invalid", "integration-password", "technician")
 	testsupport.CreateUser(t, pool, "viewer@example.invalid", "integration-password", "read_only")
-	server := httptest.NewServer(httpapi.New(pool, config.Config{AllowedOrigin: "http://localhost:3000", SessionTTL: time.Hour},
+	server := httptest.NewServer(httpapi.New(pool, config.Config{AllowedOrigin: "http://localhost:3000", SessionTTL: time.Hour, CoreSigningKey: testsupport.CoreSigningKeyHex},
 		slog.New(slog.NewTextHandler(io.Discard, nil)), "test").Handler())
 	defer server.Close()
 
@@ -137,7 +143,8 @@ func TestAgentEnrollmentAPIBoundaries(t *testing.T) {
 		t.Fatalf("unexpected enrollment response: %+v", enrollment)
 	}
 	listed := readBody(doJSON(t, admin, http.MethodGet, server.URL+"/api/v1/agent-enrollments", "", nil))
-	_, secret, _ := agentproto.ParseEnrollmentToken(enrollment.Token)
+	parsedToken, _ := agentproto.ParseEnrollmentToken(enrollment.Token)
+	secret := parsedToken.Secret
 	if strings.Contains(listed, strings.Split(enrollment.Token, ".")[2]) || len(secret) != 32 {
 		t.Fatal("enrollment listing exposes the token secret")
 	}
@@ -238,7 +245,7 @@ func TestAgentHeartbeatAndDeviceRemoteAPI(t *testing.T) {
 	testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	testsupport.CreateUser(t, pool, "tech@example.invalid", "integration-password", "technician")
 	deviceID := testsupport.CreateDevice(t, pool, "workstation", "02:00:00:00:00:31", "192.0.2.31")
-	server := httptest.NewServer(httpapi.New(pool, config.Config{AllowedOrigin: "http://localhost:3000", SessionTTL: time.Hour},
+	server := httptest.NewServer(httpapi.New(pool, config.Config{AllowedOrigin: "http://localhost:3000", SessionTTL: time.Hour, CoreSigningKey: testsupport.CoreSigningKeyHex},
 		slog.New(slog.NewTextHandler(io.Discard, nil)), "test").Handler())
 	defer server.Close()
 	admin := login(t, server.URL, "admin@example.invalid", "integration-password")
@@ -284,5 +291,25 @@ func TestAgentHeartbeatAndDeviceRemoteAPI(t *testing.T) {
 	}
 	if body := readBody(doJSON(t, admin, http.MethodGet, server.URL+"/api/v1/devices/"+deviceID+"/remote", "", nil)); !strings.Contains(body, `"endpoints":[]`) {
 		t.Fatalf("dismissed agent still listed for device: %s", body)
+	}
+}
+
+func TestAgentAPIRequiresCoreSigningKey(t *testing.T) {
+	pool := testsupport.MigratedPool(t, "http_nocorekey")
+	testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
+	server := httptest.NewServer(httpapi.New(pool, config.Config{AllowedOrigin: "http://localhost:3000", SessionTTL: time.Hour},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), "test").Handler())
+	defer server.Close()
+	admin := login(t, server.URL, "admin@example.invalid", "integration-password")
+	created := doJSON(t, admin, http.MethodPost, server.URL+"/api/v1/agent-enrollments", `{}`, nil)
+	if created.StatusCode != http.StatusServiceUnavailable || !strings.Contains(readBody(created), "core_signing_key_missing") {
+		t.Fatalf("enrollment without a Core key = %d", created.StatusCode)
+	}
+	for _, route := range []string{"/agent/enroll", "/agent/heartbeat", "/agent/commands/claim"} {
+		response := doJSON(t, http.DefaultClient, http.MethodPost, server.URL+"/api/v1"+route, `{}`, nil)
+		if response.StatusCode != http.StatusServiceUnavailable {
+			t.Fatalf("%s without a Core key = %d", route, response.StatusCode)
+		}
+		_ = response.Body.Close()
 	}
 }

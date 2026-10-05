@@ -205,6 +205,8 @@ func (s *Server) writeAgentError(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusConflict, "enrollment_not_pending", err.Error())
 	case errors.Is(err, agents.ErrCredentialRevoked):
 		writeError(w, http.StatusConflict, "agent_already_revoked", "The agent has no active credential.")
+	case errors.Is(err, agents.ErrCoreKeyMissing):
+		writeError(w, http.StatusServiceUnavailable, "core_signing_key_missing", err.Error())
 	case errors.Is(err, agents.ErrDeviceHasAgent):
 		writeError(w, http.StatusConflict, "device_has_agent", err.Error())
 	default:
@@ -223,8 +225,9 @@ const maxAgentRequestBytes = 1 << 20
 
 // agentEndpoint authenticates a signed agent request. Browser-originated
 // requests are refused outright, and session cookies are never consulted.
+// Every response, including errors, is signed by Core (see coreSigned).
 func (s *Server) agentEndpoint(limit int64, next agentHandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+	return s.coreSigned(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Origin") != "" || r.Header.Get("Sec-Fetch-Site") != "" {
 			writeError(w, http.StatusForbidden, "browser_request_rejected", "Agent endpoints do not accept browser requests.")
 			return
@@ -248,7 +251,7 @@ func (s *Server) agentEndpoint(limit int64, next agentHandlerFunc) http.HandlerF
 			return
 		}
 		next(w, r, principal, body)
-	}
+	})
 }
 
 func (s *Server) writeAgentAuthError(w http.ResponseWriter, err error) {
@@ -455,4 +458,35 @@ func (s *Server) deviceRemote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"endpoints": endpoints})
+}
+
+// bufferedResponse captures a handler's response so it can be signed before
+// anything reaches the client.
+type bufferedResponse struct {
+	header http.Header
+	status int
+	body   bytes.Buffer
+}
+
+func (b *bufferedResponse) Header() http.Header            { return b.header }
+func (b *bufferedResponse) WriteHeader(status int)         { b.status = status }
+func (b *bufferedResponse) Write(data []byte) (int, error) { return b.body.Write(data) }
+
+// coreSigned authenticates every agent-API response with Core's Ed25519 key,
+// bound to the request's own signature, so agents can reject forged commands
+// and forged status answers even over plain HTTP. Without a configured key the
+// agent API is unavailable rather than unauthenticated.
+func (s *Server) coreSigned(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		key := s.agents.CoreSigningKey()
+		if key == nil {
+			writeError(w, http.StatusServiceUnavailable, "core_signing_key_missing", agents.ErrCoreKeyMissing.Error())
+			return
+		}
+		recorded := &bufferedResponse{header: w.Header(), status: http.StatusOK}
+		next(recorded, r)
+		agentproto.SignCoreResponse(w.Header(), key, r.Header.Get(agentproto.HeaderSignature), recorded.status, recorded.body.Bytes())
+		w.WriteHeader(recorded.status)
+		_, _ = w.Write(recorded.body.Bytes())
+	}
 }

@@ -43,22 +43,30 @@ type managementClient struct {
 	apiURL       string
 	credentialID string
 	key          ed25519.PrivateKey
+	coreKey      ed25519.PublicKey
 	http         *http.Client
 	now          func() time.Time
 }
 
 func newManagementClient(apiURL string, id *identity) *managementClient {
-	return &managementClient{apiURL: strings.TrimRight(apiURL, "/"), credentialID: id.CredentialID, key: id.key,
+	return &managementClient{apiURL: strings.TrimRight(apiURL, "/"), credentialID: id.CredentialID, key: id.key, coreKey: id.coreKey,
 		http: &http.Client{Timeout: 70 * time.Second}, now: time.Now}
 }
 
 // post sends a signed JSON request to a route under /api/v1 (for example
-// "/agent/heartbeat"). A 204 response leaves destination untouched.
+// "/agent/heartbeat") and accepts the answer only if it is signed by the
+// pinned Core key. A 204 response leaves destination untouched.
 func (c *managementClient) post(ctx context.Context, route string, payload, destination any) (int, error) {
-	return signedPost(ctx, c.http, c.apiURL, route, c.credentialID, c.key, payload, destination, c.now())
+	verify := func(response *http.Response, requestSignature string, body []byte) error {
+		return agentproto.VerifyCoreResponse(c.coreKey, response.Header, requestSignature, response.StatusCode, body)
+	}
+	return signedPost(ctx, c.http, c.apiURL, route, c.credentialID, c.key, payload, destination, c.now(), verify)
 }
 
-func signedPost(ctx context.Context, client *http.Client, apiURL, route, credentialID string, key ed25519.PrivateKey, payload, destination any, now time.Time) (int, error) {
+// responseVerifier authenticates Core's answer before the agent acts on it.
+type responseVerifier func(response *http.Response, requestSignature string, body []byte) error
+
+func signedPost(ctx context.Context, client *http.Client, apiURL, route, credentialID string, key ed25519.PrivateKey, payload, destination any, now time.Time, verify responseVerifier) (int, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return 0, err
@@ -77,44 +85,69 @@ func signedPost(ctx context.Context, client *http.Client, apiURL, route, credent
 		return 0, err
 	}
 	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	if err != nil {
+		return 0, fmt.Errorf("read Core response: %w", err)
+	}
+	// An unverifiable response is treated like a network failure: it is never
+	// acted on, and a forged "revoked" answer cannot stop the agent.
+	if err := verify(response, request.Header.Get(agentproto.HeaderSignature), raw); err != nil {
+		return 0, fmt.Errorf("%s (HTTP %d): %w", route, response.StatusCode, err)
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		var envelope agentproto.ErrorResponse
-		raw, _ := io.ReadAll(io.LimitReader(response.Body, 8192))
 		_ = json.Unmarshal(raw, &envelope)
 		return response.StatusCode, &apiError{Status: response.StatusCode, Code: envelope.Error.Code, Message: envelope.Error.Message}
 	}
 	if destination != nil && response.StatusCode != http.StatusNoContent {
-		if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(destination); err != nil {
+		if err := json.Unmarshal(raw, destination); err != nil {
 			return response.StatusCode, fmt.Errorf("decode Core response: %w", err)
 		}
 	}
 	return response.StatusCode, nil
 }
 
-// enroll registers a freshly generated key pair with a one-time token.
+// enroll registers a freshly generated key pair with a one-time token and pins
+// Core's key: the token carries its fingerprint, so a network attacker cannot
+// substitute their own key during enrollment.
 func enroll(ctx context.Context, apiURL, token string) (*identity, error) {
 	apiURL = strings.TrimRight(strings.TrimSpace(apiURL), "/")
 	if apiURL == "" {
 		return nil, errors.New("the Core API URL is required")
 	}
-	if _, _, err := agentproto.ParseEnrollmentToken(token); err != nil {
+	parsed, err := agentproto.ParseEnrollmentToken(token)
+	if err != nil {
 		return nil, err
 	}
 	public, private, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		return nil, fmt.Errorf("generate agent key: %w", err)
 	}
-	var response agentproto.EnrollResponse
+	var (
+		response agentproto.EnrollResponse
+		coreKey  ed25519.PublicKey
+	)
+	verify := func(response *http.Response, requestSignature string, body []byte) error {
+		key, err := agentproto.CoreKeyFromResponse(response.Header, parsed.CoreFingerprint)
+		if err != nil {
+			return err
+		}
+		if err := agentproto.VerifyCoreResponse(key, response.Header, requestSignature, response.StatusCode, body); err != nil {
+			return err
+		}
+		coreKey = key
+		return nil
+	}
 	request := agentproto.EnrollRequest{Token: strings.TrimSpace(token), PublicKey: agentproto.EncodePublicKey(public), Host: collectHostFacts()}
 	client := &http.Client{Timeout: 30 * time.Second}
-	if _, err := signedPost(ctx, client, apiURL, "/agent/enroll", agentproto.CredentialSelfSigned, private, request, &response, time.Now()); err != nil {
+	if _, err := signedPost(ctx, client, apiURL, "/agent/enroll", agentproto.CredentialSelfSigned, private, request, &response, time.Now(), verify); err != nil {
 		return nil, err
 	}
 	if response.Fingerprint != agentproto.Fingerprint(public) {
 		return nil, errors.New("core acknowledged a different public key; enrollment aborted")
 	}
 	return &identity{AgentID: response.AgentID, CredentialID: response.CredentialID, Fingerprint: response.Fingerprint,
-		APIURL: apiURL, EnrolledAt: time.Now().UTC(), key: private}, nil
+		APIURL: apiURL, EnrolledAt: time.Now().UTC(), key: private, coreKey: coreKey}, nil
 }
 
 // manager runs the management loops for an enrolled agent.

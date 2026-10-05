@@ -122,6 +122,13 @@ func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, ve
 		loginAttempts:  make(map[string]*rateWindow),
 		enrollAttempts: make(map[string]*rateWindow),
 	}
+	if cfg.CoreSigningKey != "" {
+		if key, err := agentproto.ParseCoreSigningKey(cfg.CoreSigningKey); err == nil {
+			server.agents.SetCoreSigningKey(key)
+		} else {
+			logger.Error("invalid NERVE_CORE_SIGNING_KEY; the agent API is disabled")
+		}
+	}
 	server.commands = remote.NewService(db)
 	server.remote = remote.NewRegistry(remote.NativeProvider{Agents: server.agents})
 	server.agentLifecycleHooks = append(server.agentLifecycleHooks, server.commands.CancelForAgent)
@@ -167,7 +174,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/agent-enrollments", s.createEnrollment)
 	mux.HandleFunc("POST /api/v1/agent-enrollments/{enrollmentID}/revoke", s.revokeEnrollment)
 	// Agent-authenticated API: Ed25519-signed requests only, never browser sessions.
-	mux.HandleFunc("POST /api/v1/agent/enroll", s.agentEnroll)
+	mux.HandleFunc("POST /api/v1/agent/enroll", s.coreSigned(s.agentEnroll))
 	mux.HandleFunc("POST /api/v1/agent/identity", s.agentEndpoint(4<<10, s.agentIdentity))
 	mux.HandleFunc("POST /api/v1/agent/heartbeat", s.agentEndpoint(agentproto.MaxEnrollRequestBytes, s.agentHeartbeat))
 	mux.HandleFunc("POST /api/v1/agents/{agentID}/association", s.updateAgentAssociation)
