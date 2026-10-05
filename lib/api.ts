@@ -1,4 +1,4 @@
-import type { AgentEnrollment, DeviceDetail, DeviceFacets, DeviceList, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ManagementAgent, RemoteCommand, RemoteEndpoint, ServiceStatus, Session, TrafficSnapshot } from "./types";
+import type { AgentEnrollment, Device, DeviceDetail, DeviceFacets, DeviceList, DeviceMetadataUpdate, DeviceVocabulary, DuplicateCandidate, IdentityReport, TrustState, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ManagementAgent, RemoteCommand, RemoteEndpoint, ServiceStatus, Session, TrafficSnapshot } from "./types";
 
 import type { TrafficCapture } from "./types";
 
@@ -21,6 +21,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+// requestNoContent is for endpoints that answer 204 without a body.
+async function requestNoContent(path: string, init?: RequestInit): Promise<void> {
+  const response = await fetch(path, { ...init, credentials: "include", headers: { "Content-Type": "application/json", ...init?.headers } });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as { error?: { message?: string; code?: string } } | null;
+    throw new APIError(response.status, body?.error?.message ?? `Request failed with status ${response.status}.`, body?.error?.code);
+  }
+}
+
 export const api = {
   status: () => request<ServiceStatus>("/api/v1/status"),
   liveTraffic: () => request<TrafficSnapshot>("/api/v1/traffic/live"),
@@ -29,7 +38,7 @@ export const api = {
     if (entityId) params.set("entityId", entityId);
     return request<EventList>(`/api/v1/events?${params}`);
   },
-  devices: (query: { search?: string; status?: string; classification?: string; sort?: string; direction?: "asc" | "desc"; limit?: number; offset?: number }) => {
+  devices: (query: { search?: string; status?: string; classification?: string; trust?: string; tag?: string; sort?: string; direction?: "asc" | "desc"; limit?: number; offset?: number }) => {
     const params = new URLSearchParams();
     Object.entries(query).forEach(([key, value]) => {
       if (value !== undefined && value !== "") params.set(key, String(value));
@@ -38,6 +47,14 @@ export const api = {
   },
   device: (id: string) => request<DeviceDetail>(`/api/v1/devices/${encodeURIComponent(id)}`),
   deviceFacets: () => request<DeviceFacets>("/api/v1/devices/facets"),
+  deviceVocabulary: () => request<DeviceVocabulary>("/api/v1/devices/vocabulary"),
+  deviceIdentity: (id: string) => request<IdentityReport>(`/api/v1/devices/${encodeURIComponent(id)}/identity`),
+  updateDeviceMetadata: (id: string, update: DeviceMetadataUpdate) => request<Device>(`/api/v1/devices/${encodeURIComponent(id)}/metadata`, { method: "POST", body: JSON.stringify(update) }),
+  setDeviceTrust: (id: string, state: TrustState, reason = "") => request<Device>(`/api/v1/devices/${encodeURIComponent(id)}/trust`, { method: "POST", body: JSON.stringify({ state, reason }) }),
+  deviceDuplicates: (deviceId?: string) => request<{ items: DuplicateCandidate[] }>(`/api/v1/devices/duplicates${deviceId ? `?deviceId=${encodeURIComponent(deviceId)}` : ""}`),
+  dismissDuplicate: (deviceA: string, deviceB: string, reason = "") => requestNoContent("/api/v1/devices/duplicates/dismiss", { method: "POST", body: JSON.stringify({ deviceA, deviceB, reason }) }),
+  mergeDevice: (targetId: string, sourceDeviceId: string, reason = "") => request<{ mergeId: string; targetDeviceId: string }>(`/api/v1/devices/${encodeURIComponent(targetId)}/merge`, { method: "POST", body: JSON.stringify({ sourceDeviceId, reason }) }),
+  splitDevice: (id: string, input: { displayName?: string; interfaceIds: string[]; identityIds?: string[]; agent?: string; reason?: string }) => request<{ splitId: string; newDeviceId: string }>(`/api/v1/devices/${encodeURIComponent(id)}/split`, { method: "POST", body: JSON.stringify(input) }),
   discovery: () => request<DiscoveryState>("/api/v1/discovery"),
   saveDiscoveryTarget: (cidr: string, name = "Local network") => request<DiscoveryTarget>("/api/v1/discovery/target", { method: "POST", body: JSON.stringify({ cidr, name }) }),
   startDiscoveryScan: (targetId: string) => request<DiscoveryScan>("/api/v1/discovery/scans", { method: "POST", body: JSON.stringify({ targetId }) }),

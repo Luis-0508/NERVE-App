@@ -6,13 +6,14 @@ import { useCallback, useEffect, useState } from "react";
 import { APIError, api } from "@/lib/api";
 import type { DeviceDetail, NerveEvent } from "@/lib/types";
 import { DeviceRemotePanel } from "@/components/remote/device-remote-panel";
+import { DeviceIdentityPanel, TrustBadge } from "./device-identity-panel";
 import { DeviceStatus } from "./device-status";
 
-type Tab = "overview" | "network" | "services" | "remote" | "events" | "relationships" | "notes";
+type Tab = "identity" | "overview" | "network" | "services" | "remote" | "events" | "relationships";
 const tabs: Array<{ id: Tab; label: string }> = [
-  { id: "overview", label: "Overview" }, { id: "network", label: "Network" },
-  { id: "services", label: "Services" }, { id: "remote", label: "Remote" }, { id: "events", label: "Events" },
-  { id: "relationships", label: "Relationships" }, { id: "notes", label: "Notes" },
+  { id: "identity", label: "Identity" }, { id: "overview", label: "Overview" }, { id: "remote", label: "Remote" },
+  { id: "network", label: "Network" }, { id: "services", label: "Services" }, { id: "events", label: "Events" },
+  { id: "relationships", label: "Relationships" },
 ];
 
 function formatDate(value?: string) {
@@ -33,7 +34,7 @@ export function DeviceDetailView() {
   const [deviceID, setDeviceID] = useState<string | null>(null);
   const [detail, setDetail] = useState<DeviceDetail | null>(null);
   const [events, setEvents] = useState<NerveEvent[]>([]);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useState<Tab>("identity");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [authRequired, setAuthRequired] = useState(false);
@@ -70,7 +71,7 @@ export function DeviceDetailView() {
   return <div className="page device-detail-page">
     <Link className="back-link" href="/devices"><ArrowLeft aria-hidden="true" />Devices</Link>
     <header className="device-detail-header">
-      <div className="device-title"><span className="device-kind-icon"><Server aria-hidden="true" /></span><div><h1>{device.name}</h1><div className="device-title-meta"><DeviceStatus status={device.status} /><span>{device.classification}</span><span className="mono">{valueOrDash(device.primaryIpAddress)}</span></div></div></div>
+      <div className="device-title"><span className="device-kind-icon"><Server aria-hidden="true" /></span><div><h1>{device.name}</h1><div className="device-title-meta"><DeviceStatus status={device.status} /><TrustBadge state={device.trustState} /><span>{device.classification}</span>{device.tags.map((tag) => <span key={tag} className="tag-chip">{tag}</span>)}<span className="mono">{valueOrDash(device.primaryIpAddress)}</span></div></div></div>
       <button className="button" type="button" onClick={() => void load()} disabled={loading}><RefreshCw size={14} aria-hidden="true" />Refresh</button>
     </header>
 
@@ -83,20 +84,20 @@ export function DeviceDetailView() {
 
     <div className="detail-tabs" role="tablist" aria-label="Device detail sections">{tabs.map((item) => <button key={item.id} role="tab" type="button" aria-selected={tab === item.id} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>
     <section className="detail-surface" role="tabpanel">
+      {tab === "identity" && <DeviceIdentityPanel detail={detail} permissions={permissions} onChanged={() => void load()} />}
       {tab === "overview" && <OverviewTab detail={detail} />}
       {tab === "network" && <NetworkTab detail={detail} />}
       {tab === "services" && <ServicesTab detail={detail} />}
       {tab === "remote" && <DeviceRemotePanel deviceId={device.id} permissions={permissions} />}
       {tab === "events" && <EventsTab events={events} />}
       {tab === "relationships" && <RelationshipsTab detail={detail} />}
-      {tab === "notes" && <NotesTab notes={device.notes} />}
     </section>
   </div>;
 }
 
 function OverviewTab({ detail }: { detail: DeviceDetail }) {
   const { device } = detail;
-  return <div className="detail-grid"><section><DetailHeading title="Identity" /><dl className="property-list"><Property label="Name" value={device.name} /><Property label="Classification" value={device.classification} /><Property label="Hostname" value={device.hostname} mono /><Property label="Primary MAC" value={device.primaryMac} mono /><Property label="Manufacturer" value={device.vendor} /><Property label="Model" value={device.model} /><Property label="Serial number" value={device.serialNumber} mono /></dl></section><section><DetailHeading title="Inventory" /><dl className="property-list"><Property label="Owner" value={device.owner} /><Property label="Location" value={device.location} /><Property label="First seen" value={formatDate(device.firstSeenAt)} /><Property label="Last seen" value={formatDate(device.lastSeenAt)} /><Property label="Approved" value={device.approvedAt ? formatDate(device.approvedAt) : "No"} /><Property label="Interfaces" value={String(detail.interfaces.length)} /><Property label="Service endpoints" value={String(detail.services.length)} /></dl></section></div>;
+  return <div className="detail-grid"><section><DetailHeading title="Identity" /><dl className="property-list"><Property label="Name" value={device.name} /><Property label="Classification" value={device.classification} /><Property label="Hostname" value={device.hostname} mono /><Property label="Primary MAC" value={device.primaryMac} mono /><Property label="Manufacturer" value={device.vendor} /><Property label="Model" value={device.model} /><Property label="Serial number" value={device.serialNumber} mono /></dl></section><section><DetailHeading title="Inventory" /><dl className="property-list"><Property label="Owner" value={device.owner} /><Property label="Location" value={device.location} /><Property label="First seen" value={formatDate(device.firstSeenAt)} /><Property label="Last seen" value={formatDate(device.lastSeenAt)} /><Property label="Trust" value={device.trustState} /><Property label="Interfaces" value={String(detail.interfaces.length)} /><Property label="Service endpoints" value={String(detail.services.length)} /></dl></section></div>;
 }
 
 function NetworkTab({ detail }: { detail: DeviceDetail }) {
@@ -119,9 +120,6 @@ function RelationshipsTab({ detail }: { detail: DeviceDetail }) {
   return <div className="table-wrap"><table className="data-table"><thead><tr><th>Relationship</th><th>Direction</th><th>Entity</th><th>Kind</th><th>Source</th><th>Confidence</th><th>Last seen</th></tr></thead><tbody>{detail.relationships.map((relationship) => <tr key={relationship.id}><td>{relationship.type}</td><td>{relationship.direction}</td><td>{relationship.relatedEntity.kind === "device" ? <Link className="device-link" href={`/devices/detail?id=${encodeURIComponent(relationship.relatedEntity.id)}`}>{relationship.relatedEntity.name}</Link> : relationship.relatedEntity.name}</td><td>{relationship.relatedEntity.kind}</td><td>{relationship.source}</td><td>{relationship.confidence}%{relationship.manuallyConfirmed ? " · Confirmed" : ""}</td><td>{formatDate(relationship.lastSeenAt)}</td></tr>)}</tbody></table></div>;
 }
 
-function NotesTab({ notes }: { notes?: string }) {
-  return notes ? <div className="device-notes">{notes}</div> : <SectionEmpty icon={<CircleOff />} title="No notes" copy="No administrator notes have been recorded for this device." />;
-}
 
 function DetailHeading({ title }: { title: string }) { return <div className="detail-section-heading"><h2>{title}</h2></div>; }
 function Property({ label, value, mono = false }: { label: string; value?: string; mono?: boolean }) { return <div><dt>{label}</dt><dd className={mono ? "mono" : undefined}>{valueOrDash(value)}</dd></div>; }

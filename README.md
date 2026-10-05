@@ -4,14 +4,20 @@ NERVE is a self-hosted network inventory, discovery and traffic-visualization pl
 
 ## What NERVE does today
 
-- **Sign-in, roles and permissions**: first-administrator setup, hashed server-side sessions, rate-limited login. Roles (`administrator`, `technician`, `read_only`) map to explicit server-side permissions stored in the database. An immutable audit log records authentication, discovery administration, agent lifecycle and remote commands.
-- **Device inventory**: PostgreSQL-backed devices, interfaces, addresses, services and relationships, with server-side search, sort, filter and paging, and a device detail view.
+- **Sign-in, roles and permissions**: first-administrator setup, hashed server-side sessions, rate-limited login. Roles (`administrator`, `technician`, `read_only`) map to explicit server-side permissions stored in the database. An immutable audit log records authentication, discovery administration, device identity changes, agent lifecycle and remote commands.
+- **Device inventory**: PostgreSQL-backed devices, interfaces, addresses, services and relationships, with server-side search, sort, filter and paging, and a device detail view. Search covers manual and discovered names, every current and past IP, every MAC and tags.
+- **Device identity**:
+  - Operators own a device's name, type, tags, owner, location, notes and trust state (`unknown`, `reviewed`, `trusted`, `blocked`). Discovery keeps updating discovered values but cannot overwrite these; PostgreSQL enforces it.
+  - Each device explains why NERVE believes it is one device: identity evidence with its strength, and discovered facts with their source.
+  - Likely duplicate records are listed for review.
+  - Administrators can merge and split records; history is preserved and every step is audited.
+  - See [Device identity](docs/DEVICE_IDENTITY.md).
 - **Local discovery**: an administrator configures one subnet and starts scans. A native host agent (Windows or Linux) collects ICMP/TCP reachability, ARP/NDP neighbours and reverse DNS. Core reconciles devices by MAC first, then subnet/IP, and tracks online/offline state.
 - **Live traffic**: a native Windows ETW traffic sensor (host traffic only) or an external ntopng source, exposed as a normalized, bounded snapshot with explicit error states.
 - **Traffic Map**: a geographic **World** view, and a **Topology 3D** view that places inventory devices on derived /24 plates and routes measured flows through the local uplink to remote endpoints on a globe. See [3D view](docs/TRAFFIC_MAP_3D.md).
 - **Remote management (foundation)**: per-host NERVE agents enroll with a single-use token and get their own Ed25519 identity, report heartbeats and capabilities, and are linked to inventory devices from evidence (operator-confirmable). Operators with the right permission can run five read-only commands (system info, metrics, processes, services, installed software) from the device page; every step is audited. Core signs its responses so agents can reject forged commands. Interactive sessions and privileged commands are not available. See [Remote management](docs/REMOTE_MANAGEMENT.md) and [Agent setup](docs/AGENT_SETUP.md).
 
-Not available yet: editing device names, tags, notes or trust state; merge/split; multiple or scheduled discovery targets; observed local topology (LLDP/CDP/SNMP, switch ports, device-to-device links); Proxmox and Docker integrations; remote desktop, terminal, file transfer, shell or PowerShell commands and other privileged remote actions; releases and backup tooling. No screen uses static or demo data. The plan for these is in [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md), and the remote-management direction is in [docs/REMOTE_MANAGEMENT.md](docs/REMOTE_MANAGEMENT.md).
+Not available yet: vendor (OUI) lookup and automatic device classification; multiple or scheduled discovery targets; observed local topology (LLDP/CDP/SNMP, switch ports, device-to-device links); Proxmox and Docker integrations; remote desktop, terminal, file transfer, shell or PowerShell commands and other privileged remote actions; releases and backup tooling. No screen uses static or demo data. The plan for these is in [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md), and the remote-management direction is in [docs/REMOTE_MANAGEMENT.md](docs/REMOTE_MANAGEMENT.md).
 
 ## Run with Docker Compose
 
@@ -108,8 +114,15 @@ The service applies ordered `.up.sql` migrations at startup while holding a Post
 - `POST /api/v1/auth/logout` — close the current session
 - `GET /api/v1/auth/session` — inspect the current session
 - `GET /api/v1/events` — authenticated event history
-- `GET /api/v1/devices` — authenticated device inventory; accepts `search`, `status`, `classification`, `sort`, `direction`, `limit`, and `offset`
-- `GET /api/v1/devices/facets` — status and classification values present in the inventory
+- `GET /api/v1/devices` — authenticated device inventory with effective and discovered names and types, trust state and tags; accepts `search`, `status`, `classification`, `trust`, `tag`, `sort`, `direction`, `limit`, and `offset` (at most 100,000)
+- `GET /api/v1/devices/facets` — status, type, trust and tag values present in the inventory
+- `GET /api/v1/devices/vocabulary` — allowed trust states and type overrides
+- `POST /api/v1/devices/{deviceID}/metadata` — set or clear the manual name, type, tags, owner, location and notes (`devices.manage`, audited)
+- `POST /api/v1/devices/{deviceID}/trust` — change the trust state with an optional reason (`devices.trust`, audited)
+- `GET /api/v1/devices/{deviceID}/identity` — identity evidence with strength, conflicts, agents, sourced facts and discovery match history
+- `GET /api/v1/devices/duplicates` — likely duplicate pairs with reasons (`?deviceId=` for one device); `POST /api/v1/devices/duplicates/dismiss` marks a pair as different devices (`devices.merge`)
+- `POST /api/v1/devices/{deviceID}/merge` — merge `sourceDeviceId` into this device (`devices.merge`, audited)
+- `POST /api/v1/devices/{deviceID}/split` — move chosen interfaces and identities into a new device, with an explicit agent decision (`devices.merge`, audited)
 - `GET /api/v1/devices/{deviceID}` — composed device detail
 - `GET /api/v1/devices/{deviceID}/interfaces` — device interfaces with assigned addresses
 - `GET /api/v1/devices/{deviceID}/ip-addresses` — current and historical device addresses
