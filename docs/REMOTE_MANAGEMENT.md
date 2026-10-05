@@ -90,7 +90,7 @@ maintenance loop prunes expired nonces.
 
 ### Core authentication (agent side)
 
-Agents also authenticate Core. Core signs **every** response on `/api/v1/agent/*`,
+Agents also authenticate Core. With a key configured, Core signs **every** response on `/api/v1/agent/*`,
 including errors, with an Ed25519 key from `NERVE_CORE_SIGNING_KEY`:
 
 ```text
@@ -113,7 +113,9 @@ NERVE-CORE-SIG-V1
 - The agent treats an unverifiable response as a transport failure: it never executes a
   command, records a result as delivered, or pauses because of one.
 - Core refuses agent enrollment and the whole agent API (HTTP 503) when no signing key is
-  configured, rather than running unauthenticated. `setup.bat` generates the key
+  configured, rather than running unauthenticated. That 503 answer is the one unsigned
+  response (there is no key to sign it with); agents reject it as unverifiable and log the
+  route and HTTP 503, so check the API logs. `setup.bat` generates the key
   (`start.bat` runs setup, so existing installations get one on their next start).
   Compose passes it only to the API container, and it is never stored in PostgreSQL.
 - Tokens that pin a different Core key (for example issued before the key changed) are
