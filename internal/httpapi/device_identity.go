@@ -139,3 +139,19 @@ func (s *Server) deviceVocabulary(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"trustStates": devices.TrustStates, "classifications": devices.Classifications})
 }
+
+// deviceIdentity explains why NERVE believes a record is one device.
+func (s *Server) deviceIdentity(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := s.requireSession(w, r); !ok {
+		return
+	}
+	deviceID, ok := deviceIDFromRequest(w, r)
+	if !ok {
+		return
+	}
+	report, err := s.identity.Identity(r.Context(), deviceID)
+	if s.writeDeviceError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, report)
+}
