@@ -135,6 +135,7 @@ specific capabilities on a host.
 | `agent_authentication_failed` | Unknown credential or wrong key, for example an identity file copied from another host. Re-enroll. |
 | `enrollment_rejected` | The token is invalid, expired, revoked or already used. Create a new one. |
 | `not signed by the pinned NERVE Core key` | A response could not be verified: something between the agent and Core altered or forged it, or Core's signing key changed. The agent ignores it and retries. If Core's key was changed on purpose, re-enroll the agent. |
+| `not signed by the pinned NERVE Core key` together with `HTTP 503` | Usually Core has no `NERVE_CORE_SIGNING_KEY`: that 503 answer cannot be signed. Check the API logs, run `setup.bat` (or set a 64-hex seed in `.env`) and recreate the API container. |
 | `core_signing_key_missing` (HTTP 503) | Core has no `NERVE_CORE_SIGNING_KEY`. Run `setup.bat` (or set a 64-hex seed in `.env`) and recreate the API container. |
 | `no pinned NERVE Core key` | The identity file predates Core authentication. Re-enroll the agent. |
 | `… is accessible by other users` | The identity file permissions are too open. Run `chmod 600` on it. |

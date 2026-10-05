@@ -4,13 +4,14 @@ NERVE is a self-hosted network inventory, discovery and traffic-visualization pl
 
 ## What NERVE does today
 
-- **Sign-in and roles**: first-administrator setup, hashed server-side sessions, rate-limited login, and immutable audit records for authentication events.
+- **Sign-in, roles and permissions**: first-administrator setup, hashed server-side sessions, rate-limited login. Roles (`administrator`, `technician`, `read_only`) map to explicit server-side permissions stored in the database. An immutable audit log records authentication, discovery administration, agent lifecycle and remote commands.
 - **Device inventory**: PostgreSQL-backed devices, interfaces, addresses, services and relationships, with server-side search, sort, filter and paging, and a device detail view.
 - **Local discovery**: an administrator configures one subnet and starts scans. A native host agent (Windows or Linux) collects ICMP/TCP reachability, ARP/NDP neighbours and reverse DNS. Core reconciles devices by MAC first, then subnet/IP, and tracks online/offline state.
 - **Live traffic**: a native Windows ETW traffic sensor (host traffic only) or an external ntopng source, exposed as a normalized, bounded snapshot with explicit error states.
 - **Traffic Map**: a geographic **World** view, and a **Topology 3D** view that places inventory devices on derived /24 plates and routes measured flows through the local uplink to remote endpoints on a globe. See [3D view](docs/TRAFFIC_MAP_3D.md).
+- **Remote management (foundation)**: per-host NERVE agents enroll with a single-use token and get their own Ed25519 identity, report heartbeats and capabilities, and are linked to inventory devices from evidence (operator-confirmable). Operators with the right permission can run five read-only commands (system info, metrics, processes, services, installed software) from the device page; every step is audited. Core signs its responses so agents can reject forged commands. Interactive sessions and privileged commands are not available. See [Remote management](docs/REMOTE_MANAGEMENT.md) and [Agent setup](docs/AGENT_SETUP.md).
 
-Not available yet: editing device names, tags, notes or trust state; merge/split; multiple or scheduled discovery targets; observed local topology (LLDP/CDP/SNMP, switch ports, device-to-device links); Proxmox and Docker integrations; remote management; releases and backup tooling. No screen uses static or demo data. The plan for these is in [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md), and the remote-management direction is in [docs/REMOTE_MANAGEMENT.md](docs/REMOTE_MANAGEMENT.md).
+Not available yet: editing device names, tags, notes or trust state; merge/split; multiple or scheduled discovery targets; observed local topology (LLDP/CDP/SNMP, switch ports, device-to-device links); Proxmox and Docker integrations; remote desktop, terminal, file transfer, shell or PowerShell commands and other privileged remote actions; releases and backup tooling. No screen uses static or demo data. The plan for these is in [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md), and the remote-management direction is in [docs/REMOTE_MANAGEMENT.md](docs/REMOTE_MANAGEMENT.md).
 
 ## Run with Docker Compose
 
@@ -29,11 +30,13 @@ The setup endpoint closes itself after the first user is created. Subsequent set
 NERVE must be started as the complete Compose stack; `npm run dev` starts only the frontend and intentionally does not provide an `/api/v1` proxy.
 
 1. Install and start Docker Desktop with the Compose v2 plugin.
-2. Double-click `setup.bat`. No input is needed: it creates `.env` with cryptographically random database, discovery-agent and traffic-sensor secrets, selects port 3000 (or a free port if occupied), and generates the ignored local `start.bat` and `stop.bat`. Existing configuration, ports, secrets and custom launchers are retained; official historical stock launchers are upgraded automatically. Launcher migration details and maintainer instructions: [Windows traffic sensor](docs/WINDOWS_TRAFFIC_SENSOR.md#launcher-upgrades). Successful setup closes automatically after a short completion message.
+2. Double-click `setup.bat`. No input is needed: it creates `.env` with cryptographically random database, discovery-agent and traffic-sensor secrets and the Core signing key for management agents, selects port 3000 (or a free port if occupied), and generates the ignored local `start.bat` and `stop.bat`. Existing configuration, ports, secrets and custom launchers are retained; official historical stock launchers are upgraded automatically. Launcher migration details and maintainer instructions: [Windows traffic sensor](docs/WINDOWS_TRAFFIC_SENSOR.md#launcher-upgrades). Successful setup closes automatically after a short completion message.
 3. Run `start.bat` from Explorer, PowerShell, or Command Prompt. Both scripts always change to their own project directory first and keep the console open until a key is pressed.
 4. The start script builds/starts Core, the Windows discovery agent and the native Windows traffic sensor. Accept the first sensor service installation UAC prompt; subsequent unchanged starts need no elevation. Sensor failures are reported separately and never stop Core/discovery. The browser opens after Core/discovery readiness.
 
-Generated secrets stay in ignored local configuration; no batch file contains them. The sensor token is additionally copied to its ACL-protected service configuration. When an existing `.env` is reconfigured, `setup.bat` keeps its current database password because PostgreSQL does not reapply `POSTGRES_PASSWORD` to an initialized volume. Discovery and capture authenticate separately and never receive browser sessions or database credentials.
+Generated secrets stay in ignored local configuration; no batch file contains them. The sensor token is additionally copied to its ACL-protected service configuration. When an existing `.env` is reconfigured, `setup.bat` keeps its current database password because PostgreSQL does not reapply `POSTGRES_PASSWORD` to an initialized volume. Discovery and capture authenticate separately and never receive browser sessions or database credentials. Management agents use their own per-host keys (see [Agent setup](docs/AGENT_SETUP.md)).
+
+**Transport.** The local quick start serves NERVE over plain HTTP. Browsers, the discovery agent and management agents talk to Core over whatever URL they are given, so traffic is encrypted only if you put NERVE behind an HTTPS reverse proxy with a trusted certificate. Management agents authenticate every request with their own key and verify Core's response signatures, so commands cannot be forged on the network, but on plain HTTP their results and inventory data are readable by anyone on the path. Use HTTPS for agents outside a trusted network.
 
 Use `http://localhost:3000` unless `NERVE_WEB_PORT` was changed in `.env`. When a reliable active IPv4 address is available, the script also prints a LAN URL such as `http://192.168.1.25:3000`. Docker publishes the web proxy on all host interfaces. Windows Firewall and the local network must permit inbound access to the configured port.
 
@@ -62,7 +65,7 @@ The following checks all use the same address exposed by the reverse proxy:
 
 ### Local network discovery
 
-Open **Devices**, enter a canonical subnet such as `192.168.178.0/24`, save it, and select **Scan now**. Only administrators can configure or start scans. The page shows whether the host agent is online, the current scan state, reachable/total counts when available, and recent scan errors. Results are written into the normalized device, interface, address, identity, observation, event, and discovery tables; the inventory refreshes when a scan completes.
+Open **Devices**, enter a canonical subnet such as `192.168.178.0/24`, save it, and select **Scan now**. Only users with the `discovery.manage` permission (administrators by default) can configure or start scans. Target changes, scan requests and cancellations are recorded in the audit log; scan results reported by the discovery agent are recorded as observations and events, not audit entries. The page shows whether the host agent is online, the current scan state, reachable/total counts when available, and recent scan errors. Results are written into the normalized device, interface, address, identity, observation, event, and discovery tables; the inventory refreshes when a scan completes.
 
 On Windows with Docker Desktop, discovery intentionally runs as a native host process. Docker Desktop runs Linux containers inside a VM, and its host-network feature exposes TCP/UDP at layer 4 rather than the host's layer-2 interfaces. Running ARP/NDP discovery inside the API container would therefore inspect the wrong network namespace. `start.bat` cross-compiles the Go agent in Docker, writes the generated binary and logs beneath ignored `.nerve/`, and starts it with ordinary user privileges. ICMP uses the operating-system `ping` command; the agent then reads the host ARP/NDP neighbor cache, performs bounded parallel reverse DNS, and uses bounded TCP connection attempts as a fallback.
 
@@ -113,11 +116,21 @@ The service applies ordered `.up.sql` migrations at startup while holding a Post
 - `GET /api/v1/devices/{deviceID}/services` — service endpoints hosted by the device
 - `GET /api/v1/devices/{deviceID}/relationships` — inbound and outbound entity relationships
 - `GET /api/v1/discovery` — authenticated target, agent, latest scan, and error state
-- `POST /api/v1/discovery/target` — administrator-only subnet configuration
-- `POST /api/v1/discovery/scans` — administrator-only scan request
+- `POST /api/v1/discovery/target` — subnet configuration (`discovery.manage`, audited)
+- `POST /api/v1/discovery/scans` — scan request or cancellation (`discovery.manage`, audited)
 - `GET /api/v1/stream` — authenticated server-sent event stream
 - `GET /api/v1/traffic/live` — authenticated, normalized Windows-native or ntopng v2 active-flow snapshot
 - `POST /api/v1/discovery/agent/heartbeat`, `.../agent/jobs/claim`, `.../agent/jobs/{scanID}/report`, `.../agent/jobs/{scanID}/complete` — discovery-agent endpoints, authenticated by the agent token, never by browser sessions
+- `GET /api/v1/audit` — immutable audit log; filters `targetType`, `targetId`, `action` (prefix), `limit` (`audit.view`)
+- `GET /api/v1/agents`, `GET /api/v1/agents/{agentID}` — enrolled management agents with status, capabilities, key fingerprint and device association (`agents.view`)
+- `POST /api/v1/agents/{agentID}/revoke`, `.../remove` — revoke the agent's credential (re-enrollable) or retire it permanently; pending commands are cancelled (`agents.manage`)
+- `POST /api/v1/agents/{agentID}/association` — `confirm` a device, `dismiss` (no device) or `reevaluate` evidence (`agents.manage`)
+- `GET /api/v1/agent-enrollments`, `POST /api/v1/agent-enrollments`, `POST /api/v1/agent-enrollments/{enrollmentID}/revoke` — single-use enrollment tokens, shown once at creation (`agents.manage`)
+- `GET /api/v1/devices/{deviceID}/remote` — remote-management endpoints and capabilities for a device, across providers (`agents.view`)
+- `GET /api/v1/devices/{deviceID}/commands`, `GET /api/v1/agents/{agentID}/commands` — command history without output (`remote.view`)
+- `POST /api/v1/agents/{agentID}/commands` — queue a read-only command (`remote.execute.read_only`); other command types are refused
+- `GET /api/v1/remote/commands/{commandID}` — command state and retained result (`remote.view`); `POST .../cancel` cancels an unfinished command
+- `POST /api/v1/agent/enroll`, `.../identity`, `.../heartbeat`, `.../commands/claim`, `.../commands/{commandID}/start`, `.../commands/{commandID}/result` — management-agent endpoints, authenticated by per-agent Ed25519 request signatures (never browser sessions). Every response is signed by Core, except the `503 core_signing_key_missing` answer returned when Core has no signing key; agents reject that unsigned answer and log it as an unverifiable HTTP 503
 
 ## Live traffic map (Windows native / ntopng)
 
