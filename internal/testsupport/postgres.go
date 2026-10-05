@@ -95,7 +95,7 @@ func CreateDevice(t *testing.T, pool *pgxpool.Pool, name, mac, address string) s
 	if err := pool.QueryRow(ctx, `INSERT INTO entities (kind, name, status) VALUES ('device', $1, 'online') RETURNING id::text`, name).Scan(&id); err != nil {
 		t.Fatalf("create device entity: %v", err)
 	}
-	if _, err := pool.Exec(ctx, `INSERT INTO devices (entity_id, hostname) VALUES ($1::uuid, $2)`, id, name); err != nil {
+	if _, err := pool.Exec(ctx, `INSERT INTO devices (entity_id, hostname, discovered_name) VALUES ($1::uuid, $2, $2)`, id, name); err != nil {
 		t.Fatalf("create device: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO device_identities (device_id, identity_type, value, source, confidence) VALUES ($1::uuid, 'hostname', lower($2), 'test', 65)`, id, name); err != nil {

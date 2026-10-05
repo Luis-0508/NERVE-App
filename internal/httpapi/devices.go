@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/nerve-labs/nerve/internal/devices"
 	"github.com/nerve-labs/nerve/internal/inventory"
 )
 
@@ -30,6 +31,8 @@ func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
 		Search:         r.URL.Query().Get("search"),
 		Status:         r.URL.Query().Get("status"),
 		Classification: r.URL.Query().Get("classification"),
+		Trust:          r.URL.Query().Get("trust"),
+		Tag:            r.URL.Query().Get("tag"),
 		Sort:           r.URL.Query().Get("sort"),
 		Direction:      r.URL.Query().Get("direction"),
 		Limit:          limit,
@@ -41,7 +44,7 @@ func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.inventory.Devices.List(r.Context(), params)
 	if errors.Is(err, inventory.ErrInvalidSort) {
-		writeError(w, http.StatusBadRequest, "invalid_sort", "Sort must be name, status, classification, hostname, ip, vendor, first_seen, or last_seen.")
+		writeError(w, http.StatusBadRequest, "invalid_sort", "Sort must be name, status, classification, trust, hostname, ip, vendor, first_seen, or last_seen.")
 		return
 	}
 	if err != nil {
@@ -100,9 +103,14 @@ func (s *Server) deviceDetail(w http.ResponseWriter, r *http.Request) {
 		s.inventoryFailure(w, "list device relationships", err)
 		return
 	}
+	facts, err := devices.ListAttributes(r.Context(), s.db, deviceID)
+	if err != nil {
+		s.inventoryFailure(w, "list device facts", err)
+		return
+	}
 	writeJSON(w, http.StatusOK, inventory.DeviceDetail{
 		Device: device, Interfaces: interfaces, IPAddresses: addresses,
-		Services: services, Relationships: relationships,
+		Services: services, Relationships: relationships, Facts: facts,
 	})
 }
 

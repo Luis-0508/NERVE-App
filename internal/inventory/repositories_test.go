@@ -35,25 +35,27 @@ func TestDeviceRepositoryList(t *testing.T) {
 	defer mock.Close()
 
 	seen := time.Date(2026, time.September, 4, 9, 30, 0, 0, time.UTC)
-	mock.ExpectQuery("SELECT e.id::text, e.name, e.status").
-		WithArgs("edge", "online", "network", 25, 0).
+	mock.ExpectQuery(`SELECT e.id::text, e.name, COALESCE\(d.display_name`).
+		WithArgs("edge", "online", "network", 25, 0, "trusted", "core").
 		WillReturnRows(pgxmock.NewRows([]string{
-			"id", "name", "status", "classification", "hostname", "ip", "mac",
+			"id", "name", "display_name", "discovered_name", "status", "classification", "discovered_classification",
+			"overridden", "trust_state", "tags", "hostname", "ip", "mac",
 			"manufacturer", "operating_system", "first_seen_at", "last_seen_at", "total",
 		}).AddRow(
-			"01991b36-0478-7de8-9daa-22b30c4a9255", "Edge gateway", "online", "network",
-			"edge-01", "192.0.2.1", "00:11:22:33:44:55", "NERVE", "Linux", seen, seen, int64(1),
+			"01991b36-0478-7de8-9daa-22b30c4a9255", "Edge gateway", "Edge gateway", "edge-01", "online", "network", "unknown",
+			true, "trusted", []string{"core"}, "edge-01", "192.0.2.1", "00:11:22:33:44:55", "NERVE", "Linux", seen, seen, int64(1),
 		))
 
 	repository := NewRepositories(mock).Devices
 	result, err := repository.List(context.Background(), DeviceListParams{
-		Search: "edge", Status: "online", Classification: "network",
+		Search: "edge", Status: "online", Classification: "network", Trust: "trusted", Tag: "core",
 		Sort: "last_seen", Direction: "desc", Limit: 25,
 	})
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if result.Total != 1 || len(result.Items) != 1 || result.Items[0].PrimaryIPAddress != "192.0.2.1" {
+	if result.Total != 1 || len(result.Items) != 1 || result.Items[0].PrimaryIPAddress != "192.0.2.1" ||
+		!result.Items[0].ClassificationOverridden || result.Items[0].TrustState != "trusted" || len(result.Items[0].Tags) != 1 {
 		t.Fatalf("List() = %#v", result)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -69,7 +71,7 @@ func TestDeviceRepositoryGetNotFound(t *testing.T) {
 	defer mock.Close()
 
 	id := "01991b36-0478-7de8-9daa-22b30c4a9255"
-	mock.ExpectQuery("SELECT e.id::text, e.name, e.status").WithArgs(id).WillReturnError(pgx.ErrNoRows)
+	mock.ExpectQuery(`SELECT e.id::text, e.name, COALESCE\(d.display_name`).WithArgs(id).WillReturnError(pgx.ErrNoRows)
 
 	_, err = NewRepositories(mock).Devices.Get(context.Background(), id)
 	if !errors.Is(err, ErrNotFound) {
@@ -102,5 +104,22 @@ func TestInterfaceRepositoryGroupsAddresses(t *testing.T) {
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatalf("unmet database expectation: %v", err)
+	}
+}
+
+func TestEscapeLike(t *testing.T) {
+	for input, want := range map[string]string{"00_11": `00\_11`, "50%": `50\%`, `a\b`: `a\b`, "plain": "plain"} {
+		if got := escapeLike(input); got != want {
+			t.Fatalf("escapeLike(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestNormalizeListParamsBoundsOffset(t *testing.T) {
+	if _, err := NormalizeListParams(DeviceListParams{Offset: maxListOffset}); err != nil {
+		t.Fatalf("maximum offset rejected: %v", err)
+	}
+	if _, err := NormalizeListParams(DeviceListParams{Offset: maxListOffset + 1}); err == nil {
+		t.Fatal("offset above the maximum was accepted")
 	}
 }

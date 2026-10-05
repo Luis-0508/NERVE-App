@@ -1,11 +1,17 @@
 package inventory
 
-import "time"
+import (
+	"time"
+
+	"github.com/nerve-labs/nerve/internal/devices"
+)
 
 type DeviceListParams struct {
 	Search         string
 	Status         string
 	Classification string
+	Trust          string
+	Tag            string
 	Sort           string
 	Direction      string
 	Limit          int
@@ -22,20 +28,30 @@ type DeviceList struct {
 type DeviceFacets struct {
 	Statuses        []string `json:"statuses"`
 	Classifications []string `json:"classifications"`
+	TrustStates     []string `json:"trustStates"`
+	Tags            []string `json:"tags"`
 }
 
+// DeviceSummary is the effective device shown to users. Name and Classification
+// are resolved by Core: an operator override wins over discovered values.
 type DeviceSummary struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
-	Status           string    `json:"status"`
-	Classification   string    `json:"classification"`
-	Hostname         string    `json:"hostname,omitempty"`
-	PrimaryIPAddress string    `json:"primaryIpAddress,omitempty"`
-	PrimaryMAC       string    `json:"primaryMac,omitempty"`
-	Vendor           string    `json:"vendor,omitempty"`
-	OperatingSystem  string    `json:"operatingSystem,omitempty"`
-	FirstSeenAt      time.Time `json:"firstSeenAt"`
-	LastSeenAt       time.Time `json:"lastSeenAt"`
+	ID                       string    `json:"id"`
+	Name                     string    `json:"name"`
+	DisplayName              string    `json:"displayName,omitempty"`
+	DiscoveredName           string    `json:"discoveredName,omitempty"`
+	Status                   string    `json:"status"`
+	Classification           string    `json:"classification"`
+	DiscoveredClassification string    `json:"discoveredClassification"`
+	ClassificationOverridden bool      `json:"classificationOverridden"`
+	TrustState               string    `json:"trustState"`
+	Tags                     []string  `json:"tags"`
+	Hostname                 string    `json:"hostname,omitempty"`
+	PrimaryIPAddress         string    `json:"primaryIpAddress,omitempty"`
+	PrimaryMAC               string    `json:"primaryMac,omitempty"`
+	Vendor                   string    `json:"vendor,omitempty"`
+	OperatingSystem          string    `json:"operatingSystem,omitempty"`
+	FirstSeenAt              time.Time `json:"firstSeenAt"`
+	LastSeenAt               time.Time `json:"lastSeenAt"`
 }
 
 type Device struct {
@@ -46,6 +62,12 @@ type Device struct {
 	Location     string     `json:"location,omitempty"`
 	Notes        string     `json:"notes,omitempty"`
 	ApprovedAt   *time.Time `json:"approvedAt,omitempty"`
+
+	MetadataUpdatedAt *time.Time `json:"metadataUpdatedAt,omitempty"`
+	MetadataUpdatedBy string     `json:"metadataUpdatedBy,omitempty"`
+	TrustChangedAt    *time.Time `json:"trustChangedAt,omitempty"`
+	TrustChangedBy    string     `json:"trustChangedBy,omitempty"`
+	MergedInto        string     `json:"mergedInto,omitempty"`
 }
 
 type Interface struct {
@@ -108,4 +130,6 @@ type DeviceDetail struct {
 	IPAddresses   []IPAddress       `json:"ipAddresses"`
 	Services      []ServiceEndpoint `json:"services"`
 	Relationships []Relationship    `json:"relationships"`
+	// Facts lists every sourced claim (provenance) behind the discovered values.
+	Facts []devices.Attribute `json:"facts"`
 }
