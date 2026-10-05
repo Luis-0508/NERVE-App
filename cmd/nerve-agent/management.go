@@ -111,7 +111,7 @@ func enroll(ctx context.Context, apiURL, token string) (*identity, error) {
 		return nil, err
 	}
 	if response.Fingerprint != agentproto.Fingerprint(public) {
-		return nil, errors.New("Core acknowledged a different public key; enrollment aborted")
+		return nil, errors.New("core acknowledged a different public key; enrollment aborted")
 	}
 	return &identity{AgentID: response.AgentID, CredentialID: response.CredentialID, Fingerprint: response.Fingerprint,
 		APIURL: apiURL, EnrolledAt: time.Now().UTC(), key: private}, nil
@@ -170,6 +170,7 @@ func (m *manager) runHeartbeats(ctx context.Context) {
 				m.logger.Info("management heartbeat restored")
 			}
 			failures = 0
+			m.setError("")
 		case ctx.Err() != nil:
 			return
 		case requiresReenrollment(err):
@@ -178,6 +179,7 @@ func (m *manager) runHeartbeats(ctx context.Context) {
 		default:
 			failures++
 			wait = backoff(failures)
+			m.setError("heartbeat: " + err.Error())
 			m.logger.Warn("management heartbeat failed", "error", err, "retry_in", wait.String())
 		}
 		if !sleepContext(ctx, wait) {

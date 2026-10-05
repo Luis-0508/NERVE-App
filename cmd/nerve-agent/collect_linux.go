@@ -129,6 +129,9 @@ func memoryUsage() (map[string]any, error) {
 	return map[string]any{"totalBytes": total, "availableBytes": available, "usedBytes": used, "usagePercent": percent(used, total)}, nil
 }
 
+// mountEscapes decodes the octal escapes the kernel uses in /proc/mounts.
+var mountEscapes = strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`)
+
 var realFileSystems = map[string]bool{
 	"ext2": true, "ext3": true, "ext4": true, "xfs": true, "btrfs": true, "zfs": true, "vfat": true, "exfat": true,
 	"ntfs": true, "ntfs3": true, "f2fs": true, "jfs": true, "reiserfs": true, "bcachefs": true,
@@ -148,7 +151,7 @@ func diskUsage() ([]map[string]any, error) {
 		if len(fields) < 3 || !realFileSystems[fields[2]] || seen[fields[0]] {
 			continue
 		}
-		mount := strings.ReplaceAll(fields[1], `\040`, " ")
+		mount := mountEscapes.Replace(fields[1])
 		var stat syscall.Statfs_t
 		if syscall.Statfs(mount, &stat) != nil || stat.Blocks == 0 {
 			continue

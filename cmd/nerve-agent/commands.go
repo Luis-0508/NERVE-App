@@ -45,6 +45,7 @@ func (m *manager) runCommands(ctx context.Context) {
 		case err != nil:
 			failures++
 			wait := backoff(failures)
+			m.setError("command claim: " + err.Error())
 			m.logger.Warn("command claim failed", "error", err, "retry_in", wait.String())
 			if !sleepContext(ctx, wait) {
 				return
@@ -124,6 +125,7 @@ func (m *manager) execute(ctx context.Context, command agentproto.Command) {
 		result = failed(agentproto.CommandTimedOut, "timeout", "The command exceeded its timeout.")
 	case err != nil:
 		result = failed(agentproto.CommandFailed, "collection_failed", err.Error())
+		m.setError(command.Type + ": " + err.Error())
 	default:
 		encoded, truncated, encodeErr := encodeOutput(output, command.MaxOutputBytes)
 		if encodeErr != nil {

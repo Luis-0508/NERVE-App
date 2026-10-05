@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -466,12 +467,18 @@ func normalizeMAC(value string) string {
 	return strings.ToLower(hardware.String())
 }
 
+// truncate trims and shortens value to at most limit bytes without splitting
+// a UTF-8 sequence.
 func truncate(value string, limit int) string {
 	value = strings.TrimSpace(value)
-	if len(value) > limit {
-		return value[:limit]
+	if len(value) <= limit {
+		return value
 	}
-	return value
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(value[cut]) {
+		cut--
+	}
+	return value[:cut]
 }
 
 // ---------------------------------------------------------------------------

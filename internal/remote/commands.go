@@ -43,6 +43,10 @@ var (
 	ErrNoCommand               = errors.New("no command is queued")
 
 	failureCodePattern = regexp.MustCompile(`^[a-z_]{1,64}$`)
+
+	// reservedFailureCodes are written only by Core, so their presence proves
+	// that no agent result exists for the command.
+	reservedFailureCodes = map[string]bool{"no_result": true, "expired": true, "cancelled": true, "agent_revoked": true, "agent_removed": true}
 )
 
 type Result struct {
@@ -137,8 +141,9 @@ func (s *Service) Create(ctx context.Context, input CreateInput, actor agents.Ac
 		status, deviceID string
 		capabilities     []string
 	)
-	// FOR SHARE serializes with revocation, which locks the agent FOR UPDATE.
-	err = tx.QueryRow(ctx, `SELECT status, capabilities, COALESCE(device_id::text, '') FROM agents WHERE id = $1::uuid FOR SHARE`, input.AgentID).Scan(&status, &capabilities, &deviceID)
+	// FOR NO KEY UPDATE serializes with revocation (FOR UPDATE) and with other
+	// creates for the same agent, so the active-command limit below is exact.
+	err = tx.QueryRow(ctx, `SELECT status, capabilities, COALESCE(device_id::text, '') FROM agents WHERE id = $1::uuid FOR NO KEY UPDATE`, input.AgentID).Scan(&status, &capabilities, &deviceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Command{}, agents.ErrNotFound
 	}
@@ -323,6 +328,15 @@ func validateResult(result agentproto.CommandResult) error {
 	}
 	if result.Status != agentproto.CommandSucceeded && result.FailureCode == "" {
 		return fmt.Errorf("%w: a failed result needs a failure code", ErrInvalidResult)
+	}
+	if reservedFailureCodes[result.FailureCode] {
+		return fmt.Errorf("%w: failure code %q is reserved for Core", ErrInvalidResult, result.FailureCode)
+	}
+	// PostgreSQL rejects NUL in text and U+0000 in jsonb; refuse them up front
+	// so the agent gets a 422 instead of an internal error.
+	if strings.ContainsRune(result.Stdout, 0) || strings.ContainsRune(result.Stderr, 0) || strings.ContainsRune(result.FailureReason, 0) ||
+		strings.ContainsRune(result.FailureCode, 0) || jsonContainsNUL(result.Output) {
+		return fmt.Errorf("%w: results must not contain NUL characters", ErrInvalidResult)
 	}
 	if len(result.Output) > 0 {
 		trimmed := strings.TrimSpace(string(result.Output))
@@ -592,7 +606,7 @@ func (s *Service) Get(ctx context.Context, commandID string) (Command, error) {
 	if digest != nil {
 		command.Result = &Result{Output: output, Stdout: deref(stdout), Stderr: deref(stderr), OutputTruncated: *outputTruncated,
 			StdoutTruncated: *stdoutTrunc, StderrTruncated: *stderrTrunc, OutputBytes: *outputBytes, Digest: *digest, SubmittedAt: *submittedAt}
-	} else if command.Status == "succeeded" || command.Status == "failed" {
+	} else if (command.Status == "succeeded" || command.Status == "failed" || command.Status == "timed_out") && !reservedFailureCodes[command.FailureCode] {
 		command.ResultPruned = true
 	}
 	return command, nil
@@ -676,4 +690,36 @@ func (n *notifier) notify(agentID string) {
 		default:
 		}
 	}
+}
+
+// jsonContainsNUL reports whether any decoded string or key holds U+0000.
+func jsonContainsNUL(raw json.RawMessage) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	var value any
+	if json.Unmarshal(raw, &value) != nil {
+		return false // validateResult reports invalid JSON separately.
+	}
+	var walk func(any) bool
+	walk = func(node any) bool {
+		switch typed := node.(type) {
+		case string:
+			return strings.ContainsRune(typed, 0)
+		case []any:
+			for _, item := range typed {
+				if walk(item) {
+					return true
+				}
+			}
+		case map[string]any:
+			for key, item := range typed {
+				if strings.ContainsRune(key, 0) || walk(item) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	return walk(value)
 }

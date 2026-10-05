@@ -195,6 +195,10 @@ func evaluateAssociation(ctx context.Context, tx pgx.Tx, agentID string) error {
 	switch {
 	case macDevices == 1 && ordered[0].mac:
 		deviceID := ordered[0].evidence.DeviceID
+		// Lock the device so concurrent evaluations cannot both claim it.
+		if _, err := tx.Exec(ctx, `SELECT 1 FROM devices WHERE entity_id = $1::uuid FOR UPDATE`, deviceID); err != nil {
+			return fmt.Errorf("lock association device: %w", err)
+		}
 		var conflicting string
 		err := tx.QueryRow(ctx, `SELECT id::text FROM agents WHERE device_id = $1::uuid AND status <> 'removed' AND id <> $2::uuid`, deviceID, agentID).Scan(&conflicting)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {

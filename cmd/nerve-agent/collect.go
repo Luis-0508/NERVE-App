@@ -156,6 +156,7 @@ func listResult(source string, items []map[string]any, limit int) map[string]any
 // encodeOutput marshals a collector result within maxBytes. List results are
 // shortened (and marked truncated) rather than failing outright.
 func encodeOutput(value map[string]any, maxBytes int) ([]byte, bool, error) {
+	stripNUL(value)
 	encoded, err := json.Marshal(value)
 	if err != nil {
 		return nil, false, err
@@ -204,4 +205,26 @@ func percent(used, total uint64) float64 {
 		return 0
 	}
 	return round1(float64(used) * 100 / float64(total))
+}
+
+// stripNUL removes NUL characters from collected strings in place. Some OS
+// sources (for example registry values) can contain them, and Core rejects them.
+func stripNUL(node any) any {
+	switch typed := node.(type) {
+	case string:
+		return strings.ReplaceAll(typed, "\x00", "")
+	case map[string]any:
+		for key, item := range typed {
+			typed[key] = stripNUL(item)
+		}
+	case []map[string]any:
+		for _, item := range typed {
+			stripNUL(item)
+		}
+	case []any:
+		for index, item := range typed {
+			typed[index] = stripNUL(item)
+		}
+	}
+	return node
 }

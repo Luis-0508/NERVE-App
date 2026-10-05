@@ -187,3 +187,11 @@ func TestNativeCollectorsProduceBoundedJSON(t *testing.T) {
 		}
 	}
 }
+
+func TestEncodeOutputStripsNUL(t *testing.T) {
+	value := map[string]any{"items": []map[string]any{{"name": "bad\x00name"}}, "note": "x\x00y"}
+	encoded, _, err := encodeOutput(value, 1024)
+	if err != nil || strings.Contains(string(encoded), `\u0000`) {
+		t.Fatalf("NUL survived encoding: %s %v", encoded, err)
+	}
+}

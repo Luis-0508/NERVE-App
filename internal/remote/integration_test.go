@@ -376,3 +376,57 @@ func TestCommandInvariantsAreEnforcedByPostgres(t *testing.T) {
 		}
 	}
 }
+
+func TestReviewRegressions(t *testing.T) {
+	f := newFixture(t, "remote_review")
+	ctx := context.Background()
+	a := f.agent(t, "system.info", "system.metrics")
+
+	// Concurrent creates cannot exceed the per-agent active limit.
+	var wg sync.WaitGroup
+	for i := 0; i < remote.MaxActivePerAgent+10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = f.commands.Create(ctx, remote.CreateInput{AgentID: a.AgentID, Type: "system.metrics"}, f.actor)
+		}()
+	}
+	wg.Wait()
+	var active int
+	_ = f.pool.QueryRow(ctx, `SELECT count(*) FROM remote_commands WHERE agent_id = $1::uuid AND status = 'queued'`, a.AgentID).Scan(&active)
+	if active != remote.MaxActivePerAgent {
+		t.Fatalf("concurrent creates produced %d active commands, limit %d", active, remote.MaxActivePerAgent)
+	}
+	for {
+		command, err := f.commands.Claim(ctx, a, 0)
+		if errors.Is(err, remote.ErrNoCommand) {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		// NUL characters and Core-reserved failure codes are client errors, not 500s.
+		for _, invalid := range []agentproto.CommandResult{
+			succeeded(`{"name":"bad\u0000name"}`),
+			{Status: agentproto.CommandFailed, FailureCode: "collection_failed", FailureReason: "x\x00y"},
+			{Status: agentproto.CommandTimedOut, FailureCode: "no_result"},
+		} {
+			if _, err := f.commands.SubmitResult(ctx, a, command.ID, invalid); !errors.Is(err, remote.ErrInvalidResult) {
+				t.Fatalf("invalid result %+v: %v", invalid, err)
+			}
+		}
+		if _, err := f.commands.SubmitResult(ctx, a, command.ID, agentproto.CommandResult{Status: agentproto.CommandTimedOut, FailureCode: "timeout"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A pruned agent-submitted timed_out result is reported as pruned.
+	var timedOut string
+	_ = f.pool.QueryRow(ctx, `SELECT id::text FROM remote_commands WHERE agent_id = $1::uuid AND status = 'timed_out' LIMIT 1`, a.AgentID).Scan(&timedOut)
+	if _, err := f.pool.Exec(ctx, `DELETE FROM remote_command_results WHERE command_id = $1::uuid`, timedOut); err != nil {
+		t.Fatal(err)
+	}
+	if command, _ := f.commands.Get(ctx, timedOut); !command.ResultPruned {
+		t.Fatalf("pruned timed_out result not flagged: %+v", command)
+	}
+}
