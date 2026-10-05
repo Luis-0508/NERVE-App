@@ -1,4 +1,4 @@
-import type { DeviceDetail, DeviceFacets, DeviceList, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ServiceStatus, Session, TrafficSnapshot } from "./types";
+import type { AgentEnrollment, DeviceDetail, DeviceFacets, DeviceList, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ManagementAgent, RemoteCommand, RemoteEndpoint, ServiceStatus, Session, TrafficSnapshot } from "./types";
 
 import type { TrafficCapture } from "./types";
 
@@ -45,4 +45,19 @@ export const api = {
   session: () => request<Session>("/api/v1/auth/session"),
   login: (email: string, password: string) => request<Session>("/api/v1/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   setup: (email: string, password: string) => request<Session>("/api/v1/auth/bootstrap", { method: "POST", body: JSON.stringify({ email, password }) }),
+  agents: () => request<{ items: ManagementAgent[] }>("/api/v1/agents"),
+  revokeAgent: (id: string) => request<ManagementAgent>(`/api/v1/agents/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }),
+  removeAgent: (id: string) => request<ManagementAgent>(`/api/v1/agents/${encodeURIComponent(id)}/remove`, { method: "POST", body: "{}" }),
+  updateAssociation: (id: string, action: "confirm" | "dismiss" | "reevaluate", deviceId?: string) =>
+    request<ManagementAgent>(`/api/v1/agents/${encodeURIComponent(id)}/association`, { method: "POST", body: JSON.stringify({ action, deviceId: deviceId ?? "" }) }),
+  enrollments: () => request<{ items: AgentEnrollment[] }>("/api/v1/agent-enrollments"),
+  createEnrollment: (input: { displayName?: string; deviceId?: string; agentId?: string; expiresInMinutes?: number }) =>
+    request<{ enrollment: AgentEnrollment; token: string }>("/api/v1/agent-enrollments", { method: "POST", body: JSON.stringify(input) }),
+  revokeEnrollment: (id: string) => request<AgentEnrollment>(`/api/v1/agent-enrollments/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }),
+  deviceRemote: (deviceId: string) => request<{ endpoints: RemoteEndpoint[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/remote`),
+  deviceCommands: (deviceId: string) => request<{ items: RemoteCommand[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/commands`),
+  createCommand: (agentId: string, type: string, parameters: Record<string, unknown> = {}) =>
+    request<RemoteCommand>(`/api/v1/agents/${encodeURIComponent(agentId)}/commands`, { method: "POST", body: JSON.stringify({ type, parameters }) }),
+  command: (id: string) => request<RemoteCommand>(`/api/v1/remote/commands/${encodeURIComponent(id)}`),
+  cancelCommand: (id: string) => request<RemoteCommand>(`/api/v1/remote/commands/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
 };

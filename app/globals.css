@@ -445,3 +445,27 @@ a { color: inherit; text-decoration: none; }
 .topology-flows p { margin: 6px 0 0; }
 .traffic-actions .segmented button { white-space: nowrap; }
 @media (max-width: 600px) { .traffic-header { flex-wrap: wrap; } .traffic-actions { flex-wrap: wrap; } .topology-toolbar { flex-direction: row; top: 30px; } .topology-label small { display: none; } .topology-surface .map-footer span:last-child { display: none; } }
+
+/* Remote management (minimal operator UI; a dedicated design pass follows). */
+.remote-heading { justify-content: space-between; }
+.remote-endpoint + .remote-endpoint, .remote-panel > section + section { border-top: 1px solid var(--border); }
+.remote-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); }
+.remote-note { margin: 0; padding: 10px 16px; font-size: 12px; color: var(--text-secondary); }
+.remote-json { margin: 0; padding: 12px 16px; max-height: 360px; overflow: auto; font-family: var(--font-mono); font-size: 12px; color: var(--code); background: var(--surface-subtle); white-space: pre-wrap; overflow-wrap: anywhere; }
+.remote-result { border-top: 1px solid var(--border); }
+.remote-panel .form-error { margin: 12px 16px; }
+.link-button { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; }
+.link-button:hover { text-decoration: underline; }
+.agents-settings { margin-top: 16px; }
+.agents-settings .settings-row > div:last-child { min-width: 0; }
+.agent-actions { display: flex; gap: 6px; }
+.enroll-form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
+.enroll-form .field { margin-bottom: 0; min-width: 180px; }
+.enroll-form .field span { font-size: 12px; font-weight: 600; }
+.enroll-token { margin: 14px 0; padding: 12px; border-left: 3px solid var(--warning); background: color-mix(in srgb, var(--warning) 6%, var(--surface)); font-size: 12px; }
+.enroll-token p { margin: 0 0 8px; }
+.enroll-token .remote-json { margin-bottom: 8px; padding: 8px; }
+@media (max-width: 760px) {
+  .agents-settings .settings-row { grid-template-columns: 1fr; gap: 12px; }
+  .agent-actions { flex-wrap: wrap; }
+}

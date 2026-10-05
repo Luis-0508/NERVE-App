@@ -1,193 +1,362 @@
-# Remote management (RMM): architecture proposal
+# Remote management (RMM)
 
-Status: **proposal, nothing implemented.** This is the decision record for the next
-major milestone. It compares three routes and states the security requirements any of
-them must meet. Sequencing lives in [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
+Status: **foundation implemented** (October 2026): per-agent enrollment and identity,
+heartbeat and capabilities, evidence-based device association, and an audited command
+pipeline with five read-only commands. Interactive sessions (desktop, terminal, files)
+and privileged commands are **not** implemented. Agent installation is described in
+[Agent setup](AGENT_SETUP.md); sequencing lives in
+[IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
 
-## Starting point
+## Architecture
 
-What exists and can be reused:
+NERVE uses a **hybrid** model. NERVE owns device identity, inventory, agent enrollment and
+authentication, capabilities, telemetry, authorization, command requests and results,
+confirmations, audit and the operator UI. A remote-session product such as MeshCentral
+may later provide remote desktop, interactive terminal, file transfer and relay, as an
+**optional provider** behind a NERVE abstraction, never as the core model.
 
-- Users, roles (`administrator`, `technician`, `read_only`) and hashed server-side sessions.
-- An immutable `audit_log` (UPDATE/DELETE rejected by trigger), so far written only for
-  authentication events.
-- Unused `actions` / `action_runs` tables (requester, parameters, status, attempts) and
-  `integrations` / `integration_credentials` (ciphertext, nonce, key version).
-- A native Go agent (`cmd/nerve-agent`) that polls Core over HTTPS for discovery jobs, and a
-  .NET Windows service (traffic sensor) with HMAC-signed, nonce-protected reports.
+```text
+Browser ──session──▶ /api/v1/agents, /devices/{id}/remote, /remote/commands   (permissions)
+                         │
+                   internal/remote ── Provider registry ── NativeProvider (nerve-agent)
+                         │                              └─ (future) MeshCentral adapter
+                   remote_commands ◀── claim/start/result ── /api/v1/agent/* ◀──Ed25519── nerve-agent
+                         │
+                     audit_log (immutable)
+```
 
-What is missing and blocks any route:
+- `internal/agentproto`: wire protocol shared by Core and the agent (request signing,
+  messages, capability catalogue).
+- `internal/agents`: enrollment, credentials, signed-request authentication, heartbeat,
+  device association, revoke/re-enroll/remove.
+- `internal/remote`: provider-neutral domain: `Provider` registry, command policies and
+  the command pipeline.
+- `internal/authz`, `internal/audit`: permissions and the audit writer/reader.
 
-- **Agent identity.** All discovery agents share one global bearer token and the
-  sensor shares one HMAC key. Anyone holding the token can impersonate every agent.
-- **Device identity.** Discovery reconciles devices by MAC/IP, but there are no
-  operator-confirmed identities, no merge/split workflow and no evidence view. An RMM
-  endpoint must map to exactly one trusted NERVE device, or actions land on the wrong
-  machine.
-- **Authorization model for actions.** There is no per-device or per-group permission
-  model and no capability registry.
+## Agent identity and enrollment
 
-## Option A: MeshCentral as the execution layer
+```text
+operator (agents.manage) ── POST /api/v1/agent-enrollments ──▶ token, shown once
+                                                                    │
+nerve-agent enroll ── generates Ed25519 key pair ── POST /api/v1/agent/enroll
+                      (token + public key + host facts, signed with the new key)
+                                                                    │
+Core: lock enrollment, verify digest/expiry/single use ──▶ agent ID + credential ID
+```
 
-NERVE stays the system of record and the operator UI. MeshCentral (Apache-2.0, Node.js
-server with C MeshAgent for Windows/Linux/macOS) does agent connectivity and
-interactive sessions.
+- **Enrollment tokens** look like `nerve-enroll-v1.<enrollment id>.<secret>` with a
+  256-bit secret. Core stores only `SHA-256(secret)`. They expire after 5 minutes to 24
+  hours (default 60 minutes) and are consumed exactly once under `SELECT … FOR UPDATE`.
+  Operators can revoke unused tokens. Rejected attempts against an existing enrollment
+  (wrong secret, expired, revoked, already used, key reuse) are audited. Attempts with
+  unknown enrollment IDs are not, so anonymous callers cannot grow the immutable log.
+  The endpoint is rate-limited per client address.
+- **Proof of possession.** The enroll request is signed with the private key whose public
+  key it registers. A token alone cannot register someone else's key.
+- **Credential.** Each agent has its own Ed25519 key pair. The private key never leaves
+  the endpoint. PostgreSQL stores only the 32-byte public key and its SHA-256 fingerprint,
+  so a database leak yields nothing that can authenticate as an agent. A unique index
+  allows at most one active credential per agent, and triggers make key material
+  immutable and revocation final.
+- **Agent ID** is a UUID assigned by Core. It stays stable across re-enrollment.
 
-| NERVE | MeshCentral |
+### Why Ed25519 instead of a hashed bearer token
+
+A random bearer token stored as a SHA-256 digest would also keep plaintext credentials
+out of PostgreSQL, and it is simpler. It was rejected because NERVE's default deployment
+is plain HTTP on a LAN: a bearer token is sent with every request, so one captured
+request allows permanent impersonation. With request signatures, no reusable secret ever
+crosses the network, and a captured request is useless after its nonce is recorded. The
+implementation uses only Go standard-library primitives (`crypto/ed25519`, SHA-256), and
+the canonical-string scheme mirrors the existing HMAC-signed traffic-sensor reports. No
+custom cryptography is involved.
+
+### Signed requests
+
+Every request to `/api/v1/agent/*` (except enroll, which is self-signed) carries
+`X-NERVE-Credential`, `X-NERVE-Timestamp`, `X-NERVE-Nonce` (16 random bytes) and
+`X-NERVE-Signature` over:
+
+```text
+NERVE-AGENT-SIG-V1\n<credential id>\n<METHOD>\n<route below /api/v1, with query>\n<unix time>\n<nonce hex>\n<sha256(body) hex>
+```
+
+Core rejects timestamps more than ±2 minutes away (and returns its time in
+`X-NERVE-Server-Time`). It verifies the signature **before** any write, then records the
+nonce in `agent_request_nonces` for 4 minutes, so a replay inside the window fails. The
+maintenance loop prunes expired nonces.
+
+### Separation of browser and agent APIs
+
+| | Operator API (`/api/v1/agents`, `/agent-enrollments`, `/remote/*`, `/devices/{id}/remote`) | Agent API (`/api/v1/agent/*`) |
+| --- | --- | --- |
+| Authentication | Browser session cookie | Ed25519 request signature |
+| Rejects | Agent signatures (no cookie means 401) | Any request with `Origin` or `Sec-Fetch-Site`, and session cookies (ignored, so 401) |
+| Authorization | Explicit permission per route | Scoped to the authenticated agent's own rows |
+
+The legacy discovery worker still uses the shared local `NERVE_DISCOVERY_AGENT_TOKEN`.
+That token grants nothing on either API above.
+
+### Lifecycle
+
+| Action | Effect |
 | --- | --- |
-| Inventory, discovery, identity, topology, health, events | Agent install, connection and relay |
-| Policies, operator permissions, approvals | Remote desktop, terminal, file transfer |
-| Action catalogue, confirmations, audit of intent and result | Command execution transport |
-| Operator UI, deep links into sessions | Agent self-update channel, NAT traversal |
+| **Revoke** (`POST /agents/{id}/revoke`) | Active credential revoked. Agent status becomes `revoked`. Its queued, claimed and running commands are cancelled in the same transaction. The agent receives `agent_credential_revoked` and pauses polling. |
+| **Re-enroll** | Create an enrollment with `agentId`, then run `nerve-agent enroll --force`. Same agent ID, new key. The old credential is revoked as `reenrolled`. Use it for key rotation, a reinstall or a lost identity file. |
+| **Remove** (`POST /agents/{id}/remove`) | Final. Credentials are revoked, the device association is cleared and the agent can never authenticate or be re-enrolled. The row is kept because audit records and command history reference it. |
 
-Integration mechanics:
+Automatic, agent-initiated key rotation is not implemented yet. Rotation is
+operator-driven through re-enrollment.
 
-- **API.** MeshCentral's own UI and `meshctrl` use an authenticated WebSocket control
-  channel. Commands include `listdevices`, `deviceinfo`, `listevents`, `runcommand`
-  (with `--reply` for output), `shell`, `upload` and `download`. NERVE would add an adapter
-  under `internal/integrations/meshcentral` that keeps one server-side connection as a
-  dedicated service account. The browser never talks to that channel.
-- **Identity mapping.** MeshCentral node IDs (`node//…`) are stored as a
-  `device_identities` row (`identity_type` would need a `meshcentral` value). A mapping is
-  proposed by matching MAC/hostname, but an operator confirms it. NERVE never auto-binds
-  a remote-control agent to a device on weak evidence.
-- **Session handoff.** MeshCentral supports short-lived login tokens and URL parameters
-  (`gotonode`, `viewmode`, `hide`) for embedding a device view in an iframe. Login tokens
-  require `AllowLoginToken`. A login *key* can log in as any account, so it must stay
-  server-side and must never reach the browser or logs. Preferred: NERVE mints a per-request,
-  short-lived token for a per-operator MeshCentral account (or both trust the same OIDC
-  provider), then deep-links or embeds. Avoid one shared MeshCentral admin identity for
-  all operators: it erases operator attribution in MeshCentral's own log.
-- **Permissions.** MeshCentral has device groups and per-user rights. NERVE policy is
-  authoritative. MeshCentral accounts are provisioned with the minimum rights NERVE
-  grants, so a bypass of NERVE (direct MeshCentral login) cannot exceed them.
-- **Audit.** NERVE writes intent before the call and the result after it. MeshCentral
-  events (`listevents`) are pulled and correlated, so sessions started inside MeshCentral
-  are still visible in NERVE.
-- **Deployment.** A separate container/host with its own TLS name. Agents must reach it
-  directly (WebSocket/TLS), so it cannot hide entirely behind NERVE. Its admin UI should
-  be restricted (VPN/allow-list/SSO), and NERVE should not proxy MeshCentral's whole web
-  app through its own origin.
+## Heartbeat, capabilities and device association
 
-Costs and risks: a second stateful server with its own database, backups, upgrades and TLS;
-a second user/permission model to keep in sync; an API that is mainly documented through
-`meshctrl` and source rather than a versioned public contract; reliance on a project with
-a small core maintainer group; a separate agent install alongside the NERVE agent.
+The agent sends a signed heartbeat every 30 seconds with host facts: hostname, OS and
+version, architecture, agent version, interface MAC and IP addresses, and a domain-separated
+SHA-256 of the machine ID (the raw ID never leaves the host). It also sends its capabilities.
+An agent counts as **online** if it made an authenticated request in the last 90 seconds.
 
-## Option B: build remote management into the NERVE agent
+**Capabilities** come from a shared catalogue (`internal/agentproto/capabilities.go`):
 
-Two very different scopes hide under "extend the agent".
+| Capability | Risk | Executable today |
+| --- | --- | --- |
+| `system.info`, `system.metrics`, `process.list`, `service.list`, `software.list` | read-only | yes |
+| `command.shell`, `command.powershell`, `script.run`, `system.reboot` | privileged | no (no policy) |
+| `file.transfer`, `remote.desktop`, `remote.terminal` | interactive | no (provider not implemented) |
 
-**Tractable (weeks to a few months each, with care):** telemetry, capability discovery,
-service list/start/stop, process list/kill, installed-software inventory, bounded
-non-interactive commands/PowerShell with timeout and capped output, small file push/pull,
-signed scripts from a server-side catalogue. These fit a request/response model over the
-existing outbound HTTPS polling, plus long-polling or a WebSocket for latency.
+Agents advertise only what works on their host. For example, Linux reports
+`service.list` only with systemd and `software.list` only with dpkg or rpm. Host owners
+can switch capabilities off with `NERVE_AGENT_DISABLED_CAPABILITIES`. Core discards
+unknown names and refuses commands that the agent did not advertise.
 
-**Hard (each a product in itself):**
+**Device association** proposes an existing NERVE device from evidence. It never creates
+or merges devices:
 
-- Remote desktop: screen capture (DXGI/Desktop Duplication, Wayland/X11, macOS
-  ScreenCaptureKit), encoding, adaptive bitrate, multi-monitor, the secure desktop/UAC
-  prompt, login-screen access, clipboard.
-- Input injection: keyboard layouts, IME, secure attention sequence, session 0 vs user
-  session separation on Windows.
-- NAT traversal and relay: a relay service, TURN-like fallback, WebRTC or custom transport,
-  bandwidth limits, abuse controls.
-- Interactive terminal: PTY/ConPTY, resize, flow control, idle timeouts, transcript
-  capture.
-- Session handling: reconnect, resumption, concurrent viewers, consent prompts, session
-  recording.
-- File streaming: resumable transfers, integrity, quotas, path restrictions.
-- Agent upgrades: signed packages, staged rollout, rollback, watchdog. A broken update
-  can strand the whole fleet.
-- Platform hardening: code signing, AV/EDR false positives, service recovery, privilege
-  separation (unprivileged agent plus a narrow privileged helper).
+| Evidence | Result |
+| --- | --- |
+| A reported MAC matches exactly one device (via `device_identities` or interfaces) | `automatic` |
+| A MAC matches several devices | `candidate` with a note |
+| Only hostname and/or IP matches | `candidate` (weak) |
+| The device already has another live agent (unique index) | `candidate` with a note |
+| Operator confirms or picks a device at enrollment | `confirmed` |
+| Operator says "no device" | `dismissed` |
 
-Every one of these is security-critical code that runs as SYSTEM/root on every managed
-host. For a small team, Option B for the hard list means years of work, and it creates a
-persistent attack surface that must be maintained indefinitely.
+Evidence (signal type and value per candidate device) is stored on the agent and shown
+in the API. Operator decisions (`confirmed`, `dismissed`) are never overridden
+automatically. Unresolved agents are re-evaluated on every heartbeat, so a device
+discovered later is still linked. Resolved agents are re-evaluated only when their
+facts change. An associated agent is also recorded as an `agent` row in
+`device_identities`, which feeds the Device Identity milestone.
 
-## Option C (hybrid)
+## Command pipeline
 
-- **NERVE agent** stays the read-only/low-risk agent: discovery, telemetry, capability
-  reporting, inventory, and later the tractable bounded actions behind the NERVE
-  action pipeline.
-- **MeshCentral** provides only the hard interactive pieces: remote desktop, interactive
-  terminal, large file transfer, relay/NAT traversal. NERVE deep-links or embeds through
-  short-lived, per-operator tokens.
-- NERVE owns identity mapping, permissions, confirmations and the audit trail for both.
-- The action pipeline is transport-agnostic (`actions.action_type` + an executor). A
-  bounded command can later move from MeshCentral `runcommand` to the NERVE agent without
-  changing the UI or audit model.
+```text
+operator ── POST /agents/{id}/commands ──▶ policy + permission + capability check ──▶ queued (audit: created)
+agent    ── POST /agent/commands/claim (long poll ≤25 s) ──▶ claimed     (audit: claimed)
+agent    ── POST /agent/commands/{id}/start ──▶ running                   (audit: started; refused if cancelled)
+agent    ── POST /agent/commands/{id}/result ──▶ succeeded|failed|timed_out (audit: completed; output → results table)
+sweeper  ── queued past expiry ──▶ expired; claimed/running past timeout+60 s ──▶ timed_out
+operator ── POST /remote/commands/{id}/cancel ──▶ cancelled
+```
 
-## Comparison
+- **At-most-once execution.**
+  - Claiming is one atomic `UPDATE … FOR UPDATE SKIP LOCKED`, scoped to the authenticated
+    agent, and no transition returns a command to `queued`.
+  - The agent also refuses command IDs it has already executed, and commands addressed
+    to another agent.
+- **Idempotent results.**
+  - An identical resubmission is acknowledged as a duplicate, so a retry after a lost
+    response is safe.
+  - A different result for a finished command is refused (409).
+  - A result from another agent is refused (404) and audited.
+- **Bounds.**
+  - Per-type timeouts (default 20–60 s, max 1–2 min) are enforced by the agent (context
+    deadline) and by Core (sweeper).
+  - Per-type output limits range from 16 KiB to 1 MiB, enforced by both. The agent
+    truncates list outputs and marks them `truncated`. Request bodies are capped at 2 MiB.
+  - Parameters are normalized by a per-type schema and capped at 4 KiB.
+  - Expiry is 30 s to 1 h (default 10 min).
+  - Each agent has at most 20 active commands.
+- **Database invariants.** Triggers enforce the allowed transitions, terminal finality,
+  immutable request fields and claims, no deletion of commands, and write-once results.
+  CHECK constraints keep timestamps consistent with the state.
+- **Retention.** Results are pruned after 30 days. Command rows and audit records remain.
+- **Transport.** Polling and long polling over the same HTTP(S) origin as the UI, through
+  Nginx. The agent tolerates network loss and Core restarts (jittered backoff, 2 s to
+  60 s), its own restarts (identity on disk; an in-flight command times out on Core), and
+  duplicate or late submissions.
 
-| | A: MeshCentral | B: native agent | C: hybrid |
+The five read-only collectors read OS state (procfs, statfs, kernel32, the service control
+manager with enumerate rights only, the uninstall registry keys) or run a fixed program
+with fixed arguments (`systemctl`, `dpkg-query`, `rpm`). No operator-supplied text is
+executed. Process command lines and environments are deliberately not collected because
+they often contain secrets.
+
+## Authorization
+
+Permissions live in `permissions` and `role_permissions`, and every check is server-side:
+
+| Permission | Administrator | Technician | Read-only |
 | --- | --- | --- | --- |
-| Time to first useful remote session | Short | Very long | Short |
-| Remote desktop / relay quality | Mature | Must be built | Mature |
-| Engineering effort | Adapter + identity + permissions | Very high | Adapter now, native actions gradually |
-| Security surface owned by NERVE | Integration boundary, token handling | Everything, incl. privileged agent and relay | Integration boundary + bounded actions |
-| Operational burden | Second server and agent | One stack | Second server and agent |
-| Product coherence | Two UIs unless embedded | Single UI | Single UI for actions, embedded sessions |
-| Vendor/project risk | High dependence | None | Contained: interactive features only |
-| Exit path | Hard | n/a | Replace one executor at a time |
+| `agents.view` (agents, status, capabilities, device remote state) | ✓ | ✓ | ✓ |
+| `remote.view` (command history and results) | ✓ | ✓ | |
+| `remote.execute.read_only` (queue and cancel read-only commands) | ✓ | ✓ | |
+| `agents.manage` (enroll, revoke, remove, associate) | ✓ | | |
+| `remote.execute.privileged` (reserved; no command uses it yet) | ✓ | | |
+| `audit.view` (`GET /api/v1/audit`) | ✓ | | |
+| `discovery.manage` (discovery target and scans) | ✓ | | |
 
-## Recommendation
+A user's permissions are the union over all their roles. Changing a role is a data
+change, not a code change. Denied state-changing requests are audited as `authz.denied`.
 
-**Take Option C, starting with MeshCentral for interactive sessions, and do not build remote
-desktop, relay or interactive terminal in-house.** Build bounded, auditable actions in the
-NERVE agent only after agent identity is fixed. Keep a short, explicit exit criterion: if
-MeshCentral's API stability, maintenance or security posture becomes unacceptable,
-only the interactive executor needs replacing.
+## Audit
 
-Before any code, run a time-boxed spike. Stand up MeshCentral beside a disposable NERVE
-stack. Confirm per-user login-token minting, `gotonode` embedding under NERVE's CSP,
-`runcommand --reply` output limits, event retrieval for audit correlation, and the
-real-world agent install and update flow on Windows and Linux.
+`audit_log` (immutable by trigger) now has `actor_agent_id` next to `actor_id`. Recorded
+actions:
 
-Proposed order: (1) device identity and agent enrollment, (2) MeshCentral adapter,
-read-only: list nodes, operator-confirmed mapping, presence on the device page, (3)
-audited deep link/embed of sessions, (4) catalogue of confirmed bounded actions, (5)
-selected actions moved to the NERVE agent.
+- Agents and enrollment:
+  - `agent.enrollment.created`, `agent.enrollment.revoked`, `agent.enrollment.completed`
+    (actor: agent)
+  - `agent.enrollment.rejected`
+  - `agent.credential.revoked`, `agent.removed`
+  - `agent.association.changed` (operator), `agent.association.evaluated` (agent)
+- Commands:
+  - `remote.command.created` (operator); `remote.command.claimed`, `started` and
+    `completed` (agent)
+  - `remote.command.cancelled`, `remote.command.expired`, `remote.command.timed_out`
+  - `remote.command.result_rejected`
+- `discovery.target.saved`, `discovery.scan.requested`, `discovery.scan.cancelled` (this
+  closes the earlier discovery audit gap)
+- `authz.denied`
 
-## Security requirements (all options)
+Audit parameters hold only identifiers, types, sizes, digests and outcomes. They never
+hold tokens, keys or command output. Results live in `remote_command_results` and are
+referenced by command ID.
 
-Assume the endpoint agent can eventually run privileged actions.
+## Current limitations
 
-- **Unique per-agent identity**: per-agent key pair or client certificate, issued through
-  a one-time, expiring enrollment token. No shared global agent secret. Revocation and
-  rotation are supported.
-- **Strong mutual authentication**: mTLS, or signed requests bound to the agent key, plus
-  server certificate pinning in the agent.
-- **Server-side authorization** for every action: operator role, device/group scope and
-  action capability, checked by Core, never trusted from the browser.
-- **Separation of read-only monitoring and administrative control**: distinct permissions,
-  and ideally distinct agent capabilities that a host owner can disable locally.
-- **Capability discovery**: agents report what they can do. Core refuses actions the
-  agent did not advertise.
-- **Short-lived, single-use command authorization**: each command carries an ID, target
-  agent, expiry and server signature. The agent rejects expired, replayed or mis-targeted
-  commands (nonce + timestamp, as the traffic sensor already does).
-- **Idempotency** where the action allows it, keyed by action ID, so retries cannot
-  double-execute.
-- **Command timeout and output limits**, enforced on both agent and server, and
-  truncation recorded in the result.
-- **Explicit confirmation** for destructive actions (reboot, stop service, delete file,
-  run script), showing target identity and evidence.
-- **Explicit operator identity** on every action and session, carried into the
-  execution layer, never collapsed into a shared service account where avoidable.
-- **Immutable audit**: intent, approval, dispatch, result, duration, operator, source
-  address and agent identity, in `audit_log`, with safe parameters only (no secrets, no
-  full script bodies unless hashed and referenced).
-- **Secure agent upgrades**: signed artifacts, version pinning, staged rollout, rollback,
-  and no update from unauthenticated sources.
-- **Least privilege**: unprivileged agent process with a minimal privileged helper; no
-  host-network, raw-socket or Docker-socket privileges in Core.
-- **No direct Docker socket exposure**: container actions go through a restricted socket
-  proxy or mutually authenticated remote API.
-- **No infrastructure credentials in the browser**: MeshCentral login keys, service
-  passwords, Proxmox tokens and agent secrets stay server-side, encrypted at rest
-  (`integration_credentials`), and are redacted from logs and API responses.
-- **No proof-of-concept shortcuts**: no shared admin token in the browser, no disabled
-  TLS verification, no unauthenticated agent endpoints, not even temporarily.
+- **No server-to-agent authentication on plain HTTP.**
+  - The agent authenticates to Core, but Core does not sign commands, and the agent does
+    not pin a server key.
+  - On plain HTTP, an active man-in-the-middle could feed the agent read-only commands and
+    read the results. Today's commands are read-only, so the impact is information
+    disclosure.
+  - **Use HTTPS (a reverse proxy with a trusted certificate) for agents outside a trusted
+    network.**
+  - Server-signed commands with a pinned key are a hard prerequisite for privileged
+    commands.
+- No agent-initiated key rotation, no Windows service or installer, and no signed agent
+  updates. The agent runs as the account that starts it.
+- The discovery worker and the Windows traffic sensor still use their shared local
+  secrets. They should move to enrolled identities (see the plan).
+- Cancelling a running command only discards its result. Read-only collectors have no
+  side effects, and the agent is not interrupted.
+- One API instance is assumed for instant wake-up. With several instances, claims fall back
+  to a 3-second re-check.
+
+## MeshCentral integration (future, optional provider)
+
+The `internal/remote.Provider` registry is the seam. A MeshCentral adapter
+(`internal/integrations/meshcentral`) would register as provider `meshcentral` and
+report the same catalogue capabilities (`remote.desktop`, `remote.terminal`,
+`file.transfer`). `GET /api/v1/devices/{id}/remote` and the UI would show them next to
+the native agent without knowing which provider serves them. Interactive sessions get
+their own optional provider interface (for example `OpenSession(device, kind, operator)`
+returning a short-lived handoff), so providers without sessions need no stubs.
+Replacing MeshCentral later means replacing that adapter.
+
+### Mapping
+
+```text
+NERVE device ◀─ device_identities(agent)        ─ NERVE agent (enrolled, Ed25519)
+NERVE device ◀─ device_identities(meshcentral)* ─ MeshCentral node "node/<domain>/<id>"
+```
+
+\* `identity_type` needs a `meshcentral` value (new migration). The MeshCentral node ID is
+`node/<domain>/<id>` (`node//…` only for the default domain). The `<id>` is derived from
+the MeshAgent's public key (a SHA-384 hash), so a **reinstall that generates a new agent
+key produces a new node ID**. The mapping must be confirmed by an operator, matched on
+MAC address and hostname evidence, and re-confirmed after a reinstall. Never auto-bind
+on weak evidence.
+
+### Verified facts and corrections to the earlier proposal
+
+These were checked against MeshCentral `master` source in October 2026. Re-verify them
+before implementing.
+
+- **Control channel.** Clients use the authenticated WebSocket `/control.ashx` (prefixed
+  for path-based domains). The earlier text listed *meshctrl CLI* commands. The WebSocket
+  actions are different:
+  - `listdevices` sends `nodes`
+  - `deviceinfo` combines `nodes`, `getnetworkinfo`, `lastconnect` and `getsysinfo`
+  - `listevents` sends `events` (filters `nodeid`, `userid`, `limit`)
+  - `runcommand --reply` sends `runcommands` with `nodeids`, `cmds`, `reply`,
+    `responseid`
+- **Service authentication.** Username and password (plus 2FA token), or the server's
+  login-token key.
+  - `meshcentral --logintokenkey` exports the cookie-encryption key. Whoever holds it can
+    mint login cookies **for any user**, so it is equivalent to full administrator access.
+    If NERVE ever stores it, it belongs in encrypted `integration_credentials`, never in
+    logs or the browser.
+  - The domain `loginKey` / `?key=` setting is a separate access gate, not an
+    impersonation key.
+- **Short-lived operator access.**
+  - `createLoginToken` only creates tokens for the *logged-in* user, so it cannot mint
+    tokens for other operators.
+  - A server holding the login-token key can mint a per-user cookie with an `expire`
+    value (in minutes).
+  - The cookie expiry bounds only the login step. **The resulting session is not capped
+    to that lifetime.** Session length must be limited by MeshCentral session settings,
+    and NERVE must audit the handoff.
+  - Whether `AllowLoginToken` is enforced on the URL-login path could not be confirmed.
+    Test it in a spike.
+- **Embedding.**
+  - `gotonode`, `viewmode`, `hide` and `?login=<cookie>` exist. `hide` only changes the
+    display, not permissions.
+  - The default is `X-Frame-Options: sameorigin`. Embedding needs `AllowFraming` and
+    `allowedFramingOrigins`.
+  - An embedded MeshCentral UI talks to MeshCentral **directly from the browser**,
+    including separate relay WebSockets for terminal and files. The earlier claim that
+    "the browser never talks to that channel" holds only for NERVE's server-side adapter,
+    not for embedded sessions.
+- **Permissions.** Per device group (mesh) and per device, as rights bitmasks (for
+  example remote control 8, agent console 16, with restrictions such as no-terminal and
+  no-files). Provision one MeshCentral account per operator through `adduser` and
+  `addusertodevicegroup` / `adddeviceuser`, with explicit minimal rights, never the full
+  admin mask.
+- **Agents.** MeshAgent connects outbound to `wss://…/agent.ashx`. MeshCentral must be
+  reachable by endpoints (`TlsOffload` and `certUrl` support a TLS-terminating reverse
+  proxy). It can share an origin via proxy routes or path-based domains, but a separate
+  origin is simpler and keeps NERVE's CSP (`frame-ancestors 'none'`) intact unless
+  embedding is chosen deliberately.
+- **Audit correlation.** `events` results are filtered by the caller's rights, and some
+  actions are marked `nolog`. Polling events from a service account is useful but **not a
+  complete audit**. NERVE must record intent itself before each handoff or command.
+- Output limits for `runcommands` were not confirmed.
+
+### Recommended first integration step
+
+Run a time-boxed spike beside a disposable NERVE stack:
+
+1. Read-only adapter: `nodes` and `getsysinfo` through a dedicated, least-privilege
+   service account.
+2. Operator-confirmed `meshcentral` device identities.
+3. Presence and capabilities on the device page through the existing provider registry.
+4. **Deep links** (new tab, separate origin) before any embedding. Every handoff is
+   audited in NERVE.
+
+Per-operator MeshCentral accounts and server-minted short-lived login cookies need a
+decision on storing the login-token key. That needs encrypted integration credentials
+with key rotation first.
+
+## Security requirements still open before privileged commands
+
+`command.shell`, `command.powershell`, `script.run` and `system.reboot` stay disabled until
+all of these exist:
+
+- Server-signed commands with a key pinned at enrollment, and HTTPS by default for remote
+  agents.
+- Explicit operator confirmation showing the target identity and evidence.
+- Per-device or per-group authorization scope, plus policies or allowlists.
+- A privileged helper separated from the unprivileged agent.
+- Signed agent releases and updates.
+- A stdout/stderr transcript policy: the size limits exist; retention and redaction do not.

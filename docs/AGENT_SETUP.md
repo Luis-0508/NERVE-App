@@ -1,0 +1,134 @@
+# NERVE agent setup
+
+`nerve-agent` is one binary with two roles:
+
+- **Management agent**: enrolled per host with its own Ed25519 identity. It reports
+  heartbeats and capabilities and runs read-only remote-management commands. See
+  [Remote management](REMOTE_MANAGEMENT.md).
+- **Discovery worker** (legacy): scans the configured subnet using the shared local
+  `NERVE_DISCOVERY_AGENT_TOKEN`. On Windows, `start.bat` runs it automatically.
+
+The process runs whichever roles are configured: management when an identity exists,
+discovery when the discovery token is set. It exits if neither is configured.
+
+## Build
+
+```sh
+# Windows
+docker build --file Dockerfile.agent --target artifact --build-arg TARGETOS=windows --output .nerve/agent-build .
+# Linux
+docker build --file Dockerfile.agent --target artifact --build-arg TARGETOS=linux --output .nerve/agent-build .
+```
+
+## Enroll a host
+
+1. In NERVE, open **Settings → Management agents → Enroll an agent** (requires
+   `agents.manage`). Optionally name the agent, then create a token. It is shown once and
+   expires after the chosen time (5 minutes to 24 hours). To link the agent to a known
+   device immediately, use `POST /api/v1/agent-enrollments` with `deviceId`.
+2. On the endpoint, write the token to a file that only the agent's account can read,
+   then enroll:
+
+   ```sh
+   nerve-agent enroll --api-url https://nerve.example.lan/api/v1 --token-file ./token
+   ```
+
+   The command prints the agent ID and the key fingerprint. Compare the fingerprint with
+   the one shown in NERVE, then delete the token file. Tokens are never accepted as
+   command-line arguments, because other local users can read process arguments.
+   `NERVE_AGENT_ENROLLMENT_TOKEN` works too, and with it the agent enrolls automatically
+   on first start.
+3. Start the agent (see below). `nerve-agent status` shows the local identity and checks
+   it with Core.
+
+Use the same origin as the web UI. Agent traffic goes through the existing Nginx proxy
+under `/api/v1/agent/`. **Use HTTPS for any agent outside a trusted network**, because
+Core does not yet sign the commands it sends (see the limitations in
+[Remote management](REMOTE_MANAGEMENT.md#current-limitations)).
+
+## Credential storage
+
+The identity file `identity.json` holds the agent ID, credential ID, Core URL and the
+Ed25519 private key seed. It is written atomically.
+
+| Platform | Default directory | Protection |
+| --- | --- | --- |
+| Windows | `%LOCALAPPDATA%\NERVE\agent` of the account that runs the agent | Protected DACL: full control for SYSTEM, Administrators and that account only; inheritance from parent folders is removed |
+| Linux (root) | `/var/lib/nerve-agent` | Directory `0700`, file `0600`; the agent refuses to load a file that other users can read |
+| Linux (user) | `$XDG_STATE_HOME/nerve-agent` or `~/.local/state/nerve-agent` | Same |
+
+`NERVE_AGENT_STATE_DIR` overrides the location. Anyone who can read the identity file can
+act as that agent, so treat it like an SSH host key. If the file is exposed, revoke the
+agent in NERVE and re-enroll.
+
+## Run
+
+### Linux (systemd)
+
+```ini
+# /etc/systemd/system/nerve-agent.service
+[Unit]
+Description=NERVE management agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/nerve-agent
+Restart=always
+RestartSec=5
+# Optional: Environment=NERVE_AGENT_DISABLED_CAPABILITIES=software.list
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nerve-agent
+ProtectHome=read-only
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enroll first (`sudo nerve-agent enroll …`, which writes to `/var/lib/nerve-agent`), then
+run `systemctl enable --now nerve-agent`. Running as root lets the process list show every
+process. A dedicated unprivileged user works too, but it sees less.
+
+### Windows
+
+The agent currently runs as the account that starts it. A Windows service and installer
+are not available yet. On the NERVE host, `start.bat` already runs the agent for
+discovery. If that account has enrolled once (identity in its `%LOCALAPPDATA%`), the same
+process also runs management. On other Windows hosts, run `nerve-agent.exe` at logon or
+from Task Scheduler ("run whether user is logged on or not") under the enrolled account.
+
+## Capabilities
+
+| Capability | Windows | Linux |
+| --- | --- | --- |
+| `system.info` | ✓ | ✓ |
+| `system.metrics` (CPU sample, memory, fixed disks) | ✓ | ✓ |
+| `process.list` (pid, parent, name, threads, memory, user on Linux; no command lines) | ✓ | ✓ |
+| `service.list` | Service Control Manager | systemd only |
+| `software.list` | Uninstall registry keys (machine and user) | dpkg or rpm |
+
+Set `NERVE_AGENT_DISABLED_CAPABILITIES` (comma-separated) to stop advertising and running
+specific capabilities on a host.
+
+## Revoke, re-enroll, remove
+
+- **Revoke** (Settings → Revoke): the key stops working immediately and pending commands
+  are cancelled. The agent logs `re-enroll this agent` and pauses.
+- **Re-enroll** (Settings → Re-enroll): creates a token bound to the same agent ID. Run
+  `nerve-agent enroll --force --token-file …` and restart the agent. The agent keeps its
+  ID and history and gets a new key.
+- **Remove**: retires the agent permanently. To manage the host again, enroll it as a
+  new agent.
+
+## Troubleshooting
+
+| Agent log / error | Meaning |
+| --- | --- |
+| `agent_clock_skew` | The host clock differs from Core by more than 2 minutes. Fix NTP. |
+| `agent_credential_revoked` | The agent was revoked or removed. Re-enroll it or retire it. |
+| `agent_authentication_failed` | Unknown credential or wrong key, for example an identity file copied from another host. Re-enroll. |
+| `enrollment_rejected` | The token is invalid, expired, revoked or already used. Create a new one. |
+| `… is accessible by other users` | The identity file permissions are too open. Run `chmod 600` on it. |
+| `command claim failed … HTTP 502` | Core is restarting. The agent retries with backoff. |
