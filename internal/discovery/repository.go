@@ -269,13 +269,9 @@ func (r *Repository) Report(ctx context.Context, scanID, agentID string, report 
 func (r *Repository) applyObservation(ctx context.Context, tx pgx.Tx, targetID, scanID string, observation Observation) error {
 	hostname := strings.TrimSuffix(strings.TrimSpace(observation.Hostname), ".")
 	mac := normalizeMAC(observation.MAC)
-	var deviceID string
-	if mac != "" {
-		err := tx.QueryRow(ctx, `SELECT device_id::text FROM device_identities
-			WHERE identity_type = 'mac' AND lower(value) = $1 ORDER BY confidence DESC, first_seen_at LIMIT 1`, mac).Scan(&deviceID)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("resolve device MAC identity: %w", err)
-		}
+	deviceID, matchReason, err := resolveDevice(ctx, tx, targetID, observation.Address, mac)
+	if err != nil {
+		return err
 	}
 	var boundDeviceID, boundInterfaceID, boundIPID string
 	bindingErr := tx.QueryRow(ctx, `SELECT device_id::text, interface_id::text, ip_address_id::text
@@ -284,9 +280,6 @@ func (r *Repository) applyObservation(ctx context.Context, tx pgx.Tx, targetID, 
 	)
 	if bindingErr != nil && !errors.Is(bindingErr, pgx.ErrNoRows) {
 		return fmt.Errorf("resolve discovery address binding: %w", bindingErr)
-	}
-	if deviceID == "" && bindingErr == nil {
-		deviceID = boundDeviceID
 	}
 	created := false
 	if deviceID == "" {
@@ -406,8 +399,8 @@ func (r *Repository) applyObservation(ctx context.Context, tx pgx.Tx, targetID, 
 		return fmt.Errorf("update discovered address observation: %w", err)
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO observations (entity_id, source, observation_type, confidence, evidence)
-		VALUES ($1::uuid, 'local-discovery', 'reachability', $2, jsonb_build_object('scanId', $3::text, 'address', $4::text, 'method', $5::text, 'hostname', NULLIF($6::text, ''), 'mac', NULLIF($7::text, '')))`,
-		deviceID, observationConfidence(observation), scanID, observation.Address, observation.Method, hostname, mac); err != nil {
+		VALUES ($1::uuid, 'local-discovery', 'reachability', $2, jsonb_build_object('scanId', $3::text, 'address', $4::text, 'method', $5::text, 'hostname', NULLIF($6::text, ''), 'mac', NULLIF($7::text, ''), 'match', $8::text))`,
+		deviceID, observationConfidence(observation), scanID, observation.Address, observation.Method, hostname, mac, matchReason); err != nil {
 		return fmt.Errorf("record discovery observation: %w", err)
 	}
 	if created {

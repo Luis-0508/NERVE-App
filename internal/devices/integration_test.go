@@ -222,7 +222,7 @@ func TestAttributeProvenancePrefersConfidentSources(t *testing.T) {
 			effective[fact.Attribute] = fact.Source
 		}
 	}
-	if len(facts) != 3 || effective["hostname"] != devices.SourceAgent {
+	if len(facts) != 4 || effective["hostname"] != devices.SourceAgent {
 		t.Fatalf("facts: %+v", facts)
 	}
 }

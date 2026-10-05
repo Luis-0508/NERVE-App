@@ -101,6 +101,9 @@ func CreateDevice(t *testing.T, pool *pgxpool.Pool, name, mac, address string) s
 	if _, err := pool.Exec(ctx, `INSERT INTO device_identities (device_id, identity_type, value, source, confidence) VALUES ($1::uuid, 'hostname', lower($2), 'test', 65)`, id, name); err != nil {
 		t.Fatalf("create hostname identity: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO device_attributes (device_id, attribute, source, value, confidence) VALUES ($1::uuid, 'hostname', 'test', $2, 50)`, id, name); err != nil {
+		t.Fatalf("create hostname fact: %v", err)
+	}
 	var interfaceID string
 	if err := pool.QueryRow(ctx, `INSERT INTO entities (kind, name, status) VALUES ('network_interface', 'eth0', 'online') RETURNING id::text`).Scan(&interfaceID); err != nil {
 		t.Fatalf("create interface entity: %v", err)

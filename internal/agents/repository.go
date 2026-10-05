@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/nerve-labs/nerve/internal/agentproto"
 	"github.com/nerve-labs/nerve/internal/audit"
+	"github.com/nerve-labs/nerve/internal/devices"
 )
 
 type Repository struct {
@@ -395,8 +396,18 @@ func setAssociation(ctx context.Context, tx pgx.Tx, agentID, deviceID, status st
 	if err != nil {
 		return fmt.Errorf("encode association evidence: %w", err)
 	}
+	var previousDevice string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(device_id::text, '') FROM agents WHERE id = $1::uuid`, agentID).Scan(&previousDevice); err != nil {
+		return fmt.Errorf("read agent association: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM device_identities WHERE identity_type = 'agent' AND value = $1`, agentID); err != nil {
 		return fmt.Errorf("clear agent identity: %w", err)
+	}
+	// An agent that leaves a device takes its reported evidence with it.
+	if previousDevice != "" && previousDevice != deviceID {
+		if err := devices.ForgetSource(ctx, tx, previousDevice, devices.SourceAgent); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec(ctx, `UPDATE agents SET device_id = NULLIF($2, '')::uuid, association_status = $3, association_evidence = $4::jsonb,
 		associated_at = CASE WHEN NULLIF($2, '') IS NULL THEN NULL ELSE now() END,
@@ -416,7 +427,7 @@ func setAssociation(ctx context.Context, tx pgx.Tx, agentID, deviceID, status st
 		deviceID, agentID, confidence, status == "confirmed"); err != nil {
 		return fmt.Errorf("record agent identity: %w", err)
 	}
-	return nil
+	return syncAgentEvidence(ctx, tx, agentID)
 }
 
 // normalizeFacts keeps only syntactically valid, non-loopback addresses and

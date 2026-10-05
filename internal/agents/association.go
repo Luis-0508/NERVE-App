@@ -56,6 +56,12 @@ func (r *Repository) Heartbeat(ctx context.Context, principal Principal, request
 			return err
 		}
 	}
+	// Keep the associated device's evidence in step with what the agent reports.
+	if factsChanged {
+		if err := syncAgentEvidence(ctx, tx, principal.AgentID); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit heartbeat: %w", err)
 	}

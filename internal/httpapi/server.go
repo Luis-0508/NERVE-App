@@ -159,6 +159,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}", s.deviceDetail)
 	mux.HandleFunc("POST /api/v1/devices/{deviceID}/metadata", s.updateDeviceMetadata)
 	mux.HandleFunc("POST /api/v1/devices/{deviceID}/trust", s.setDeviceTrust)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/identity", s.deviceIdentity)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/interfaces", s.deviceInterfaces)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/ip-addresses", s.deviceIPAddresses)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/services", s.deviceServices)

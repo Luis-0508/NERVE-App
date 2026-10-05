@@ -90,3 +90,31 @@ func ListAttributes(ctx context.Context, db Querier, deviceID string) ([]Attribu
 	}
 	return items, rows.Err()
 }
+
+// ForgetSource removes every claim one source made about a device (for
+// example when its management agent is detached or moved) and recomputes the
+// discovered values from what remains. Unlike RefreshDiscovered, columns with
+// no remaining claim are cleared rather than kept.
+func ForgetSource(ctx context.Context, tx pgx.Tx, deviceID, source string) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM device_identities WHERE device_id = $1::uuid AND source = $2 AND identity_type <> 'agent'`, deviceID, source); err != nil {
+		return fmt.Errorf("forget %s identities: %w", source, err)
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM device_attributes WHERE device_id = $1::uuid AND source = $2`, deviceID, source); err != nil {
+		return fmt.Errorf("forget %s facts: %w", source, err)
+	}
+	assignments := make([]string, 0, len(discoveredColumns)+1)
+	for attribute, column := range discoveredColumns {
+		assignments = append(assignments, fmt.Sprintf(`%s = (SELECT value FROM device_attributes
+			WHERE device_id = d.entity_id AND attribute = '%s' ORDER BY confidence DESC, last_seen_at DESC LIMIT 1)`, column, attribute))
+	}
+	assignments = append(assignments, `discovered_name = COALESCE(
+		(SELECT value FROM device_attributes WHERE device_id = d.entity_id AND attribute = 'hostname' ORDER BY confidence DESC, last_seen_at DESC LIMIT 1),
+		(SELECT host(ip.address) FROM network_interfaces ni JOIN interface_addresses ia ON ia.interface_id = ni.entity_id
+			JOIN ip_addresses ip ON ip.entity_id = ia.ip_address_id
+			WHERE ni.device_id = d.entity_id AND ip.valid_until IS NULL ORDER BY ip.valid_from DESC LIMIT 1),
+		d.discovered_name)`)
+	if _, err := tx.Exec(ctx, `UPDATE devices d SET `+strings.Join(assignments, ", ")+` WHERE d.entity_id = $1::uuid`, deviceID); err != nil {
+		return fmt.Errorf("recompute discovered device facts: %w", err)
+	}
+	return nil
+}

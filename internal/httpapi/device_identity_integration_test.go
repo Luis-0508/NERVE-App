@@ -77,6 +77,15 @@ func TestDeviceMetadataAndTrustAPI(t *testing.T) {
 	if !strings.Contains(detail, `"facts":[`) || !strings.Contains(detail, `"notes":"desk"`) {
 		t.Fatalf("detail: %s", detail)
 	}
+	identity := readBody(doJSON(t, viewer, http.MethodGet, server.URL+"/api/v1/devices/"+deviceID+"/identity", "", nil))
+	for _, expected := range []string{`"strength":"moderate"`, `"note":"Locally administered MAC; may be randomized"`, `"type":"hostname"`, `"strength":"weak"`, `"facts":[`} {
+		if !strings.Contains(identity, expected) {
+			t.Fatalf("identity report lacks %s: %s", expected, identity)
+		}
+	}
+	if anonymous := doJSON(t, http.DefaultClient, http.MethodGet, server.URL+"/api/v1/devices/"+deviceID+"/identity", "", nil); anonymous.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("anonymous identity report = %d", anonymous.StatusCode)
+	}
 	auditBody := readBody(doJSON(t, admin, http.MethodGet, server.URL+"/api/v1/audit?targetType=device&targetId="+deviceID, "", nil))
 	for _, expected := range []string{`"action":"device.metadata.changed"`, `"action":"device.trust.changed"`, `"actorEmail":"tech@example.invalid"`} {
 		if !strings.Contains(auditBody, expected) {
