@@ -68,6 +68,12 @@ func TestDuplicateCandidates(t *testing.T) {
 	g := testsupport.CreateDevice(t, pool, "agent-host", "00:11:22:33:44:07", "192.0.2.7")
 	h := testsupport.CreateDevice(t, pool, "unknown-at-8", "", "192.0.2.8")
 	addIdentity(t, pool, g, "ip", "192.0.2.8", devices.SourceAgent)
+	// The same holds when the other record only held the address recently.
+	i := testsupport.CreateDevice(t, pool, "unknown-at-9", "", "192.0.2.9")
+	if _, err := pool.Exec(ctx, `UPDATE ip_addresses SET valid_until = now() - interval '1 day' WHERE host(address) = '192.0.2.9'`); err != nil {
+		t.Fatal(err)
+	}
+	addIdentity(t, pool, g, "ip", "192.0.2.9", devices.SourceAgent)
 
 	items, err := service.Duplicates(ctx, "", 100)
 	if err != nil {
@@ -84,6 +90,9 @@ func TestDuplicateCandidates(t *testing.T) {
 	}
 	if candidate := findCandidate(items, g, h); candidate == nil || candidate.Confidence != devices.DuplicateMedium {
 		t.Fatalf("agent-reported address overlap: %+v", candidate)
+	}
+	if candidate := findCandidate(items, g, i); candidate == nil || candidate.Confidence != devices.DuplicateMedium {
+		t.Fatalf("agent-reported address held recently: %+v", candidate)
 	}
 	if forDevice, _ := service.Duplicates(ctx, a, 100); len(forDevice) != 1 {
 		t.Fatalf("per-device candidates: %d", len(forDevice))

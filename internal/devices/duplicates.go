@@ -57,13 +57,13 @@ func classifyDuplicate(signals []DuplicateSignal) (string, []string) {
 			ip = true
 			if signal.FromAgent {
 				medium = true
-				reasons = append(reasons, "An enrolled agent reports address "+signal.Value+", which the other record holds")
+				reasons = append(reasons, "An enrolled agent reports address "+signal.Value+", which the other record holds or held recently")
 			}
 		}
 	}
 	if hostname && ip {
 		medium = true
-		reasons = append(reasons, "Same hostname and a shared current address")
+		reasons = append(reasons, "Same hostname and a shared recent address")
 	}
 	switch {
 	case high:
@@ -90,7 +90,9 @@ func (s *Service) Duplicates(ctx context.Context, deviceID string, limit int) ([
 			SELECT ni.device_id, 'ip', host(ip.address), false
 			FROM ip_addresses ip JOIN interface_addresses ia ON ia.ip_address_id = ip.entity_id
 			JOIN network_interfaces ni ON ni.entity_id = ia.interface_id JOIN live ON live.entity_id = ni.device_id
-			WHERE ip.valid_until IS NULL
+			-- Recent address history counts too: a record that held an address an
+			-- enrolled agent now reports is a likely duplicate (DHCP churn).
+			WHERE ip.valid_until IS NULL OR ip.valid_until > now() - interval '30 days'
 		),
 		pairs AS (
 			SELECT a.device_id AS device_a, b.device_id AS device_b,
