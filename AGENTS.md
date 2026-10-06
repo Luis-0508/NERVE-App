@@ -1,3 +1,13 @@
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing Next.js code. Heed deprecation notices.
+
+This block is written and re-added by `next dev`. Keep it committed to avoid recurring generated diffs.
+
+<!-- END:nextjs-agent-rules -->
+
 # NERVE project guidance
 
 ## Language and collaboration
