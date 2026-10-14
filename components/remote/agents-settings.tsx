@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { agentConnectionState, runModeLabel } from "@/lib/agent-status";
 import type { AgentEnrollment, ManagementAgent } from "@/lib/types";
 
 function formatDate(value?: string) {
@@ -10,10 +11,12 @@ function formatDate(value?: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
-function agentState(agent: ManagementAgent) {
-  if (agent.status === "removed") return { label: "Removed", dot: "stopped" };
-  if (agent.status === "revoked") return { label: "Revoked", dot: "warning" };
-  return agent.online ? { label: "Online", dot: "online" } : { label: "Offline", dot: "offline" };
+function runtimeTitle(agent: ManagementAgent) {
+  const parts = [];
+  if (agent.processStartedAt) parts.push(`Agent started ${formatDate(agent.processStartedAt)}`);
+  if (agent.hostBootAt) parts.push(`host booted ${formatDate(agent.hostBootAt)}`);
+  if (agent.lastShutdownAt) parts.push(`last clean stop ${formatDate(agent.lastShutdownAt)}`);
+  return parts.join(", ") || undefined;
 }
 
 export function AgentsSettings({ permissions }: { permissions: string[] }) {
@@ -25,6 +28,7 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
   const [minutes, setMinutes] = useState(60);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const apiBase = `${typeof window === "undefined" ? "" : window.location.origin}/api/v1`;
 
   const load = useCallback(async () => {
     try {
@@ -56,7 +60,8 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
       <div>{error && <div className="form-error" role="alert">{error}</div>}
         {agents === null ? <p className="muted">{error ? "" : "Loading agents…"}</p> : agents.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>Agent</th><th>Status</th><th>Host</th><th>Device</th><th>Version</th><th>Last seen</th><th>Key</th>{canManage && <th />}</tr></thead><tbody>
           {agents.map((agent) => {
-            const state = agentState(agent);
+            const state = agentConnectionState(agent.status, agent.connection, agent.online);
+            const runMode = runModeLabel(agent.runMode);
             const candidate = agent.association.status === "candidate" && agent.association.evidence.length === 1 ? agent.association.evidence[0] : null;
             return <tr key={agent.id}>
               <td>{agent.displayName}</td>
@@ -65,7 +70,7 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
               <td>{agent.device ? <Link className="device-link" href={`/devices/detail?id=${encodeURIComponent(agent.device.id)}`}>{agent.device.name}</Link> : <span className="muted">{agent.association.status}</span>}
                 {agent.device && <span className="muted"> · {agent.association.status}</span>}
                 {candidate && <span className="muted" title={candidate.signals.map((signal) => `${signal.type}: ${signal.value}`).join(", ")}> · candidate {candidate.deviceName}</span>}</td>
-              <td className="mono">{agent.agentVersion ?? "—"}</td>
+              <td title={runtimeTitle(agent)}><span className="mono">{agent.agentVersion ?? "—"}</span>{runMode && <span className="muted"> · {runMode}</span>}</td>
               <td>{formatDate(agent.lastSeenAt)}</td>
               <td className="mono" title={agent.credential?.fingerprint}>{agent.credential ? agent.credential.fingerprint.slice(0, 12) : "—"}</td>
               {canManage && <td className="agent-actions">
@@ -94,7 +99,13 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
         {token && <div className="enroll-token">
           <p>{token.reenroll ? "Re-enrollment" : "Enrollment"} token, valid until {formatDate(token.expiresAt)}. Copy it now; it cannot be shown again.</p>
           <pre className="remote-json">{token.value}</pre>
-          <p className="muted">On the endpoint, save the token to a file readable only by the agent account, then run <code className="mono">nerve-agent enroll --api-url {typeof window === "undefined" ? "" : window.location.origin}/api/v1 --token-file &lt;file&gt;</code>{token.reenroll ? " with --force" : ""} and delete the file.</p>
+          <p className="muted">On the endpoint, save the token to a file only administrators can read, then delete the file afterwards.</p>
+          {token.reenroll
+            ? <p className="muted">As Administrator or root: <code className="mono">nerve-agent enroll --force --token-file &lt;file&gt;</code>. A running service switches to the new key within 15 seconds.</p>
+            : <ul className="muted enroll-commands">
+              <li>Windows (Administrator PowerShell): <code className="mono">.\install-windows.ps1 -ApiUrl {apiBase} -TokenFile &lt;file&gt;</code></li>
+              <li>Linux: <code className="mono">sudo ./install-linux.sh --api-url {apiBase} --token-file &lt;file&gt;</code></li>
+            </ul>}
           <button className="button" type="button" onClick={() => { void navigator.clipboard?.writeText(token.value); }}>Copy</button> <button className="button" type="button" onClick={() => setToken(null)}>Done</button>
         </div>}
         {enrollments.length > 0 && <div className="table-wrap"><table className="data-table"><thead><tr><th>Enrollment</th><th>State</th><th>Created by</th><th>Expires</th><th /></tr></thead><tbody>

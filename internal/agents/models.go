@@ -75,29 +75,34 @@ type Association struct {
 }
 
 type Agent struct {
-	ID              string      `json:"id"`
-	DisplayName     string      `json:"displayName"`
-	Status          string      `json:"status"`
-	Online          bool        `json:"online"`
-	Hostname        string      `json:"hostname,omitempty"`
-	OS              string      `json:"os,omitempty"`
-	OSVersion       string      `json:"osVersion,omitempty"`
-	Architecture    string      `json:"architecture,omitempty"`
-	AgentVersion    string      `json:"agentVersion,omitempty"`
-	Capabilities    []string    `json:"capabilities"`
-	MACAddresses    []string    `json:"macAddresses"`
-	IPAddresses     []string    `json:"ipAddresses"`
-	LastIP          string      `json:"lastIp,omitempty"`
-	LastError       string      `json:"lastError,omitempty"`
-	FirstEnrolledAt time.Time   `json:"firstEnrolledAt"`
-	EnrolledAt      time.Time   `json:"enrolledAt"`
-	LastHeartbeatAt *time.Time  `json:"lastHeartbeatAt,omitempty"`
-	LastSeenAt      *time.Time  `json:"lastSeenAt,omitempty"`
-	RevokedAt       *time.Time  `json:"revokedAt,omitempty"`
-	RemovedAt       *time.Time  `json:"removedAt,omitempty"`
-	Device          *DeviceRef  `json:"device,omitempty"`
-	Association     Association `json:"association"`
-	Credential      *Credential `json:"credential,omitempty"`
+	ID               string      `json:"id"`
+	DisplayName      string      `json:"displayName"`
+	Status           string      `json:"status"`
+	Online           bool        `json:"online"`
+	Connection       string      `json:"connection"`
+	RunMode          string      `json:"runMode,omitempty"`
+	ProcessStartedAt *time.Time  `json:"processStartedAt,omitempty"`
+	HostBootAt       *time.Time  `json:"hostBootAt,omitempty"`
+	LastShutdownAt   *time.Time  `json:"lastShutdownAt,omitempty"`
+	Hostname         string      `json:"hostname,omitempty"`
+	OS               string      `json:"os,omitempty"`
+	OSVersion        string      `json:"osVersion,omitempty"`
+	Architecture     string      `json:"architecture,omitempty"`
+	AgentVersion     string      `json:"agentVersion,omitempty"`
+	Capabilities     []string    `json:"capabilities"`
+	MACAddresses     []string    `json:"macAddresses"`
+	IPAddresses      []string    `json:"ipAddresses"`
+	LastIP           string      `json:"lastIp,omitempty"`
+	LastError        string      `json:"lastError,omitempty"`
+	FirstEnrolledAt  time.Time   `json:"firstEnrolledAt"`
+	EnrolledAt       time.Time   `json:"enrolledAt"`
+	LastHeartbeatAt  *time.Time  `json:"lastHeartbeatAt,omitempty"`
+	LastSeenAt       *time.Time  `json:"lastSeenAt,omitempty"`
+	RevokedAt        *time.Time  `json:"revokedAt,omitempty"`
+	RemovedAt        *time.Time  `json:"removedAt,omitempty"`
+	Device           *DeviceRef  `json:"device,omitempty"`
+	Association      Association `json:"association"`
+	Credential       *Credential `json:"credential,omitempty"`
 }
 
 type Enrollment struct {
@@ -127,4 +132,30 @@ type CreateEnrollmentInput struct {
 type Actor struct {
 	UserID        string
 	SourceAddress string
+}
+
+// Connection states derived from presence and the agent's own shutdown report.
+const (
+	ConnectionOnline    = "online"
+	ConnectionOffline   = "offline"
+	ConnectionStopped   = "stopped"
+	ConnectionNeverSeen = "never_seen"
+	ConnectionInactive  = "inactive"
+)
+
+// connectionState explains why an agent is or is not online: "stopped" means
+// the agent reported a graceful shutdown; "offline" means it went silent.
+func connectionState(agent Agent) string {
+	switch {
+	case agent.Status != "active":
+		return ConnectionInactive
+	case agent.Online:
+		return ConnectionOnline
+	case agent.LastSeenAt == nil:
+		return ConnectionNeverSeen
+	case agent.LastShutdownAt != nil && !agent.LastShutdownAt.Before(*agent.LastSeenAt):
+		return ConnectionStopped
+	default:
+		return ConnectionOffline
+	}
 }

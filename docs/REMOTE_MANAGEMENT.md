@@ -148,8 +148,23 @@ operator-driven through re-enrollment.
 
 The agent sends a signed heartbeat every 30 seconds with host facts: hostname, OS and
 version, architecture, agent version, interface MAC and IP addresses, and a domain-separated
-SHA-256 of the machine ID (the raw ID never leaves the host). It also sends its capabilities.
-An agent counts as **online** if it made an authenticated request in the last 90 seconds.
+SHA-256 of the machine ID (the raw ID never leaves the host). It also sends its capabilities
+and, since the service milestone, its runtime: run mode (`windows_service`, `systemd`,
+`foreground`), process start time and host boot time (stored in `agents.run_mode`,
+`process_started_at`, `host_boot_at`; older agents omit them).
+
+The API reports a `connection` state per agent:
+
+| `connection` | Meaning |
+| --- | --- |
+| `online` | An authenticated request in the last 90 seconds, and no later shutdown report |
+| `stopped` | The agent's last heartbeat announced a graceful shutdown (`agents.last_shutdown_at`) |
+| `offline` | Silent for more than 90 seconds without a shutdown report (crash, network loss, power loss) |
+| `never_seen` | Enrolled, but no authenticated request yet |
+| `inactive` | Revoked or removed |
+
+The shutdown report is a signed heartbeat like any other, so it cannot be forged on the
+network. `online` stays `false` while the shutdown is newer than the last request.
 
 **Capabilities** come from a shared catalogue (`internal/agentproto/capabilities.go`):
 
@@ -239,7 +254,8 @@ operator ── POST /remote/commands/{id}/cancel ──▶ cancelled
 - **Retention.** Results are pruned after 30 days. Command rows and audit records remain.
 - **Transport.** Polling and long polling over the same HTTP(S) origin as the UI, through
   Nginx. The agent tolerates network loss and Core restarts (jittered backoff, 2 s to
-  60 s), its own restarts (identity on disk; an in-flight command times out on Core), and
+  60 s), its own restarts (identity on disk; after a crash an in-flight command times out on Core,
+  after a graceful stop it is reported as `agent_stopped`), and
   duplicate or late submissions.
 
 The five read-only collectors read OS state (procfs, statfs, kernel32, the service control
@@ -301,12 +317,14 @@ referenced by command ID.
   inventory data, and can block traffic. **Use HTTPS (a reverse proxy with a trusted
   certificate) for agents outside a trusted network.** Enforcing HTTPS for agents that may
   run privileged capabilities is a **blocker for privileged remote actions**.
-- No agent-initiated key rotation, no Windows service or installer, and no signed agent
-  updates. The agent runs as the account that starts it.
+- No agent-initiated key rotation and no signed agent updates. The agent installs as a
+  Windows service or systemd unit with an unprivileged account (see
+  [Agent setup](AGENT_SETUP.md#install-as-a-service)); there is no MSI package yet.
 - The discovery worker and the Windows traffic sensor still use their shared local
   secrets. They should move to enrolled identities (see the plan).
 - Cancelling a running command only discards its result. Read-only collectors have no
-  side effects, and the agent is not interrupted.
+  side effects, and the agent is not interrupted. A command interrupted by an agent
+  shutdown is reported as failed with `agent_stopped`.
 - One API instance is assumed for instant wake-up. With several instances, claims fall back
   to a 3-second re-check.
 

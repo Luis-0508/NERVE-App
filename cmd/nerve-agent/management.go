@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/nerve-labs/nerve/internal/agentproto"
@@ -49,8 +50,14 @@ type managementClient struct {
 }
 
 func newManagementClient(apiURL string, id *identity) *managementClient {
+	return newManagementClientWith(apiURL, id, nil)
+}
+
+// newManagementClientWith uses transport (nil: the default) for TLS settings
+// such as a private CA.
+func newManagementClientWith(apiURL string, id *identity, transport http.RoundTripper) *managementClient {
 	return &managementClient{apiURL: strings.TrimRight(apiURL, "/"), credentialID: id.CredentialID, key: id.key, coreKey: id.coreKey,
-		http: &http.Client{Timeout: 70 * time.Second}, now: time.Now}
+		http: &http.Client{Timeout: 70 * time.Second, Transport: transport}, now: time.Now}
 }
 
 // post sends a signed JSON request to a route under /api/v1 (for example
@@ -111,6 +118,10 @@ func signedPost(ctx context.Context, client *http.Client, apiURL, route, credent
 // Core's key: the token carries its fingerprint, so a network attacker cannot
 // substitute their own key during enrollment.
 func enroll(ctx context.Context, apiURL, token string) (*identity, error) {
+	return enrollWith(ctx, apiURL, token, nil)
+}
+
+func enrollWith(ctx context.Context, apiURL, token string, transport http.RoundTripper) (*identity, error) {
 	apiURL = strings.TrimRight(strings.TrimSpace(apiURL), "/")
 	if apiURL == "" {
 		return nil, errors.New("the Core API URL is required")
@@ -139,7 +150,7 @@ func enroll(ctx context.Context, apiURL, token string) (*identity, error) {
 		return nil
 	}
 	request := agentproto.EnrollRequest{Token: strings.TrimSpace(token), PublicKey: agentproto.EncodePublicKey(public), Host: collectHostFacts()}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second, Transport: transport}
 	if _, err := signedPost(ctx, client, apiURL, "/agent/enroll", agentproto.CredentialSelfSigned, private, request, &response, time.Now(), verify); err != nil {
 		return nil, err
 	}
@@ -158,12 +169,16 @@ type manager struct {
 	heartbeatInterval time.Duration
 	capabilities      func() []string
 	facts             func() agentproto.HostFacts
+	// runtime describes the process for heartbeats (nil: not reported).
+	runtime func(stopping bool) *agentproto.AgentRuntime
 	// collectors overrides the built-in collectors (tests only).
 	collectors map[string]collector
 
 	mu        sync.Mutex
 	lastError string
 	executed  map[string]time.Time
+	// legacyCore is set when Core rejects the runtime field (older releases).
+	legacyCore atomic.Bool
 }
 
 func (m *manager) setError(value string) {
@@ -181,8 +196,18 @@ func (m *manager) currentError() string {
 func (m *manager) heartbeat(ctx context.Context) error {
 	sent := m.currentError()
 	request := agentproto.HeartbeatRequest{Host: m.facts(), Capabilities: m.capabilities(), LastError: sent}
+	if m.runtime != nil && !m.legacyCore.Load() {
+		request.Runtime = m.runtime(false)
+	}
 	var response agentproto.HeartbeatResponse
 	_, err := m.client.post(ctx, "/agent/heartbeat", request, &response)
+	if request.Runtime != nil && rejectsRuntime(err) {
+		// Core releases before runtime reporting reject unknown fields.
+		m.logger.Info("Core does not accept runtime reports; heartbeats continue without them")
+		m.legacyCore.Store(true)
+		request.Runtime = nil
+		_, err = m.client.post(ctx, "/agent/heartbeat", request, &response)
+	}
 	if err == nil {
 		m.clearError(sent)
 	}
@@ -256,4 +281,11 @@ func sleepContext(ctx context.Context, duration time.Duration) bool {
 	case <-timer.C:
 		return true
 	}
+}
+
+// rejectsRuntime recognizes an older Core refusing the unknown "runtime" field.
+func rejectsRuntime(err error) bool {
+	var apiErr *apiError
+	return errors.As(err, &apiErr) && apiErr.Status == http.StatusBadRequest && apiErr.Code == "invalid_request" &&
+		strings.Contains(apiErr.Message, `"runtime"`)
 }

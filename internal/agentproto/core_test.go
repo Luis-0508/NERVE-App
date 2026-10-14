@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"testing"
+	"time"
 )
 
 func TestCoreResponseSignatureBindsRequestStatusAndBody(t *testing.T) {
@@ -51,6 +52,24 @@ func TestParseCoreSigningKey(t *testing.T) {
 	for _, invalid := range []string{"", "abcd", "change-me"} {
 		if _, err := ParseCoreSigningKey(invalid); err == nil {
 			t.Fatalf("invalid key %q accepted", invalid)
+		}
+	}
+}
+
+func TestAgentRuntimeValidate(t *testing.T) {
+	now := time.Now()
+	valid := AgentRuntime{RunMode: RunModeWindowsService, StartedAt: now.Unix(), HostBootAt: now.Add(-time.Hour).Unix()}
+	if err := valid.Validate(now); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []AgentRuntime{
+		{RunMode: "cron", StartedAt: now.Unix()},
+		{RunMode: RunModeSystemd},
+		{RunMode: RunModeSystemd, StartedAt: now.Add(time.Hour).Unix()},
+		{RunMode: RunModeSystemd, StartedAt: now.Unix(), HostBootAt: -1},
+	} {
+		if bad.Validate(now) == nil {
+			t.Fatalf("accepted %+v", bad)
 		}
 	}
 }

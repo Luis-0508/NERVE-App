@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/nerve-labs/nerve/internal/agentproto"
@@ -24,6 +25,23 @@ func (r *Repository) Heartbeat(ctx context.Context, principal Principal, request
 	}
 	facts := normalizeFacts(request.Host)
 	capabilities := agentproto.FilterCapabilities(request.Capabilities)
+	var (
+		runMode                 string
+		startedAt, hostBootAt   *time.Time
+		stopping, reportRuntime bool
+	)
+	if request.Runtime != nil {
+		if err := request.Runtime.Validate(r.now()); err != nil {
+			return fmt.Errorf("%w: %v", ErrInvalidInput, err)
+		}
+		reportRuntime, runMode, stopping = true, request.Runtime.RunMode, request.Runtime.Stopping
+		started := time.Unix(request.Runtime.StartedAt, 0).UTC()
+		startedAt = &started
+		if request.Runtime.HostBootAt > 0 {
+			boot := time.Unix(request.Runtime.HostBootAt, 0).UTC()
+			hostBootAt = &boot
+		}
+	}
 
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
@@ -37,9 +55,16 @@ func (r *Repository) Heartbeat(ctx context.Context, principal Principal, request
 		}
 		return fmt.Errorf("lock agent heartbeat: %w", err)
 	}
+	// A stopping heartbeat sets last_shutdown_at to the same transaction time
+	// as last_seen_at; any later request moves last_seen_at past it again.
 	if _, err := tx.Exec(ctx, `UPDATE agents SET capabilities = $2, last_error = NULLIF($3, ''), last_heartbeat_at = now(),
-		last_seen_at = now(), updated_at = now() WHERE id = $1::uuid`, principal.AgentID, capabilities,
-		truncate(request.LastError, agentproto.MaxLastErrorLength)); err != nil {
+		last_seen_at = now(), updated_at = now(),
+		run_mode = CASE WHEN $4 THEN $5 ELSE run_mode END,
+		process_started_at = CASE WHEN $4 THEN $6 ELSE process_started_at END,
+		host_boot_at = CASE WHEN $4 THEN $7 ELSE host_boot_at END,
+		last_shutdown_at = CASE WHEN $8 THEN now() ELSE last_shutdown_at END
+		WHERE id = $1::uuid`, principal.AgentID, capabilities,
+		truncate(request.LastError, agentproto.MaxLastErrorLength), reportRuntime, runMode, startedAt, hostBootAt, stopping); err != nil {
 		return fmt.Errorf("record heartbeat: %w", err)
 	}
 	factsChanged := factsDigest(facts) != previousDigest

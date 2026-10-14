@@ -1,3 +1,5 @@
+import type { AgentConnection } from "@/lib/agent-status";
+
 export type ServiceStatus = {
   status: "ok" | "degraded";
   version: string;
@@ -159,6 +161,11 @@ export type ManagementAgent = {
   displayName: string;
   status: "active" | "revoked" | "removed";
   online: boolean;
+  connection?: AgentConnection;
+  runMode?: string;
+  processStartedAt?: string;
+  hostBootAt?: string;
+  lastShutdownAt?: string;
   hostname?: string;
   os?: string;
   osVersion?: string;
@@ -199,6 +206,7 @@ export type RemoteEndpoint = {
   displayName: string;
   status: string;
   online: boolean;
+  connection?: AgentConnection;
   version?: string;
   lastSeenAt?: string;
   association: AssociationStatus;

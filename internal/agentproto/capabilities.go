@@ -1,5 +1,10 @@
 package agentproto
 
+import (
+	"errors"
+	"time"
+)
+
 // Capability names are a stable contract between agents, Core and any future
 // remote-management provider (for example MeshCentral). A provider advertises a
 // capability only when it can really perform it.
@@ -80,9 +85,42 @@ func FilterCapabilities(names []string) []string {
 
 // HeartbeatRequest reports liveness, host facts and supported capabilities.
 type HeartbeatRequest struct {
-	Host         HostFacts `json:"host"`
-	Capabilities []string  `json:"capabilities"`
-	LastError    string    `json:"lastError,omitempty"`
+	Host         HostFacts     `json:"host"`
+	Capabilities []string      `json:"capabilities"`
+	LastError    string        `json:"lastError,omitempty"`
+	Runtime      *AgentRuntime `json:"runtime,omitempty"`
+}
+
+// Run modes reported by the agent.
+const (
+	RunModeWindowsService = "windows_service"
+	RunModeSystemd        = "systemd"
+	RunModeForeground     = "foreground"
+)
+
+// AgentRuntime describes the agent process. Agents before this field omit it.
+type AgentRuntime struct {
+	RunMode string `json:"runMode"`
+	// StartedAt and HostBootAt are Unix seconds.
+	StartedAt  int64 `json:"startedAt"`
+	HostBootAt int64 `json:"hostBootAt,omitempty"`
+	// Stopping marks the final heartbeat of a graceful shutdown, so Core can
+	// show the agent as stopped instead of waiting for the online window.
+	Stopping bool `json:"stopping,omitempty"`
+}
+
+// Validate rejects unknown run modes and implausible timestamps.
+func (r AgentRuntime) Validate(now time.Time) error {
+	switch r.RunMode {
+	case RunModeWindowsService, RunModeSystemd, RunModeForeground:
+	default:
+		return errors.New("runtime has an unknown run mode")
+	}
+	latest := now.Add(MaxClockSkew).Unix()
+	if r.StartedAt <= 0 || r.StartedAt > latest || r.HostBootAt < 0 || r.HostBootAt > latest {
+		return errors.New("runtime timestamps are out of range")
+	}
+	return nil
 }
 
 type HeartbeatResponse struct {
