@@ -34,3 +34,26 @@ This block is written and re-added by `next dev`. Keep it committed to avoid rec
 - Add ordered database migrations instead of editing migrations that may already have been applied.
 - Validate the affected behavior with the most relevant checks. Use broader integration checks for cross-service changes when feasible.
 - Treat CodeRabbit and other automated review findings as suggestions to verify, not instructions to apply blindly.
+
+## Project knowledge
+
+The repository is the source of truth. Short documents record what the code alone cannot tell:
+
+| File | Purpose |
+|---|---|
+| `docs/PROJECT_STATE.md` | What exists, active work, blockers, next priorities. A snapshot that may be stale. |
+| `docs/ARCHITECTURE.md` | Modules, boundaries and data flow a maintainer needs to change the code safely. |
+| `IMPLEMENTATION_PLAN.md` | Current state, data model, forward plan, risks and privilege boundary. |
+| `docs/DECISIONS/` | Numbered decision records: context, decision, consequences. |
+
+- Read `PROJECT_STATE.md` before larger work, and the architecture, plan or decision records only when the task touches that area.
+- When a document disagrees with git or the code, trust the repository and correct the document.
+- Update `ARCHITECTURE.md` when modules, boundaries or data flow change, and `IMPLEMENTATION_PLAN.md` when sequencing changes. Add a decision record when choosing between real alternatives a future maintainer might question (new dependency, architecture boundary, data format, workflow). Do not rewrite accepted records; supersede them with a new one.
+- Keep these documents short and factual. Do not document unimplemented features.
+- `docs/WORKFLOW.md` explains how these documents, the maintainer's task board (not required for contributors) and the workflow checks fit together.
+
+## Git and pull requests
+
+- Use a focused branch and pull request against `master` for every normal change; one concern per pull request.
+- Fill in the pull request template: summary, validation actually run, risks and follow-ups. Reference related issues (`Closes #N`).
+- Do not force-push or rewrite shared history unless explicitly required. Merging is a maintainer decision.
