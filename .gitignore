@@ -15,3 +15,8 @@ stop.bat
 .DS_Store
 coverage/
 *.tsbuildinfo
+
+# Claude Code personal files (shared settings in .claude/settings.json are committed)
+CLAUDE.local.md
+.claude/settings.local.json
+.claude/worktrees/

@@ -1,0 +1,241 @@
+{
+  "schema": 2,
+  "version": 17,
+  "next_ticket_seq": 13,
+  "next_epic_seq": 3,
+  "columns": [
+    {
+      "id": "todo",
+      "title": "To do"
+    },
+    {
+      "id": "doing",
+      "title": "Doing"
+    },
+    {
+      "id": "review",
+      "title": "Review"
+    },
+    {
+      "id": "done",
+      "title": "Done"
+    }
+  ],
+  "epics": [
+    {
+      "id": "EP-1",
+      "title": "Production RMM milestone",
+      "color": "#7c9cf5",
+      "status": "ready",
+      "body": "Forward plan item 3 in `IMPLEMENTATION_PLAN.md` as updated on the PR #54 branch: eight small PRs in dependency order, all on `internal/remote`, the signed agent protocol, the command pipeline and device trust; no second backend or execution path. Privileged commands stay blocked until PR 2 (K-2) lands."
+    },
+    {
+      "id": "EP-2",
+      "title": "Identity follow-ups",
+      "color": "#5cb8a7",
+      "status": "stub",
+      "body": "Still open from forward plan items 1 and 2 in `IMPLEMENTATION_PLAN.md` (device identity and agent identity)."
+    }
+  ],
+  "tickets": [
+    {
+      "id": "K-2",
+      "title": "PR 2: Security hardening and privileged execution architecture",
+      "epic": "EP-1",
+      "status": "stub",
+      "body": "HTTPS enforcement for privileged agents, per-command operator approval the agent can verify, device-level scopes, trusted-device policy check, separate privileged helper (Windows service as LocalSystem / root systemd unit) reachable only over a local authenticated channel, output redaction and transcript retention.\n\n## Acceptance criteria (draft)\n- [ ] Every prerequisite listed under forward plan item 3 exists and is tested\n- [ ] Agents refuse privileged work over plain HTTP or without a verifiable approval\n- [ ] Decision record for the privileged helper and its local channel\n- [ ] Security review of the change",
+      "labels": [
+        "security",
+        "agent"
+      ],
+      "depends_on": [
+        "K-1"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-3",
+      "title": "PR 3: System-management commands",
+      "epic": "EP-1",
+      "status": "stub",
+      "body": "Service restart/stop, process termination, reboot/shutdown, log retrieval, detailed hardware/network inventory, each with permission, validation, confirmation and audit.\n\n## Acceptance criteria (draft)\n- [ ] Each command has its own permission, input validation, operator confirmation and audit entry\n- [ ] Runs only through the privileged helper from K-2 on trusted devices\n- [ ] Integration tests for success, denial and failure",
+      "labels": [
+        "remote"
+      ],
+      "depends_on": [
+        "K-2"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-4",
+      "title": "PR 4: RMM device page",
+      "epic": "EP-1",
+      "status": "stub",
+      "body": "Overview, system, performance, processes, services, software, actions, command history, agent status, audit; loading/offline/denied/failed states.\n\n## Acceptance criteria (draft)\n- [ ] All sections show observed data with provenance; no demo data\n- [ ] Loading, offline, denied and failed states for each section\n- [ ] `npm run typecheck`, `npm run build`; checked in a browser at desktop and narrow widths",
+      "labels": [
+        "ui",
+        "remote"
+      ],
+      "depends_on": [
+        "K-3"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-5",
+      "title": "PR 5: Bounded non-interactive remote commands",
+      "epic": "EP-1",
+      "status": "stub",
+      "body": "PowerShell and shell commands with timeouts, cancellation, polled output and protected transcripts.\n\n## Acceptance criteria (draft)\n- [ ] Hard limits on runtime and output size; cancellation reaches the process\n- [ ] Transcripts follow the retention and redaction rules from K-2\n- [ ] Audited end to end; integration tests",
+      "labels": [
+        "remote",
+        "security"
+      ],
+      "depends_on": [
+        "K-2"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-6",
+      "title": "PR 6: File management in authorized roots",
+      "epic": "EP-1",
+      "status": "stub",
+      "body": "Browse, upload, download in explicitly authorized roots with size limits, traversal protection and integrity checks.\n\n## Acceptance criteria (draft)\n- [ ] Roots configured per device or group; anything outside is refused\n- [ ] Traversal, symlink and size-limit tests\n- [ ] Integrity check on transfer; audited",
+      "labels": [
+        "remote",
+        "security"
+      ],
+      "depends_on": [
+        "K-2"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-7",
+      "title": "PR 7: Signed agent releases and remote updates",
+      "epic": "EP-1",
+      "status": "stub",
+      "body": "Versioned, signed agent releases and authorized remote updates with verification and rollback. Starts versioning and tagging (forward plan item 9).\n\n## Acceptance criteria (draft)\n- [ ] Release signing and verification in the agent before an update is applied\n- [ ] Authorized, audited update command with rollback on failure\n- [ ] Versioning and changelog started",
+      "labels": [
+        "agent",
+        "operations"
+      ],
+      "depends_on": [
+        "K-1"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-8",
+      "title": "PR 8: Documentation and end-to-end verification on real hosts",
+      "epic": "EP-1",
+      "status": "stub",
+      "body": "Documentation and end-to-end verification on real Windows and Linux hosts.\n\n## Acceptance criteria (draft)\n- [ ] REMOTE_MANAGEMENT.md and AGENT_SETUP.md describe the shipped behaviour\n- [ ] Verified on a real elevated Windows host and a real Linux host, including service installation\n- [ ] IMPLEMENTATION_PLAN.md updated",
+      "labels": [
+        "docs",
+        "testing"
+      ],
+      "depends_on": [
+        "K-2",
+        "K-3",
+        "K-4",
+        "K-5",
+        "K-6",
+        "K-7"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-9",
+      "title": "Move the discovery worker and traffic sensor onto enrolled identities",
+      "epic": "EP-2",
+      "status": "stub",
+      "body": "The discovery worker uses the shared `NERVE_DISCOVERY_AGENT_TOKEN` and the traffic sensor the shared `NERVE_SENSOR_TOKEN`; management agents already use per-agent Ed25519 keys.\n\n## Acceptance criteria (draft)\n- [ ] Discovery and sensor reports authenticated by enrolled identities\n- [ ] Migration path for existing installations; shared tokens removed or deprecated\n- [ ] Integration tests; docs updated",
+      "labels": [
+        "security",
+        "agent"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-10",
+      "title": "Agent and Core key rotation",
+      "epic": "EP-2",
+      "status": "stub",
+      "body": "Agent-initiated key rotation and Core key rotation without re-enrollment.\n\n## Acceptance criteria (draft)\n- [ ] Agents rotate their key through a signed, audited exchange\n- [ ] Core signing key rotates while enrolled agents keep working\n- [ ] Integration tests; REMOTE_MANAGEMENT.md updated",
+      "labels": [
+        "agent",
+        "security"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-11",
+      "title": "Vendor (OUI) lookup and automatic device classification",
+      "epic": "EP-2",
+      "status": "stub",
+      "body": "Device identity follow-up. Observed MAC addresses must never be sent to third parties, so the lookup data is local.\n\n## Acceptance criteria (draft)\n- [ ] Offline OUI data source with licence and update process\n- [ ] Classification stored as a sourced fact with confidence, never overriding operator-owned fields\n- [ ] Tests",
+      "labels": [
+        "inventory"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-12",
+      "title": "Multi-address device matching in the Traffic Map",
+      "epic": "EP-2",
+      "status": "stub",
+      "body": "The Traffic Map still correlates devices by one primary address.\n\n## Acceptance criteria (draft)\n- [ ] Flows match a device by any current address\n- [ ] `npm run test:map` covers the multi-address case",
+      "labels": [
+        "map"
+      ],
+      "column": {
+        "id": "todo"
+      }
+    },
+    {
+      "id": "K-1",
+      "title": "PR 1: Agent service installation and lifecycle",
+      "epic": "EP-1",
+      "status": "ready",
+      "body": "Agent as Windows service / systemd unit with unprivileged accounts, installers, persistent config, private-CA TLS, diagnostics, run state and graceful-stop reporting (`connection`: online/stopped/offline), live re-enrollment.\n\n## Acceptance criteria\n- [x] `nerve-agent service install|uninstall|start|stop|restart|status` on Windows and Linux\n- [x] Installers, `config.json`, `diagnose`, migration `000010_agent_runtime`\n- [x] Go unit and integration tests, Windows-native agent tests, Linux systemd end-to-end run\n- [ ] Windows service installation executed on a real elevated host (not verified in the PR)\n\nImplemented in PR #54 (`feat/agent-service-lifecycle`).",
+      "labels": [
+        "agent"
+      ],
+      "notes": [
+        {
+          "at": "2026-10-16T20:43:07.952792800Z",
+          "author": "claude",
+          "text": "Recorded during the workflow migration: implemented before the board existed, PR open for review: https://github.com/Luis-0508/NERVE-App/pull/54"
+        }
+      ],
+      "column": {
+        "id": "review",
+        "owner": "claude",
+        "branch": "feat/agent-service-lifecycle"
+      }
+    }
+  ]
+}
