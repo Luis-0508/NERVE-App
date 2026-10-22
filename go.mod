@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/jackc/pgx/v5 v5.10.0
-	github.com/oschwald/maxminddb-golang/v2 v2.7.0
+	github.com/oschwald/maxminddb-golang/v2 v2.8.0
 	github.com/pashagolub/pgxmock/v4 v4.9.0
 	golang.org/x/crypto v0.58.0
 	golang.org/x/sys v0.49.0
