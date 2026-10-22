@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { agentConnectionState, runModeLabel } from "@/lib/agent-status";
-import type { AgentEnrollment, ManagementAgent } from "@/lib/types";
+import type { AgentDeploymentKey, AgentEnrollment, ManagementAgent } from "@/lib/types";
 
 function formatDate(value?: string) {
   if (!value) return "—";
@@ -23,17 +23,24 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
   const canManage = permissions.includes("agents.manage");
   const [agents, setAgents] = useState<ManagementAgent[] | null>(null);
   const [enrollments, setEnrollments] = useState<AgentEnrollment[]>([]);
+  const [deploymentKeys, setDeploymentKeys] = useState<AgentDeploymentKey[]>([]);
   const [token, setToken] = useState<{ value: string; expiresAt: string; reenroll: boolean } | null>(null);
+  const [newKey, setNewKey] = useState<{ value: string; key: AgentDeploymentKey } | null>(null);
   const [name, setName] = useState("");
   const [minutes, setMinutes] = useState(60);
+  const [keyName, setKeyName] = useState("");
+  const [keyUses, setKeyUses] = useState(25);
+  const [keyDays, setKeyDays] = useState(7);
+  const [keyApproval, setKeyApproval] = useState<"manual" | "automatic">("manual");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const apiBase = `${typeof window === "undefined" ? "" : window.location.origin}/api/v1`;
 
   const load = useCallback(async () => {
     try {
-      const [agentList, enrollmentList] = await Promise.all([api.agents(), canManage ? api.enrollments() : Promise.resolve({ items: [] })]);
-      setAgents(agentList.items); setEnrollments(enrollmentList.items); setError(null);
+      const [agentList, enrollmentList, keyList] = await Promise.all([api.agents(),
+        canManage ? api.enrollments() : Promise.resolve({ items: [] }), canManage ? api.deploymentKeys() : Promise.resolve({ items: [] })]);
+      setAgents(agentList.items); setEnrollments(enrollmentList.items); setDeploymentKeys(keyList.items); setError(null);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Agents could not be loaded.");
     }
@@ -55,16 +62,30 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
     });
   }
 
+  async function createDeploymentKey() {
+    await act(async () => {
+      const result = await api.createDeploymentKey({ name: keyName.trim(), approval: keyApproval, maxUses: keyUses, expiresInDays: keyDays });
+      setNewKey({ value: result.key, key: result.deploymentKey });
+      setKeyName("");
+    });
+  }
+
+  const pendingCount = agents?.filter((agent) => agent.status === "pending").length ?? 0;
+  const keyNames = new Map(deploymentKeys.map((key) => [key.id, key.name]));
+
   return <section className="settings-panel agents-settings">
     <div className="settings-row"><div><h2>Management agents</h2><p>Enrolled NERVE agents. Each has its own Ed25519 key; revoking one never affects another.</p></div>
       <div>{error && <div className="form-error" role="alert">{error}</div>}
+        {canManage && pendingCount > 0 && <p className="agents-pending" role="status"><span className="status-dot" data-status="warning" aria-hidden="true" />
+          {pendingCount === 1 ? "1 agent awaits approval." : `${pendingCount} agents await approval.`} Compare the host and key fingerprint with the endpoint before approving; pending agents receive no commands.</p>}
         {agents === null ? <p className="muted">{error ? "" : "Loading agents…"}</p> : agents.length ? <div className="table-wrap"><table className="data-table"><thead><tr><th>Agent</th><th>Status</th><th>Host</th><th>Device</th><th>Version</th><th>Last seen</th><th>Key</th>{canManage && <th />}</tr></thead><tbody>
           {agents.map((agent) => {
             const state = agentConnectionState(agent.status, agent.connection, agent.online);
             const runMode = runModeLabel(agent.runMode);
             const candidate = agent.association.status === "candidate" && agent.association.evidence.length === 1 ? agent.association.evidence[0] : null;
+            const pending = agent.status === "pending";
             return <tr key={agent.id}>
-              <td>{agent.displayName}</td>
+              <td>{agent.displayName}{agent.deploymentKeyId && <small className="device-alias">via key {keyNames.get(agent.deploymentKeyId) ?? agent.deploymentKeyId.slice(0, 8)}</small>}</td>
               <td><span className="device-status"><span className="status-dot" data-status={state.dot} aria-hidden="true" />{state.label}</span></td>
               <td>{agent.hostname ?? "—"}<span className="muted"> · {agent.os ?? "?"}/{agent.architecture ?? "?"}</span></td>
               <td>{agent.device ? <Link className="device-link" href={`/devices/detail?id=${encodeURIComponent(agent.device.id)}`}>{agent.device.name}</Link> : <span className="muted">{agent.association.status}</span>}
@@ -73,7 +94,12 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
               <td title={runtimeTitle(agent)}><span className="mono">{agent.agentVersion ?? "—"}</span>{runMode && <span className="muted"> · {runMode}</span>}</td>
               <td>{formatDate(agent.lastSeenAt)}</td>
               <td className="mono" title={agent.credential?.fingerprint}>{agent.credential ? agent.credential.fingerprint.slice(0, 12) : "—"}</td>
-              {canManage && <td className="agent-actions">
+              {canManage && pending && <td className="agent-actions">
+                <button className="button button-primary" type="button" disabled={busy} onClick={() => void act(() => api.approveAgent(agent.id))}>Approve</button>
+                <button className="button" type="button" disabled={busy}
+                  onClick={() => { if (window.confirm(`Reject ${agent.displayName}? The agent is removed and its key stops working.`)) void act(() => api.removeAgent(agent.id)); }}>Reject</button>
+              </td>}
+              {canManage && !pending && <td className="agent-actions">
                 {candidate && <button className="button" type="button" disabled={busy} onClick={() => void act(() => api.updateAssociation(agent.id, "confirm", candidate.deviceId))}>Link</button>}
                 {agent.association.status !== "dismissed" && agent.association.status !== "confirmed" && agent.status !== "removed" &&
                   <button className="button" type="button" disabled={busy} onClick={() => void act(() => api.updateAssociation(agent.id, "dismiss"))}>No device</button>}
@@ -113,6 +139,35 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
             <td>{enrollment.displayName ?? (enrollment.targetAgentId ? "Re-enrollment" : "—")}</td><td>{enrollment.state}</td>
             <td>{enrollment.createdByEmail ?? "—"}</td><td>{formatDate(enrollment.expiresAt)}</td>
             <td>{enrollment.state === "pending" && <button className="button" type="button" disabled={busy} onClick={() => void act(() => api.revokeEnrollment(enrollment.id))}>Revoke</button>}</td>
+          </tr>)}
+        </tbody></table></div>}
+      </div>
+    </div>}
+
+    {canManage && <div className="settings-row"><div><h2>Deployment keys</h2><p>One key enrolls many endpoints, for example in a GPO or Intune rollout. It is limited by uses and lifetime and can be revoked; agents it already enrolled keep working.</p></div>
+      <div>
+        <div className="enroll-form">
+          <label className="field"><span>Name</span><input className="input" value={keyName} maxLength={200} placeholder="Office PCs rollout" onChange={(event) => setKeyName(event.target.value)} /></label>
+          <label className="field"><span>Maximum uses</span><input className="input" type="number" min={1} max={10000} value={keyUses} onChange={(event) => setKeyUses(Number(event.target.value))} /></label>
+          <label className="field"><span>Valid for (days)</span><input className="input" type="number" min={1} max={90} value={keyDays} onChange={(event) => setKeyDays(Number(event.target.value))} /></label>
+          <label className="field"><span>New agents</span><select className="input" value={keyApproval} onChange={(event) => setKeyApproval(event.target.value as "manual" | "automatic")}>
+            <option value="manual">Wait for approval</option><option value="automatic">Activate automatically</option></select></label>
+          <button className="button button-primary" type="button" disabled={busy || !keyName.trim()} onClick={() => void createDeploymentKey()}>Create key</button>
+        </div>
+        {keyApproval === "automatic" && <p className="muted">With automatic activation, anyone who obtains the key can add an active agent until the key is revoked, expires or runs out of uses.</p>}
+        {newKey && <div className="enroll-token">
+          <p>Deployment key “{newKey.key.name}”, {newKey.key.maxUses} uses, valid until {formatDate(newKey.key.expiresAt)}. Copy it now; it cannot be shown again.</p>
+          <pre className="remote-json">{newKey.value}</pre>
+          <p className="muted">Use it like an enrollment token on every endpoint, for example <code className="mono">.\install-windows.ps1 -ApiUrl {apiBase} -TokenFile &lt;file&gt;</code> or <code className="mono">sudo ./install-linux.sh --api-url {apiBase} --token-file &lt;file&gt;</code>. Anyone with the key can enroll endpoints, so store it like a password.</p>
+          <button className="button" type="button" onClick={() => { void navigator.clipboard?.writeText(newKey.value); }}>Copy</button> <button className="button" type="button" onClick={() => setNewKey(null)}>Done</button>
+        </div>}
+        {deploymentKeys.length > 0 && <div className="table-wrap"><table className="data-table"><thead><tr><th>Key</th><th>State</th><th>Uses</th><th>New agents</th><th>Expires</th><th>Created by</th><th /></tr></thead><tbody>
+          {deploymentKeys.slice(0, 20).map((key) => <tr key={key.id}>
+            <td>{key.name}</td><td>{key.state}</td><td className="mono">{key.usedCount} / {key.maxUses}</td>
+            <td>{key.approval === "manual" ? "Wait for approval" : "Activate automatically"}</td>
+            <td>{formatDate(key.expiresAt)}</td><td>{key.createdByEmail ?? "—"}</td>
+            <td>{key.state !== "revoked" && key.state !== "expired" && <button className="button" type="button" disabled={busy}
+              onClick={() => { if (window.confirm(`Revoke deployment key ${key.name}? No further endpoints can enroll with it.`)) void act(() => api.revokeDeploymentKey(key.id)); }}>Revoke</button>}</td>
           </tr>)}
         </tbody></table></div>}
       </div>
