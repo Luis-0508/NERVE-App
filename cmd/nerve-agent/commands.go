@@ -121,6 +121,15 @@ func (m *manager) execute(ctx context.Context, command agentproto.Command) {
 
 	var result agentproto.CommandResult
 	switch {
+	case ctx.Err() != nil:
+		// The agent is stopping. Report the interruption instead of leaving
+		// the command to Core's timeout sweeper.
+		result = failed(agentproto.CommandFailed, "agent_stopped", "The agent stopped before the command finished.")
+		submitCtx, cancelSubmit := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancelSubmit()
+		logger.Info("command interrupted by agent shutdown")
+		m.submit(submitCtx, command, result)
+		return
 	case timedOut:
 		result = failed(agentproto.CommandTimedOut, "timeout", "The command exceeded its timeout.")
 	case err != nil:

@@ -2,6 +2,7 @@
 
 import { CircleOff, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { agentConnectionState } from "@/lib/agent-status";
 import { APIError, api } from "@/lib/api";
 import type { RemoteCommand, RemoteCommandStatus, RemoteEndpoint } from "@/lib/types";
 
@@ -91,7 +92,10 @@ export function DeviceRemotePanel({ deviceId, permissions }: { deviceId: string;
       <div className="detail-section-heading remote-heading"><h2>{endpoint.provider === "nerve-agent" ? "NERVE agent" : endpoint.provider} · {endpoint.displayName}</h2>
         <button className="button" type="button" onClick={() => void load()}><RefreshCw size={14} aria-hidden="true" />Refresh</button></div>
       <dl className="property-list">
-        <div><dt>Agent</dt><dd><span className="device-status"><span className="status-dot" data-status={endpoint.status !== "active" ? "stopped" : endpoint.online ? "online" : "offline"} aria-hidden="true" />{endpoint.status !== "active" ? "Revoked" : endpoint.online ? "Online" : "Offline"}</span></dd></div>
+        <div><dt>Agent</dt><dd>{(() => {
+          const state = agentConnectionState(endpoint.status, endpoint.connection, endpoint.online);
+          return <span className="device-status"><span className="status-dot" data-status={state.dot} aria-hidden="true" />{state.label}</span>;
+        })()}</dd></div>
         <div><dt>Version</dt><dd className="mono">{endpoint.version || "—"}</dd></div>
         <div><dt>Last seen</dt><dd>{formatDate(endpoint.lastSeenAt)}</dd></div>
         <div><dt>Association</dt><dd>{associationLabels[endpoint.association] ?? endpoint.association}</dd></div>

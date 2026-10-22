@@ -33,9 +33,16 @@ type identity struct {
 
 // defaultStateDir picks a per-installation location that only the agent's
 // account (and administrators) can read. NERVE_AGENT_STATE_DIR overrides it.
+// When the agent is installed as a service, administrators get the machine
+// directory automatically, so `status` and `enroll --force` act on the
+// service's identity.
 func defaultStateDir() string {
 	if value := strings.TrimSpace(os.Getenv("NERVE_AGENT_STATE_DIR")); value != "" {
 		return value
+	}
+	machine := machineStateDir()
+	if _, err := os.Stat(filepath.Join(machine, configFileName)); err == nil {
+		return machine
 	}
 	if runtime.GOOS == "windows" {
 		if base := os.Getenv("LOCALAPPDATA"); base != "" {
@@ -43,7 +50,7 @@ func defaultStateDir() string {
 		}
 	}
 	if os.Geteuid() == 0 {
-		return "/var/lib/nerve-agent"
+		return machine
 	}
 	if base := os.Getenv("XDG_STATE_HOME"); base != "" {
 		return filepath.Join(base, "nerve-agent")
@@ -52,6 +59,18 @@ func defaultStateDir() string {
 		return filepath.Join(home, ".local", "state", "nerve-agent")
 	}
 	return "nerve-agent-state"
+}
+
+// machineStateDir is the state directory of an installed service.
+func machineStateDir() string {
+	if runtime.GOOS == "windows" {
+		base := os.Getenv("ProgramData")
+		if base == "" {
+			base = `C:\ProgramData`
+		}
+		return filepath.Join(base, "NERVE", "agent")
+	}
+	return "/var/lib/nerve-agent"
 }
 
 func loadIdentity(dir string) (*identity, error) {
@@ -83,12 +102,6 @@ func loadIdentity(dir string) (*identity, error) {
 // saveIdentity writes the identity atomically into a directory restricted to
 // the agent's account.
 func saveIdentity(dir string, value *identity) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create agent state directory: %w", err)
-	}
-	if err := securePrivateDir(dir); err != nil {
-		return fmt.Errorf("restrict agent state directory: %w", err)
-	}
 	value.Version = 1
 	value.PrivateKey = base64.StdEncoding.EncodeToString(value.key.Seed())
 	value.CoreKey = base64.StdEncoding.EncodeToString(value.coreKey)
@@ -96,26 +109,5 @@ func saveIdentity(dir string, value *identity) error {
 	if err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(dir, ".identity-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create identity file: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath) //nolint:errcheck
-	if err := temporary.Chmod(0o600); err != nil && runtime.GOOS != "windows" {
-		temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(encoded); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporaryPath, filepath.Join(dir, identityFileName))
+	return writePrivateFile(dir, identityFileName, encoded)
 }

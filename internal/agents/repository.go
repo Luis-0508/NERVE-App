@@ -576,13 +576,15 @@ func (r *Repository) PruneNonces(ctx context.Context) error {
 // Agent registry
 
 const agentColumns = `a.id::text, a.display_name, a.status,
-	COALESCE(a.status = 'active' AND a.last_seen_at > now() - $1::interval, false),
+	COALESCE(a.status = 'active' AND a.last_seen_at > now() - $1::interval
+		AND (a.last_shutdown_at IS NULL OR a.last_shutdown_at < a.last_seen_at), false),
 	COALESCE(a.hostname, ''), COALESCE(a.os, ''), COALESCE(a.os_version, ''), COALESCE(a.architecture, ''), COALESCE(a.agent_version, ''),
 	a.capabilities, a.reported_mac_addresses::text[], ARRAY(SELECT host(x) FROM unnest(a.reported_ip_addresses) x), COALESCE(host(a.last_ip), ''),
 	COALESCE(a.last_error, ''), a.first_enrolled_at, a.enrolled_at, a.last_heartbeat_at, a.last_seen_at, a.revoked_at, a.removed_at,
 	COALESCE(a.device_id::text, ''), COALESCE(device_entity.name, ''), a.association_status, a.association_evidence,
 	a.associated_at, COALESCE(a.associated_by::text, ''),
-	COALESCE(credential.id::text, ''), COALESCE(credential.fingerprint, ''), credential.created_at`
+	COALESCE(credential.id::text, ''), COALESCE(credential.fingerprint, ''), credential.created_at,
+	COALESCE(a.run_mode, ''), a.process_started_at, a.host_boot_at, a.last_shutdown_at`
 
 const agentJoins = `FROM agents a
 	LEFT JOIN entities device_entity ON device_entity.id = a.device_id
@@ -602,10 +604,12 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&agent.Architecture, &agent.AgentVersion, &agent.Capabilities, &agent.MACAddresses, &agent.IPAddresses, &agent.LastIP,
 		&agent.LastError, &agent.FirstEnrolledAt, &agent.EnrolledAt, &agent.LastHeartbeatAt, &agent.LastSeenAt, &agent.RevokedAt,
 		&agent.RemovedAt, &deviceID, &deviceName, &agent.Association.Status, &evidence, &agent.Association.AssociatedAt,
-		&agent.Association.AssociatedBy, &credentialID, &fingerprint, &credentialCreated)
+		&agent.Association.AssociatedBy, &credentialID, &fingerprint, &credentialCreated, &agent.RunMode,
+		&agent.ProcessStartedAt, &agent.HostBootAt, &agent.LastShutdownAt)
 	if err != nil {
 		return Agent{}, err
 	}
+	agent.Connection = connectionState(agent)
 	if deviceID != "" {
 		agent.Device = &DeviceRef{ID: deviceID, Name: deviceName}
 	}

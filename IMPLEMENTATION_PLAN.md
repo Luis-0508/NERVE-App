@@ -22,6 +22,7 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
 | 3D Traffic Map | Inventory devices on derived /24 plates, measured flows routed through the uplink to remote endpoints on a 3D globe | `components/map/topology*` |
 | Agent identity | Single-use, expiring enrollment tokens (digest only); per-agent Ed25519 keys (public key only in PostgreSQL); signed requests with nonce replay protection; revoke, re-enroll, remove; Core signs every agent-API response with a key pinned at enrollment | `internal/agents`, `internal/agentproto`, `migrations/000005`, `000006` |
 | Remote management foundation | Heartbeat and capabilities, evidence-based device association, provider-neutral `remote.Provider` registry, audited at-most-once command pipeline with five read-only commands, minimal device and settings UI | `internal/remote`, `cmd/nerve-agent`, `components/remote`, `migrations/000007` |
+| Agent service & lifecycle | `nerve-agent service install/uninstall/start/stop/status`, Windows service (virtual account, recovery actions, event log) and hardened systemd unit (unprivileged user, watchdog), PowerShell/shell installers, `config.json`, private-CA TLS, `diagnose`, run mode and graceful-stop reporting, live re-enrollment | `cmd/nerve-agent/service*.go`, `scripts/agent`, `migrations/000010` |
 | Device identity | Human-owned name, type, tags, owner, location, notes and trust state (trigger-protected from discovery); sourced facts with confidence; identity evidence with strength; explicit discovery match rules; agent facts as device evidence; duplicate candidates; transactional merge and split with tombstones and append-only records | `internal/devices`, `internal/discovery/match.go`, `migrations/000008`, `000009`, `components/devices` |
 
 ### Missing
@@ -38,8 +39,9 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
   relationships are collected. The `relationships` table is unused by any collector.
 - Integrations: Proxmox and Docker (schema tables exist, no adapters).
 - Change intelligence: no "what changed?" view beyond raw discovery events.
-- Remote management beyond the foundation: no privileged commands, interactive sessions,
-  file transfer, MeshCentral adapter, Windows service/installer or signed agent updates. The
+- Remote management beyond the foundation and agent services: no privileged commands,
+  interactive sessions, file transfer, MeshCentral adapter, MSI package or signed agent
+  updates. The
   unused `actions`/`action_runs` tables from migration 000001 are superseded by
   `remote_commands` and can be dropped in a later migration.
 - Operations: no releases, tags, changelog, licence file, backup/restore, retention policy,
@@ -77,7 +79,22 @@ remote-management foundation, then device identity.
    read-only command pipeline. See [Remote management](docs/REMOTE_MANAGEMENT.md).
    Still open from this area: move the discovery worker and traffic sensor onto enrolled
    identities; agent-initiated key rotation; Core key rotation without re-enrollment.
-3. **Remote management, privileged actions.** Blocked until all of these exist: HTTPS
+3. **Production RMM milestone (in progress, October 2026).** Delivered as small PRs in
+   dependency order. Each builds on `internal/remote`, the signed agent protocol, the
+   command pipeline and device trust; none adds a second backend or execution path.
+
+   | PR | Scope | State |
+   | --- | --- | --- |
+   | 1 | Agent as Windows service / systemd unit with unprivileged accounts, installers, persistent config, private-CA TLS, diagnostics, run state and graceful-stop reporting (`connection`: online/stopped/offline), live re-enrollment | implemented |
+   | 2 | Security hardening and privileged execution architecture: HTTPS enforcement for privileged agents, per-command operator approval the agent can verify, device-level scopes, trusted-device policy check, separate privileged helper (Windows service as LocalSystem / root systemd unit) reachable only over a local authenticated channel, output redaction and transcript retention | planned |
+   | 3 | System-management commands on that foundation: service restart/stop, process termination, reboot/shutdown, log retrieval, detailed hardware/network inventory, each with permission, validation, confirmation and audit | planned |
+   | 4 | RMM device page: overview, system, performance, processes, services, software, actions, command history, agent status, audit; loading/offline/denied/failed states | planned |
+   | 5 | Bounded non-interactive remote commands (PowerShell, shell) with timeouts, cancellation, polled output and protected transcripts | planned |
+   | 6 | File management in explicitly authorized roots: browse, upload, download, size limits, traversal protection, integrity checks | planned |
+   | 7 | Versioned, signed agent releases and authorized remote updates with verification and rollback | planned |
+   | 8 | Documentation and end-to-end verification on real Windows and Linux hosts | planned |
+
+   Privileged commands stay blocked until PR 2 lands. Blocked until all of these exist: HTTPS
    enforced for agents that may run privileged capabilities (Core-signed responses give
    authenticity, not confidentiality); the target device in the operator-owned
    `trusted` state (the trust model exists; the policy check comes with the first privileged
