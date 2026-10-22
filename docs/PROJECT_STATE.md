@@ -28,6 +28,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Active work
 
+- **K-13** (Doing): `feat/K-13-ui-redesign`, UI redesign: neutral dark design system
+  (`DESIGN.md`, decision 0002), top-bar shell and an attention-first Overview. Frontend only.
 - **K-1** (Review): PR #54 `feat/agent-service-lifecycle`, agent service installation and
   lifecycle, the first PR of the production RMM milestone. It also adds the milestone's
   PR table to `IMPLEMENTATION_PLAN.md`. Windows service installation on a real elevated

@@ -14,6 +14,7 @@ the table.
 | # | Decision | Status |
 |---|---|---|
 | [0001](0001-local-kanban-board-and-project-memory.md) | Local Kanban board and project memory for development | Accepted |
+| [0002](0002-ui-design-system-and-plex-fonts.md) | UI design system with self-hosted IBM Plex | Accepted |
 
 ## Template
 

@@ -1,7 +1,7 @@
 {
   "schema": 2,
-  "version": 17,
-  "next_ticket_seq": 13,
+  "version": 19,
+  "next_ticket_seq": 14,
   "next_epic_seq": 3,
   "columns": [
     {
@@ -235,6 +235,19 @@
         "id": "review",
         "owner": "claude",
         "branch": "feat/agent-service-lifecycle"
+      }
+    },
+    {
+      "id": "K-13",
+      "title": "UI redesign: dark instrument look and attention-first Overview",
+      "status": "ready",
+      "body": "Apply the redesign agreed in the design session (local prototype `.nerve/design-prototype.html`, direction \"attention first + coverage rail\") to the Next.js UI.\n\n## Scope\n- Design tokens: neutral dark default, colour reserved for state (ok / attention / problem / no data), neutral actions; light theme keeps working.\n- IBM Plex Sans and IBM Plex Mono, self-hosted (CSP allows only `font-src 'self'`).\n- App shell: top bar with the real sections only, device jump search, core state, theme control.\n- Overview: Needs attention | Recent activity | Coverage rail (address map for the configured subnet, discovery agent, database, core). Only observed data from existing APIs; no invented metrics.\n- Restyle devices, device detail, map chrome, settings and auth through the shared tokens and classes.\n- `DESIGN.md` describing the system.\n\n## Acceptance criteria\n- [ ] No API or backend changes; existing functions, data and interactions preserved\n- [ ] Overview shows only data the API returns, with honest empty, loading, auth and error states\n- [ ] `npm run typecheck`, `npm run build` (includes static runtime / CSP check), `npm run test:map`\n- [ ] Checked in a browser at desktop and narrow widths against an isolated stack, never the user's live stack",
+      "labels": [
+        "ui"
+      ],
+      "column": {
+        "id": "doing",
+        "owner": "claude"
       }
     }
   ]
