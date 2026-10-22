@@ -93,7 +93,7 @@ Ausgegeben werden Status und Zähler, keine Zugangsdaten oder Flow-IP-Adressen.
 ## Konfiguration und manuelle Abnahme
 
 Die vollständige Beispielkonfiguration, Docker-Befehle, direkte ntopng-REST-Abfragen,
-Diagnosezustände und der manuelle Abnahmeablauf stehen in [README.md](../README.md#live-traffic-map-ntopng).
+Diagnosezustände und der manuelle Abnahmeablauf stehen in [TRAFFIC_MAP.md](TRAFFIC_MAP.md).
 Die sechs Variablen sind:
 
 - `NERVE_NTOPNG_URL`
