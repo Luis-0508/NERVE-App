@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -83,7 +84,14 @@ func (r *rotatingFile) rotate() error {
 		_ = os.Rename(fmt.Sprintf("%s.%d", r.path, i), fmt.Sprintf("%s.%d", r.path, i+1))
 	}
 	if err := os.Rename(r.path, r.path+".1"); err != nil {
-		return err
+		// Windows refuses the rename while another process holds the log open
+		// (a viewer or scanner). Keep writing to the current file and retry
+		// after another maxSize of output instead of losing all logs.
+		if openErr := r.open(); openErr != nil {
+			return errors.Join(err, openErr)
+		}
+		r.size = 0
+		return nil
 	}
 	return r.open()
 }

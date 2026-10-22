@@ -164,11 +164,7 @@ func diagnose(ctx context.Context, stateDir string) diagnosis {
 	response.Body.Close()
 	if serverTime, err := http.ParseTime(response.Header.Get("Date")); err == nil {
 		skew := serverTime.Sub(before.Add(time.Since(before) / 2)).Round(time.Second)
-		status := "ok"
-		if skew.Abs() > agentproto.MaxClockSkew/2 {
-			status = "fail"
-		}
-		result.add("clock", status, "offset to Core %s (limit ±%s)", skew, agentproto.MaxClockSkew)
+		result.add("clock", clockStatus(skew), "offset to Core %s (limit ±%s)", skew, agentproto.MaxClockSkew)
 	}
 	if id == nil {
 		return result
@@ -184,4 +180,16 @@ func diagnose(ctx context.Context, stateDir string) diagnosis {
 	}
 	result.add("core-auth", "ok", "Core accepts agent %s (%s); response signed by the pinned Core key", identityResponse.AgentID, identityResponse.Status)
 	return result
+}
+
+// clockStatus fails only beyond the skew Core rejects and warns from half of it.
+func clockStatus(skew time.Duration) string {
+	switch {
+	case skew.Abs() > agentproto.MaxClockSkew:
+		return "fail"
+	case skew.Abs() > agentproto.MaxClockSkew/2:
+		return "warn"
+	default:
+		return "ok"
+	}
 }

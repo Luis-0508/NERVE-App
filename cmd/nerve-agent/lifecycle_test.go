@@ -3,9 +3,13 @@ package main
 import (
 	"context"
 	"crypto/ed25519"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"log/slog"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
@@ -104,6 +108,98 @@ func TestRotatingFileKeepsBoundedHistory(t *testing.T) {
 	if strings.Join(names, ",") != "agent.log,agent.log.1,agent.log.2,agent.log.3" {
 		t.Fatalf("unexpected log files %v", names)
 	}
+}
+
+func TestClockStatusMatchesCoreLimit(t *testing.T) {
+	for skew, want := range map[time.Duration]string{
+		30 * time.Second:                         "ok",
+		-90 * time.Second:                        "warn",
+		agentproto.MaxClockSkew:                  "warn",
+		agentproto.MaxClockSkew + time.Second:    "fail",
+		-(agentproto.MaxClockSkew + time.Second): "fail",
+	} {
+		if got := clockStatus(skew); got != want {
+			t.Fatalf("skew %s: %s, want %s", skew, got, want)
+		}
+	}
+}
+
+func TestRotatingFileKeepsLoggingWhenRenameFails(t *testing.T) {
+	dir := t.TempDir()
+	// A non-empty directory in the way makes the rename fail on every platform,
+	// like a log viewer holding agent.log open on Windows.
+	blocker := filepath.Join(dir, logFileName+".1")
+	if err := os.MkdirAll(filepath.Join(blocker, "keep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file, err := openRotatingFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	file.keep = 1
+	file.maxSize = 100
+	line := []byte(strings.Repeat("x", 39) + "\n")
+	for i := range 6 {
+		if _, err := file.Write(line); err != nil {
+			t.Fatalf("write %d after a failed rotation: %v", i, err)
+		}
+	}
+	content, err := os.ReadFile(filepath.Join(dir, logFileName))
+	if err != nil || len(content) != 6*len(line) {
+		t.Fatalf("log lost lines: %d bytes, %v", len(content), err)
+	}
+}
+
+func TestPrepareServiceStateCopiesCAFile(t *testing.T) {
+	stateDir := t.TempDir()
+	source := filepath.Join(t.TempDir(), "private-ca.pem")
+	caPEM := testCertificatePEM(t)
+	if err := os.WriteFile(source, caPEM, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := prepareServiceState(installOptions{APIURL: "https://core.example/api/v1", CAFile: source, StateDir: stateDir}); err != nil {
+		t.Fatal(err)
+	}
+	config, err := loadConfig(stateDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(stateDir, caFileName); config.CAFile != want {
+		t.Fatalf("config points at %s, want the private copy %s", config.CAFile, want)
+	}
+	copied, err := os.ReadFile(config.CAFile)
+	if err != nil || string(copied) != string(caPEM) {
+		t.Fatalf("CA copy differs: %v", err)
+	}
+	if err := os.Remove(source); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newTransport(config.CAFile); err != nil {
+		t.Fatalf("copy unusable without the original: %v", err)
+	}
+}
+
+func testCertificatePEM(t *testing.T) []byte {
+	t.Helper()
+	_, key, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	template := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "NERVE test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(time.Hour),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(nil, template, template, key.Public(), key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 }
 
 func TestWatchIdentityDetectsReenrollment(t *testing.T) {

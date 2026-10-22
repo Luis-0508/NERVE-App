@@ -130,14 +130,19 @@ func prepareServiceState(options installOptions) (*identity, error) {
 		return nil, err
 	}
 	if options.CAFile != "" {
-		absolute, err := filepath.Abs(options.CAFile)
+		// The service account cannot read the administrator's copy (a user
+		// profile, or /root and /home under ProtectHome), so keep a private copy.
+		if _, err := newTransport(options.CAFile); err != nil {
+			return nil, err
+		}
+		pem, err := os.ReadFile(options.CAFile)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("read CA file: %w", err)
 		}
-		if _, err := newTransport(absolute); err != nil {
-			return nil, err
+		if err := writePrivateFile(options.StateDir, caFileName, pem); err != nil {
+			return nil, fmt.Errorf("copy CA file: %w", err)
 		}
-		config.CAFile = absolute
+		config.CAFile = filepath.Join(options.StateDir, caFileName)
 	}
 	if err := saveConfig(options.StateDir, config); err != nil {
 		return nil, fmt.Errorf("write configuration: %w", err)

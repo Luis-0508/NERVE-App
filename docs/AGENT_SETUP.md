@@ -57,7 +57,8 @@ release artifacts are not published yet; build from a reviewed checkout.
    (*Windows service* or *systemd service*).
 
 Add `-CaFile` / `--ca-file <pem>` when Core's HTTPS certificate is issued by a private CA.
-The installers are idempotent: running them again with a new binary and no token upgrades
+The installer copies it to `ca.pem` in the state directory, where the service account can
+read it; pass the option again to replace the copy. The installers are idempotent: running them again with a new binary and no token upgrades
 the agent and keeps its identity and configuration.
 
 | | Windows | Linux |

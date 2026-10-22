@@ -159,6 +159,23 @@ func ensureServiceUser() (*user.User, error) {
 	return user.Lookup(serviceUser)
 }
 
+// chownTree hands the state directory and everything in it to the service
+// account. A host enrolled with `sudo nerve-agent enroll` before the service
+// existed has a root-owned identity the service could not read, and systemd's
+// StateDirectory= chown skips a directory whose top level already matches.
+// Symlinks are changed themselves, never followed.
+func chownTree(root string, uid, gid int) error {
+	return filepath.WalkDir(root, func(path string, _ os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if err := os.Lchown(path, uid, gid); err != nil {
+			return fmt.Errorf("hand %s to %s: %w", path, serviceUser, err)
+		}
+		return nil
+	})
+}
+
 func systemctl(args ...string) error {
 	output, err := exec.Command("systemctl", args...).CombinedOutput()
 	if err != nil {
@@ -196,7 +213,7 @@ func installService(options installOptions) error {
 	if err := os.MkdirAll(options.StateDir, 0o700); err != nil {
 		return err
 	}
-	if err := os.Chown(options.StateDir, uid, gid); err != nil {
+	if err := chownTree(options.StateDir, uid, gid); err != nil {
 		return err
 	}
 	if err := os.Chmod(options.StateDir, 0o700); err != nil {

@@ -15,7 +15,11 @@ import (
 	"strings"
 )
 
-const configFileName = "config.json"
+const (
+	configFileName = "config.json"
+	// caFileName is the service's private copy of an additional Core CA.
+	caFileName = "ca.pem"
+)
 
 // agentConfig is the persistent, host-owned agent configuration. It lives next
 // to the identity in the protected state directory, so a service does not
