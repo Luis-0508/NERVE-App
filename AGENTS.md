@@ -45,6 +45,7 @@ The repository is the source of truth. Short documents record what the code alon
 | `docs/ARCHITECTURE.md` | Modules, boundaries and data flow a maintainer needs to change the code safely. |
 | `IMPLEMENTATION_PLAN.md` | Current state, data model, forward plan, risks and privilege boundary. |
 | `docs/DECISIONS/` | Numbered decision records: context, decision, consequences. |
+| `DESIGN.md` | UI design system: tokens, status shapes, typography and layout rules. Read before changing UI. |
 
 - Read `PROJECT_STATE.md` before larger work, and the architecture, plan or decision records only when the task touches that area.
 - When a document disagrees with git or the code, trust the repository and correct the document.
