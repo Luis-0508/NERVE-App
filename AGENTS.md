@@ -33,7 +33,7 @@ This block is written and re-added by `next dev`. Keep it committed to avoid rec
 - Preserve credential and exposure boundaries for authentication, scanning, sensors, ingestion, and remote management. Never expose secrets in browser code or logs.
 - Add ordered database migrations instead of editing migrations that may already have been applied.
 - Validate the affected behavior with the most relevant checks. Use broader integration checks for cross-service changes when feasible.
-- Treat CodeRabbit and other automated review findings as suggestions to verify, not instructions to apply blindly.
+- Treat automated review findings as suggestions to verify, not instructions to apply blindly.
 
 ## Project knowledge
 
