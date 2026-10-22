@@ -53,6 +53,22 @@ Core: lock enrollment, verify digest/expiry/single use ──▶ agent ID + cred
   (wrong secret, expired, revoked, already used, key reuse) are audited. Attempts with
   unknown enrollment IDs are not, so anonymous callers cannot grow the immutable log.
   The endpoint is rate-limited per client address.
+- **Deployment keys** (`nerve-deploy-v1.<key id>.<secret>.<Core key fingerprint>`) enroll
+  many endpoints with one secret, for a GPO, Intune or scripted rollout. They are created,
+  listed and revoked under Settings → Management agents (`/api/v1/agent-deployment-keys`,
+  `agents.manage`). A key has a name, a use limit (1–10,000) and a lifetime of 1 hour to
+  90 days. Like enrollment tokens, only `SHA-256(secret)` is stored, and the key is shown
+  once. Each enrollment creates a new agent and counts one use under `SELECT … FOR UPDATE`,
+  so concurrent enrollments never exceed the limit; PostgreSQL also enforces the limit and
+  makes the key terms immutable and revocation final. Revoking a key stops new
+  enrollments only; agents it already enrolled keep their own credentials.
+- **Approval.** With the default `manual` approval, an agent enrolled by a deployment key
+  starts as `pending`. It authenticates and heartbeats (so the operator sees its host
+  facts, key fingerprint and online state), but Core queues no commands for it and links
+  it to no device. **Approve** (`POST /agents/{id}/approve`) makes it `active` and runs
+  device association; **Reject** removes it. A key with `automatic` approval enrolls
+  active agents directly: anyone holding it can then add an agent until it is revoked,
+  expires or runs out of uses.
 - **Proof of possession.** The enroll request is signed with the private key whose public
   key it registers. A token alone cannot register someone else's key.
 - **Credential.** Each agent has its own Ed25519 key pair. The private key never leaves
@@ -137,6 +153,7 @@ That token grants nothing on either API above.
 
 | Action | Effect |
 | --- | --- |
+| **Approve** (`POST /agents/{id}/approve`) | Only for `pending` agents enrolled by a deployment key. Status becomes `active`, device association runs, and the approval is audited. |
 | **Revoke** (`POST /agents/{id}/revoke`) | Active credential revoked. Agent status becomes `revoked`. Its queued, claimed and running commands are cancelled in the same transaction. The agent receives `agent_credential_revoked` and pauses polling. |
 | **Re-enroll** | Create an enrollment with `agentId`, then run `nerve-agent enroll --force`. Same agent ID, new key. The old credential is revoked as `reenrolled`. Use it for key rotation, a reinstall or a lost identity file. |
 | **Remove** (`POST /agents/{id}/remove`) | Final. Credentials are revoked, the device association is cleared and the agent can never authenticate or be re-enrolled. The row is kept because audit records and command history reference it. |

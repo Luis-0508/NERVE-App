@@ -35,7 +35,7 @@ flowchart LR
 | `internal/auth`, `internal/authz`, `internal/audit` | Bootstrap, sessions, login rate limiting; role-to-permission checks; append-only audit log |
 | `internal/inventory`, `internal/devices` | Device read model and search; operator-owned identity, evidence, duplicates, merge and split |
 | `internal/discovery` | Discovery target, persistent scan jobs, report reconciliation (MAC first), match rules |
-| `internal/agents`, `internal/agentproto` | Enrollment tokens, per-agent Ed25519 identities, signed protocol, Core response signing, device association |
+| `internal/agents`, `internal/agentproto` | Enrollment tokens and reusable deployment keys (with operator approval of pending agents), per-agent Ed25519 identities, signed protocol, Core response signing, device association |
 | `internal/remote` | Provider-neutral remote management: providers, policies, audited command pipeline |
 | `internal/traffic`, `internal/integrations/ntopng` | Normalized live-traffic snapshot, sensor ingest, ntopng adapter |
 | `internal/platform`, `internal/config` | Database pool, migrations, configuration from the environment |

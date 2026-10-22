@@ -33,6 +33,11 @@ release artifacts are not published yet; build from a reviewed checkout.
    `agents.manage`), optionally name the agent and create a token. It is shown once and
    expires after the chosen time (5 minutes to 24 hours). To link the agent to a known
    device immediately, use `POST /api/v1/agent-enrollments` with `deviceId`.
+   For many endpoints, create a **deployment key** under **Deployment keys** instead and
+   use it in place of the token on every endpoint. With the default "Wait for approval",
+   each agent then appears as *Awaiting approval*; compare its host and key fingerprint
+   and choose **Approve** or **Reject**. `nerve-agent status` and `diagnose` report the
+   pending state on the endpoint.
 2. Copy the build artifact to the endpoint and save the token to a file that only
    administrators can read. Tokens are never accepted as command-line arguments, because
    other local users can read process arguments.
@@ -209,7 +214,7 @@ Start with `nerve-agent diagnose`.
 | `agent_clock_skew` | The host clock differs from Core by more than 2 minutes. Fix NTP. |
 | `agent_credential_revoked` | The agent was revoked or removed. Re-enroll it or retire it. |
 | `agent_authentication_failed` | Unknown credential or wrong key, for example an identity file copied from another host. Re-enroll. |
-| `enrollment_rejected` | The token is invalid, expired, revoked or already used. Create a new one. |
+| `enrollment_rejected` | The token or deployment key is invalid, expired, revoked, already used or out of uses. Create a new one. |
 | `not signed by the pinned NERVE Core key` | A response could not be verified: something between the agent and Core altered or forged it, or Core's signing key changed. The agent ignores it and retries. If Core's key was changed on purpose, re-enroll the agent. |
 | `not signed by the pinned NERVE Core key` together with `HTTP 503` | Usually Core has no `NERVE_CORE_SIGNING_KEY`: that 503 answer cannot be signed. Check the API logs, run `setup.bat` (or set a 64-hex seed in `.env`) and recreate the API container. |
 | `core_signing_key_missing` (HTTP 503) | Core has no `NERVE_CORE_SIGNING_KEY`. Run `setup.bat` (or set a 64-hex seed in `.env`) and recreate the API container. |
