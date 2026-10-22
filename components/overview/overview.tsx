@@ -13,6 +13,7 @@ type Cell = { address: string; kind: CellKind; device?: DeviceSummary };
 
 const ATTENTION_LIMIT = 8;
 const NEW_DEVICE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const NEW_DEVICE_GROUP_AT = 3;
 
 function relative(iso?: string, now = Date.now()) {
   if (!iso) return "";
@@ -100,8 +101,14 @@ function attentionItems(discovery: DiscoveryState | null, duplicates: DuplicateC
   for (const candidate of duplicates) {
     items.push({ key: `dup-${candidate.deviceA.id}-${candidate.deviceB.id}`, shape: "warning", title: `Possible duplicate: ${candidate.deviceA.name} and ${candidate.deviceB.name}`, detail: candidate.reasons[0] ?? "Shared identity signals.", source: `identity evidence, ${candidate.confidence} confidence`, href: deviceHref(candidate.deviceA.id) });
   }
-  for (const device of devices) {
-    if (device.trustState === "unknown" && now - new Date(device.firstSeenAt).getTime() < NEW_DEVICE_WINDOW_MS) items.push({ key: `new-${device.id}`, shape: "warning", title: `New device: ${device.name}`, detail: "First seen in the last 24 hours and not reviewed yet.", source: "discovery", address: device.primaryIpAddress, at: device.firstSeenAt, href: deviceHref(device.id) });
+  const fresh = devices.filter((device) => device.trustState === "unknown" && now - new Date(device.firstSeenAt).getTime() < NEW_DEVICE_WINDOW_MS);
+  if (fresh.length > NEW_DEVICE_GROUP_AT) {
+    // A first scan finds every device at once; one summary keeps the real problems visible.
+    const names = fresh.slice(0, 3).map((device) => device.name).join(", ");
+    const latest = fresh.reduce((last, device) => (device.firstSeenAt > last ? device.firstSeenAt : last), fresh[0].firstSeenAt);
+    items.push({ key: "new-devices", shape: "warning", title: `${fresh.length} new devices to review`, detail: `First seen in the last 24 hours and not reviewed yet: ${names} and ${fresh.length - 3} more.`, source: "discovery", at: latest, href: "/devices?trust=unknown" });
+  } else {
+    for (const device of fresh) items.push({ key: `new-${device.id}`, shape: "warning", title: `New device: ${device.name}`, detail: "First seen in the last 24 hours and not reviewed yet.", source: "discovery", address: device.primaryIpAddress, at: device.firstSeenAt, href: deviceHref(device.id) });
   }
   return items;
 }
@@ -183,7 +190,7 @@ export function Overview() {
                   </li>
                 ))}
               </ul>
-              {attention.length > ATTENTION_LIMIT && <p className="overview-more muted">{attention.length - ATTENTION_LIMIT} more not shown.</p>}
+              {attention.length > ATTENTION_LIMIT && <p className="overview-more muted">{attention.length - ATTENTION_LIMIT} more not shown. <Link href="/devices">Open Devices</Link></p>}
             </>
           )}
           {inventory.error && !authRequired && <p className="overview-more muted">{inventory.error} Device-based checks are missing.</p>}

@@ -9,10 +9,13 @@ import type { DeviceFacets, DeviceList, DeviceSummary, DiscoveryState, Duplicate
 import { TrustBadge } from "./device-identity-panel";
 import { DeviceStatus } from "./device-status";
 
-// The shell's device search links here as /devices?search=...; apply it to the search box.
-function SearchFromUrl({ onSearch }: { onSearch: (value: string) => void }) {
-  const value = useSearchParams().get("search");
-  useEffect(() => { if (value !== null) onSearch(value); }, [value, onSearch]);
+// Links into the inventory (the shell search, the Overview) carry ?search= and ?trust=;
+// apply them to the matching controls.
+function FiltersFromUrl({ onSearch, onTrust }: { onSearch: (value: string) => void; onTrust: (value: string) => void }) {
+  const params = useSearchParams();
+  const search = params.get("search"), trust = params.get("trust");
+  useEffect(() => { if (search !== null) onSearch(search); }, [search, onSearch]);
+  useEffect(() => { if (trust !== null) onTrust(trust); }, [trust, onTrust]);
   return null;
 }
 
@@ -110,7 +113,7 @@ export function DevicesView() {
   const filtersActive = Boolean(search || status || classification || trust || tag);
 
   return <div className="page devices-page">
-    <Suspense fallback={null}><SearchFromUrl onSearch={setSearchInput} /></Suspense>
+    <Suspense fallback={null}><FiltersFromUrl onSearch={setSearchInput} onTrust={setTrust} /></Suspense>
     <div className="page-heading">
       <div><h1>Devices</h1><p>Physical and logical network identities known to NERVE.</p></div>
       <button className="button" type="button" onClick={() => void load()} disabled={loading}><RefreshCw size={14} aria-hidden="true" />Refresh</button>
