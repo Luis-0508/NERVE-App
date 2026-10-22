@@ -3,8 +3,8 @@
 How NERVE is put together and how data flows through it, for maintainers changing the
 code. [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) records the current state, the
 data model, sequencing, technical risks and the privilege boundary; subsystem details are
-in the other `docs/` pages (device identity, remote management, agent setup, traffic
-sensor and maps). Decisions made from now on are recorded in
+in the other `docs/` pages (HTTP API, local deployment, device identity, remote
+management, agent setup, traffic sensor and maps). Decisions made from now on are recorded in
 [`DECISIONS/`](DECISIONS/README.md).
 
 ## In one paragraph
