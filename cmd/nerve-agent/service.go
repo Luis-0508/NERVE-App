@@ -175,6 +175,9 @@ func prepareServiceState(options installOptions) (*identity, error) {
 		return nil, fmt.Errorf("enrolled as %s, but the identity could not be saved (revoke it in NERVE): %w", id.AgentID, err)
 	}
 	fmt.Printf("Enrolled as agent %s\nKey fingerprint (compare in NERVE): %s\n", id.AgentID, id.Fingerprint)
-	fmt.Println("The enrollment token is now used up; delete the token file.")
+	fmt.Println(id.tokenNotice())
+	if notice := id.approvalNotice(); notice != "" {
+		fmt.Println(notice)
+	}
 	return id, nil
 }

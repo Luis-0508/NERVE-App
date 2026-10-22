@@ -216,17 +216,20 @@ type EnrollResult struct {
 	AgentID      string
 	CredentialID string
 	Fingerprint  string
+	// Pending is true when a deployment key with manual approval enrolled the agent.
+	Pending bool
 }
 
-// Enroll consumes an enrollment token exactly once and registers publicKey as
-// the agent's only active credential. The caller has already verified that the
-// request was signed with publicKey (proof of possession).
+// Enroll registers publicKey as the agent's only active credential. An
+// enrollment token is consumed exactly once; a deployment key is counted
+// against its use limit and creates a new agent per enrollment. The caller has
+// already verified that the request was signed with publicKey (proof of
+// possession).
 func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519.PublicKey, facts agentproto.HostFacts, sourceAddress string) (EnrollResult, error) {
 	parsed, err := agentproto.ParseEnrollmentToken(token)
 	if err != nil {
 		return EnrollResult{}, ErrEnrollmentRejected
 	}
-	enrollmentID, secret := parsed.ID, parsed.Secret
 	if err := facts.Validate(); err != nil {
 		return EnrollResult{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
@@ -243,19 +246,31 @@ func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519
 		storedHash               []byte
 		displayName, deviceID    string
 		targetAgentID, createdBy string
+		approval                 string
 		used, revoked, expired   bool
+		exhausted                bool
 	)
-	err = tx.QueryRow(ctx, `SELECT secret_hash, COALESCE(display_name, ''), COALESCE(device_id::text, ''),
-		COALESCE(target_agent_id::text, ''), created_by::text, used_at IS NOT NULL, revoked_at IS NOT NULL, expires_at <= now()
-		FROM agent_enrollments WHERE id = $1::uuid FOR UPDATE`, enrollmentID).Scan(
-		&storedHash, &displayName, &deviceID, &targetAgentID, &createdBy, &used, &revoked, &expired)
+	// Both rows are locked FOR UPDATE, so concurrent enrollments with one
+	// deployment key are serialized and can never exceed its use limit.
+	targetType := "agent_enrollment"
+	if parsed.Deployment {
+		targetType = "agent_deployment_key"
+		err = tx.QueryRow(ctx, `SELECT secret_hash, approval, created_by::text, revoked_at IS NOT NULL, expires_at <= now(), used_count >= max_uses
+			FROM agent_deployment_keys WHERE id = $1::uuid FOR UPDATE`, parsed.ID).Scan(
+			&storedHash, &approval, &createdBy, &revoked, &expired, &exhausted)
+	} else {
+		err = tx.QueryRow(ctx, `SELECT secret_hash, COALESCE(display_name, ''), COALESCE(device_id::text, ''),
+			COALESCE(target_agent_id::text, ''), created_by::text, used_at IS NOT NULL, revoked_at IS NOT NULL, expires_at <= now()
+			FROM agent_enrollments WHERE id = $1::uuid FOR UPDATE`, parsed.ID).Scan(
+			&storedHash, &displayName, &deviceID, &targetAgentID, &createdBy, &used, &revoked, &expired)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return EnrollResult{}, ErrEnrollmentRejected
 	}
 	if err != nil {
-		return EnrollResult{}, fmt.Errorf("lock enrollment: %w", err)
+		return EnrollResult{}, fmt.Errorf("lock %s: %w", targetType, err)
 	}
-	digest := sha256.Sum256(secret)
+	digest := sha256.Sum256(parsed.Secret)
 	reason := ""
 	switch {
 	case subtle.ConstantTimeCompare(digest[:], storedHash) != 1:
@@ -264,6 +279,8 @@ func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519
 		reason = "revoked"
 	case used:
 		reason = "already_used"
+	case exhausted:
+		reason = "use_limit_reached"
 	case expired:
 		reason = "expired"
 	case parsed.CoreFingerprint != r.coreFingerprint():
@@ -272,9 +289,10 @@ func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519
 	}
 	if reason != "" {
 		_ = tx.Rollback(ctx)
-		r.auditEnrollmentFailure(ctx, enrollmentID, reason, fingerprint, sourceAddress)
+		r.auditEnrollmentFailure(ctx, targetType, parsed.ID, reason, fingerprint, sourceAddress)
 		return EnrollResult{}, ErrEnrollmentRejected
 	}
+	pending := parsed.Deployment && approval != ApprovalAutomatic
 
 	agentID := targetAgentID
 	reenrollment := targetAgentID != ""
@@ -285,7 +303,7 @@ func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519
 		}
 		if status == "removed" {
 			_ = tx.Rollback(ctx)
-			r.auditEnrollmentFailure(ctx, enrollmentID, "agent_removed", fingerprint, sourceAddress)
+			r.auditEnrollmentFailure(ctx, targetType, parsed.ID, "agent_removed", fingerprint, sourceAddress)
 			return EnrollResult{}, ErrEnrollmentRejected
 		}
 		if _, err := tx.Exec(ctx, `UPDATE agent_credentials SET revoked_at = now(), revocation_reason = 'reenrolled'
@@ -301,7 +319,15 @@ func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519
 		if name == "" {
 			name = normalized.Hostname
 		}
-		if err := tx.QueryRow(ctx, `INSERT INTO agents (display_name) VALUES ($1) RETURNING id::text`, truncate(name, 200)).Scan(&agentID); err != nil {
+		status, keyID := "active", ""
+		if parsed.Deployment {
+			keyID = parsed.ID
+			if pending {
+				status = "pending"
+			}
+		}
+		if err := tx.QueryRow(ctx, `INSERT INTO agents (display_name, status, deployment_key_id) VALUES ($1, $2, NULLIF($3, '')::uuid) RETURNING id::text`,
+			truncate(name, 200), status, keyID).Scan(&agentID); err != nil {
 			return EnrollResult{}, fmt.Errorf("create agent: %w", err)
 		}
 	}
@@ -316,49 +342,63 @@ func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
 			_ = tx.Rollback(ctx)
-			r.auditEnrollmentFailure(ctx, enrollmentID, "key_reuse", fingerprint, sourceAddress)
+			r.auditEnrollmentFailure(ctx, targetType, parsed.ID, "key_reuse", fingerprint, sourceAddress)
 			return EnrollResult{}, ErrKeyReuse
 		}
 		return EnrollResult{}, fmt.Errorf("store agent credential: %w", err)
 	}
-	if _, err := tx.Exec(ctx, `UPDATE agent_enrollments SET used_at = now(), used_from = NULLIF($2, '')::inet, enrolled_agent_id = $3::uuid
-		WHERE id = $1::uuid`, enrollmentID, sourceAddress, agentID); err != nil {
+	if parsed.Deployment {
+		if _, err := tx.Exec(ctx, `UPDATE agent_deployment_keys SET used_count = used_count + 1, last_used_at = now() WHERE id = $1::uuid`, parsed.ID); err != nil {
+			return EnrollResult{}, fmt.Errorf("count deployment key use: %w", err)
+		}
+	} else if _, err := tx.Exec(ctx, `UPDATE agent_enrollments SET used_at = now(), used_from = NULLIF($2, '')::inet, enrolled_agent_id = $3::uuid
+		WHERE id = $1::uuid`, parsed.ID, sourceAddress, agentID); err != nil {
 		return EnrollResult{}, fmt.Errorf("consume enrollment: %w", err)
 	}
 
 	// An operator who chose a device when creating the enrollment has already
 	// confirmed the association. A conflict is kept as visible evidence instead.
-	if deviceID != "" {
+	// A pending agent is associated only once it is approved.
+	switch {
+	case deviceID != "":
 		if err := r.associateFromEnrollment(ctx, tx, agentID, deviceID, createdBy); err != nil {
 			return EnrollResult{}, err
 		}
-	} else if err := evaluateAssociation(ctx, tx, agentID); err != nil {
-		return EnrollResult{}, err
+	case !pending:
+		if err := evaluateAssociation(ctx, tx, agentID); err != nil {
+			return EnrollResult{}, err
+		}
+	}
+	parameters := map[string]any{"enrollmentCreatedBy": createdBy, "credentialId": credentialID,
+		"fingerprint": fingerprint, "reenrollment": reenrollment, "hostname": normalized.Hostname}
+	if parsed.Deployment {
+		parameters["deploymentKeyId"] = parsed.ID
+		parameters["pendingApproval"] = pending
+	} else {
+		parameters["enrollmentId"] = parsed.ID
 	}
 	if err := audit.Write(ctx, tx, audit.Entry{ActorAgentID: agentID, Action: "agent.enrollment.completed", TargetType: "agent",
-		TargetID: agentID, SourceAddress: sourceAddress, Parameters: map[string]any{
-			"enrollmentId": enrollmentID, "enrollmentCreatedBy": createdBy, "credentialId": credentialID,
-			"fingerprint": fingerprint, "reenrollment": reenrollment, "hostname": normalized.Hostname,
-		}}); err != nil {
+		TargetID: agentID, SourceAddress: sourceAddress, Parameters: parameters}); err != nil {
 		return EnrollResult{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO events (entity_id, type, severity, category, message, details)
 		VALUES ((SELECT device_id FROM agents WHERE id = $1::uuid), 'agent.enrolled', 'info', 'remote-management',
-		CASE WHEN $2 THEN 'A management agent was re-enrolled.' ELSE 'A management agent enrolled.' END,
-		jsonb_build_object('agentId', $1::text, 'hostname', $3::text))`, agentID, reenrollment, normalized.Hostname); err != nil {
+		CASE WHEN $2 THEN 'A management agent was re-enrolled.' WHEN $4 THEN 'A management agent enrolled and awaits approval.'
+		     ELSE 'A management agent enrolled.' END,
+		jsonb_build_object('agentId', $1::text, 'hostname', $3::text))`, agentID, reenrollment, normalized.Hostname, pending); err != nil {
 		return EnrollResult{}, fmt.Errorf("record enrollment event: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return EnrollResult{}, fmt.Errorf("commit agent enrollment: %w", err)
 	}
-	return EnrollResult{AgentID: agentID, CredentialID: credentialID, Fingerprint: fingerprint}, nil
+	return EnrollResult{AgentID: agentID, CredentialID: credentialID, Fingerprint: fingerprint, Pending: pending}, nil
 }
 
 // auditEnrollmentFailure records rejected attempts against an existing
-// enrollment. Attempts with unknown enrollment IDs are not written, so
+// enrollment or deployment key. Attempts with unknown IDs are not written, so
 // unauthenticated callers cannot grow the immutable log arbitrarily.
-func (r *Repository) auditEnrollmentFailure(ctx context.Context, enrollmentID, reason, fingerprint, sourceAddress string) {
-	_ = audit.Write(ctx, r.db, audit.Entry{Action: "agent.enrollment.rejected", TargetType: "agent_enrollment", TargetID: enrollmentID,
+func (r *Repository) auditEnrollmentFailure(ctx context.Context, targetType, targetID, reason, fingerprint, sourceAddress string) {
+	_ = audit.Write(ctx, r.db, audit.Entry{Action: "agent.enrollment.rejected", TargetType: targetType, TargetID: targetID,
 		Result: audit.ResultFailure, ErrorCode: reason, SourceAddress: sourceAddress, Parameters: map[string]any{"fingerprint": fingerprint}})
 }
 
@@ -544,7 +584,9 @@ func (r *Repository) Authenticate(ctx context.Context, headers agentproto.Signed
 		return Principal{}, ErrAuthentication
 	}
 	// Only a holder of the private key learns that the credential was revoked.
-	if credentialRevoked || agentStatus != "active" {
+	// Pending agents authenticate (heartbeats keep them visible for approval);
+	// command queuing and association refuse them separately.
+	if credentialRevoked || (agentStatus != "active" && agentStatus != "pending") {
 		return Principal{}, ErrCredentialRevoked
 	}
 	tag, err := r.db.Exec(ctx, `INSERT INTO agent_request_nonces (credential_id, nonce, expires_at)
@@ -576,7 +618,7 @@ func (r *Repository) PruneNonces(ctx context.Context) error {
 // Agent registry
 
 const agentColumns = `a.id::text, a.display_name, a.status,
-	COALESCE(a.status = 'active' AND a.last_seen_at > now() - $1::interval
+	COALESCE(a.status IN ('active', 'pending') AND a.last_seen_at > now() - $1::interval
 		AND (a.last_shutdown_at IS NULL OR a.last_shutdown_at < a.last_seen_at), false),
 	COALESCE(a.hostname, ''), COALESCE(a.os, ''), COALESCE(a.os_version, ''), COALESCE(a.architecture, ''), COALESCE(a.agent_version, ''),
 	a.capabilities, a.reported_mac_addresses::text[], ARRAY(SELECT host(x) FROM unnest(a.reported_ip_addresses) x), COALESCE(host(a.last_ip), ''),
@@ -584,7 +626,7 @@ const agentColumns = `a.id::text, a.display_name, a.status,
 	COALESCE(a.device_id::text, ''), COALESCE(device_entity.name, ''), a.association_status, a.association_evidence,
 	a.associated_at, COALESCE(a.associated_by::text, ''),
 	COALESCE(credential.id::text, ''), COALESCE(credential.fingerprint, ''), credential.created_at,
-	COALESCE(a.run_mode, ''), a.process_started_at, a.host_boot_at, a.last_shutdown_at`
+	COALESCE(a.run_mode, ''), a.process_started_at, a.host_boot_at, a.last_shutdown_at, COALESCE(a.deployment_key_id::text, '')`
 
 const agentJoins = `FROM agents a
 	LEFT JOIN entities device_entity ON device_entity.id = a.device_id
@@ -605,7 +647,7 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&agent.LastError, &agent.FirstEnrolledAt, &agent.EnrolledAt, &agent.LastHeartbeatAt, &agent.LastSeenAt, &agent.RevokedAt,
 		&agent.RemovedAt, &deviceID, &deviceName, &agent.Association.Status, &evidence, &agent.Association.AssociatedAt,
 		&agent.Association.AssociatedBy, &credentialID, &fingerprint, &credentialCreated, &agent.RunMode,
-		&agent.ProcessStartedAt, &agent.HostBootAt, &agent.LastShutdownAt)
+		&agent.ProcessStartedAt, &agent.HostBootAt, &agent.LastShutdownAt, &agent.DeploymentKeyID)
 	if err != nil {
 		return Agent{}, err
 	}

@@ -163,6 +163,79 @@ func (s *Server) revokeEnrollment(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, enrollment)
 }
 
+func (s *Server) listDeploymentKeys(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requirePermission(w, r, authz.AgentsManage); !ok {
+		return
+	}
+	items, err := s.agents.ListDeploymentKeys(r.Context(), 100)
+	if err != nil {
+		s.logger.Error("list deployment keys", "error", err)
+		writeError(w, http.StatusInternalServerError, "deployment_keys_unavailable", "Deployment keys could not be loaded.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+func (s *Server) createDeploymentKey(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requirePermission(w, r, authz.AgentsManage)
+	if !ok {
+		return
+	}
+	var input struct {
+		Name          string `json:"name"`
+		Approval      string `json:"approval"`
+		MaxUses       int    `json:"maxUses"`
+		ExpiresInDays int    `json:"expiresInDays"`
+	}
+	if err := decodeJSON(r, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	key, secret, err := s.agents.CreateDeploymentKey(r.Context(), agents.CreateDeploymentKeyInput{
+		Name: input.Name, Approval: input.Approval, MaxUses: input.MaxUses,
+		TTL: time.Duration(input.ExpiresInDays) * 24 * time.Hour,
+	}, s.actor(r, user))
+	if s.writeAgentError(w, err) {
+		return
+	}
+	// The key is returned exactly once and never stored or logged.
+	writeJSON(w, http.StatusCreated, map[string]any{"deploymentKey": key, "key": secret})
+}
+
+func (s *Server) revokeDeploymentKey(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requirePermission(w, r, authz.AgentsManage)
+	if !ok {
+		return
+	}
+	keyID := r.PathValue("keyID")
+	if !isUUID(keyID) {
+		writeError(w, http.StatusBadRequest, "invalid_deployment_key_id", "Deployment key ID must be a UUID.")
+		return
+	}
+	key, err := s.agents.RevokeDeploymentKey(r.Context(), keyID, s.actor(r, user))
+	if s.writeAgentError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, key)
+}
+
+func (s *Server) approveAgent(w http.ResponseWriter, r *http.Request) {
+	user, ok := s.requirePermission(w, r, authz.AgentsManage)
+	if !ok {
+		return
+	}
+	agentID := r.PathValue("agentID")
+	if !isUUID(agentID) {
+		writeError(w, http.StatusBadRequest, "invalid_agent_id", "Agent ID must be a UUID.")
+		return
+	}
+	agent, err := s.agents.Approve(r.Context(), agentID, s.actor(r, user))
+	if s.writeAgentError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, agent)
+}
+
 func (s *Server) auditLog(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.requirePermission(w, r, authz.AuditView); !ok {
 		return
@@ -203,6 +276,14 @@ func (s *Server) writeAgentError(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusConflict, "agent_removed", err.Error())
 	case errors.Is(err, agents.ErrEnrollmentNotActive):
 		writeError(w, http.StatusConflict, "enrollment_not_pending", err.Error())
+	case errors.Is(err, agents.ErrDeploymentKeyNotFound):
+		writeError(w, http.StatusNotFound, "deployment_key_not_found", "The deployment key does not exist.")
+	case errors.Is(err, agents.ErrDeploymentKeyNotActive):
+		writeError(w, http.StatusConflict, "deployment_key_not_active", err.Error())
+	case errors.Is(err, agents.ErrNotPendingApproval):
+		writeError(w, http.StatusConflict, "agent_not_pending", err.Error())
+	case errors.Is(err, agents.ErrAwaitingApproval):
+		writeError(w, http.StatusConflict, "agent_awaiting_approval", err.Error())
 	case errors.Is(err, agents.ErrCredentialRevoked):
 		writeError(w, http.StatusConflict, "agent_already_revoked", "The agent has no active credential.")
 	case errors.Is(err, agents.ErrCoreKeyMissing):
@@ -340,9 +421,9 @@ func (s *Server) agentEnroll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "enrollment_failed", "The agent could not be enrolled.")
 		return
 	}
-	s.logger.Info("agent enrolled", "agent_id", result.AgentID, "fingerprint", result.Fingerprint)
+	s.logger.Info("agent enrolled", "agent_id", result.AgentID, "fingerprint", result.Fingerprint, "pending_approval", result.Pending)
 	writeJSON(w, http.StatusCreated, agentproto.EnrollResponse{AgentID: result.AgentID, CredentialID: result.CredentialID,
-		Fingerprint: result.Fingerprint, HeartbeatIntervalSeconds: int(agents.HeartbeatInterval.Seconds())})
+		Fingerprint: result.Fingerprint, HeartbeatIntervalSeconds: int(agents.HeartbeatInterval.Seconds()), PendingApproval: result.Pending})
 }
 
 func (s *Server) agentIdentity(w http.ResponseWriter, _ *http.Request, principal agents.Principal, _ []byte) {

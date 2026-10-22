@@ -181,9 +181,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/agents/{agentID}", s.agentDetail)
 	mux.HandleFunc("POST /api/v1/agents/{agentID}/revoke", s.revokeAgent)
 	mux.HandleFunc("POST /api/v1/agents/{agentID}/remove", s.removeAgent)
+	mux.HandleFunc("POST /api/v1/agents/{agentID}/approve", s.approveAgent)
 	mux.HandleFunc("GET /api/v1/agent-enrollments", s.listEnrollments)
 	mux.HandleFunc("POST /api/v1/agent-enrollments", s.createEnrollment)
 	mux.HandleFunc("POST /api/v1/agent-enrollments/{enrollmentID}/revoke", s.revokeEnrollment)
+	mux.HandleFunc("GET /api/v1/agent-deployment-keys", s.listDeploymentKeys)
+	mux.HandleFunc("POST /api/v1/agent-deployment-keys", s.createDeploymentKey)
+	mux.HandleFunc("POST /api/v1/agent-deployment-keys/{keyID}/revoke", s.revokeDeploymentKey)
 	// Agent-authenticated API: Ed25519-signed requests only, never browser sessions.
 	mux.HandleFunc("POST /api/v1/agent/enroll", s.coreSigned(s.agentEnroll))
 	mux.HandleFunc("POST /api/v1/agent/identity", s.agentEndpoint(4<<10, s.agentIdentity))

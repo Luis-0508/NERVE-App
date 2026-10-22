@@ -19,6 +19,11 @@ import (
 // can authenticate Core even when enrollment itself runs over plain HTTP.
 const EnrollmentTokenPrefix = "nerve-enroll-v2"
 
+// DeploymentKeyPrefix identifies reusable deployment keys. They have the same
+// shape as enrollment tokens, with the deployment key UUID in place of the
+// enrollment UUID, and are accepted wherever an enrollment token is.
+const DeploymentKeyPrefix = "nerve-deploy-v1"
+
 var (
 	ErrInvalidEnrollmentToken = errors.New("enrollment token is malformed")
 	uuidPattern               = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -33,21 +38,27 @@ func NewEnrollmentSecret() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
-// EnrollmentToken is a parsed enrollment token.
+// EnrollmentToken is a parsed enrollment token or deployment key.
 type EnrollmentToken struct {
 	ID              string
 	Secret          []byte
 	CoreFingerprint string
+	// Deployment is true for a reusable deployment key; ID is then the key's ID.
+	Deployment bool
 }
 
 func FormatEnrollmentToken(enrollmentID, secret, coreFingerprint string) string {
 	return EnrollmentTokenPrefix + "." + enrollmentID + "." + secret + "." + coreFingerprint
 }
 
-// ParseEnrollmentToken splits and validates a token.
+func FormatDeploymentKey(keyID, secret, coreFingerprint string) string {
+	return DeploymentKeyPrefix + "." + keyID + "." + secret + "." + coreFingerprint
+}
+
+// ParseEnrollmentToken splits and validates an enrollment token or deployment key.
 func ParseEnrollmentToken(token string) (EnrollmentToken, error) {
 	parts := strings.Split(strings.TrimSpace(token), ".")
-	if len(parts) != 4 || parts[0] != EnrollmentTokenPrefix || !uuidPattern.MatchString(parts[1]) {
+	if len(parts) != 4 || (parts[0] != EnrollmentTokenPrefix && parts[0] != DeploymentKeyPrefix) || !uuidPattern.MatchString(parts[1]) {
 		return EnrollmentToken{}, ErrInvalidEnrollmentToken
 	}
 	secret, err := base64.RawURLEncoding.DecodeString(parts[2])
@@ -57,7 +68,7 @@ func ParseEnrollmentToken(token string) (EnrollmentToken, error) {
 	if fingerprint, err := base64.RawURLEncoding.DecodeString(parts[3]); err != nil || len(fingerprint) != 32 {
 		return EnrollmentToken{}, ErrInvalidEnrollmentToken
 	}
-	return EnrollmentToken{ID: parts[1], Secret: secret, CoreFingerprint: parts[3]}, nil
+	return EnrollmentToken{ID: parts[1], Secret: secret, CoreFingerprint: parts[3], Deployment: parts[0] == DeploymentKeyPrefix}, nil
 }
 
 // HostFacts are self-reported by the agent. Core treats them as evidence, not
@@ -127,6 +138,9 @@ type EnrollResponse struct {
 	CredentialID             string `json:"credentialId"`
 	Fingerprint              string `json:"fingerprint"`
 	HeartbeatIntervalSeconds int    `json:"heartbeatIntervalSeconds"`
+	// PendingApproval is set when a deployment key enrolled the agent and an
+	// operator still has to approve it. Until then it receives no commands.
+	PendingApproval bool `json:"pendingApproval,omitempty"`
 }
 
 // IdentityResponse answers an authenticated identity check.

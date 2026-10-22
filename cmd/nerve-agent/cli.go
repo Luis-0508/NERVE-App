@@ -148,7 +148,10 @@ func runEnroll(args []string) int {
 	}
 	fmt.Printf("Enrolled as agent %s\nKey fingerprint (compare in NERVE): %s\nPinned NERVE Core key: %s\nIdentity: %s\n",
 		id.AgentID, id.Fingerprint, agentproto.CoreKeyID(id.coreKey), *stateDir)
-	fmt.Println("The enrollment token is now used up; remove it from any configuration.")
+	fmt.Println(id.tokenNotice())
+	if notice := id.approvalNotice(); notice != "" {
+		fmt.Println(notice)
+	}
 	if existing != nil {
 		fmt.Println("A running agent picks up the new identity within", identityPollInterval.String()+".")
 	}
@@ -239,7 +242,8 @@ func runAgent(ctx context.Context, options runOptions) int {
 				logger.Error("enrolled, but the identity could not be saved; revoke the agent and enroll again", "agent_id", id.AgentID, "error", err)
 				return 1
 			}
-			logger.Info("agent enrolled", "agent_id", id.AgentID, "fingerprint", id.Fingerprint, "state_dir", options.stateDir)
+			logger.Info("agent enrolled", "agent_id", id.AgentID, "fingerprint", id.Fingerprint, "state_dir", options.stateDir,
+				"pending_approval", id.pendingApproval)
 			if config.APIURL == "" {
 				config.APIURL = apiURL
 			}

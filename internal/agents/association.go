@@ -48,8 +48,9 @@ func (r *Repository) Heartbeat(ctx context.Context, principal Principal, request
 		return fmt.Errorf("begin heartbeat: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	var previousDigest, associationStatus string
-	if err := tx.QueryRow(ctx, `SELECT COALESCE(facts_digest, ''), association_status FROM agents WHERE id = $1::uuid AND status = 'active' FOR UPDATE`, principal.AgentID).Scan(&previousDigest, &associationStatus); err != nil {
+	var previousDigest, associationStatus, status string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(facts_digest, ''), association_status, status FROM agents
+		WHERE id = $1::uuid AND status IN ('active', 'pending') FOR UPDATE`, principal.AgentID).Scan(&previousDigest, &associationStatus, &status); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrCredentialRevoked
 		}
@@ -75,8 +76,9 @@ func (r *Repository) Heartbeat(ctx context.Context, principal Principal, request
 	}
 	// Unresolved agents are re-evaluated on every heartbeat so a device that
 	// discovery finds after enrollment is still linked; resolved ones only when
-	// their reported facts change.
-	if factsChanged || associationStatus == "unassociated" || associationStatus == "candidate" {
+	// their reported facts change. Pending agents are not linked to any device
+	// until an operator approves them.
+	if status == "active" && (factsChanged || associationStatus == "unassociated" || associationStatus == "candidate") {
 		if err := evaluateAssociation(ctx, tx, principal.AgentID); err != nil {
 			return err
 		}
@@ -290,6 +292,9 @@ func (r *Repository) UpdateAssociation(ctx context.Context, agentID string, acti
 	}
 	if status == "removed" {
 		return Agent{}, ErrAgentRemoved
+	}
+	if status == "pending" {
+		return Agent{}, ErrAwaitingApproval
 	}
 	var evidence []Evidence
 	_ = json.Unmarshal(evidenceRaw, &evidence)

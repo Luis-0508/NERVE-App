@@ -18,6 +18,14 @@ const (
 	DefaultEnrollmentTTL = time.Hour
 	MaxEnrollmentTTL     = 24 * time.Hour
 	MinEnrollmentTTL     = 5 * time.Minute
+
+	DefaultDeploymentKeyTTL = 7 * 24 * time.Hour
+	MaxDeploymentKeyTTL     = 90 * 24 * time.Hour
+	MinDeploymentKeyTTL     = time.Hour
+	MaxDeploymentKeyUses    = 10000
+
+	ApprovalManual    = "manual"
+	ApprovalAutomatic = "automatic"
 )
 
 var (
@@ -25,6 +33,10 @@ var (
 	ErrEnrollmentNotFound  = errors.New("enrollment not found")
 	ErrEnrollmentRejected  = errors.New("enrollment token is invalid, expired, revoked or already used")
 	ErrEnrollmentNotActive = errors.New("enrollment is no longer pending")
+	ErrDeploymentKeyNotFound  = errors.New("deployment key not found")
+	ErrDeploymentKeyNotActive = errors.New("deployment key is already revoked or expired")
+	ErrNotPendingApproval     = errors.New("agent is not waiting for approval")
+	ErrAwaitingApproval       = errors.New("agent is waiting for approval")
 	ErrKeyReuse            = errors.New("this public key is already registered")
 	ErrInvalidInput        = errors.New("invalid input")
 	ErrAgentRemoved        = errors.New("agent was removed")
@@ -103,6 +115,7 @@ type Agent struct {
 	Device           *DeviceRef  `json:"device,omitempty"`
 	Association      Association `json:"association"`
 	Credential       *Credential `json:"credential,omitempty"`
+	DeploymentKeyID  string      `json:"deploymentKeyId,omitempty"`
 }
 
 type Enrollment struct {
@@ -118,6 +131,31 @@ type Enrollment struct {
 	UsedAt          *time.Time `json:"usedAt,omitempty"`
 	EnrolledAgentID string     `json:"enrolledAgentId,omitempty"`
 	RevokedAt       *time.Time `json:"revokedAt,omitempty"`
+}
+
+// DeploymentKey is a reusable, limited enrollment secret. The secret itself is
+// shown once at creation; only its digest is stored.
+type DeploymentKey struct {
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	Approval       string     `json:"approval"`
+	MaxUses        int        `json:"maxUses"`
+	UsedCount      int        `json:"usedCount"`
+	CreatedBy      string     `json:"createdBy"`
+	CreatedByEmail string     `json:"createdByEmail,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	ExpiresAt      time.Time  `json:"expiresAt"`
+	LastUsedAt     *time.Time `json:"lastUsedAt,omitempty"`
+	RevokedAt      *time.Time `json:"revokedAt,omitempty"`
+	State          string     `json:"state"`
+}
+
+// CreateDeploymentKeyInput is validated by CreateDeploymentKey.
+type CreateDeploymentKeyInput struct {
+	Name     string
+	Approval string
+	MaxUses  int
+	TTL      time.Duration
 }
 
 // CreateEnrollmentInput is validated by CreateEnrollment.
@@ -147,7 +185,7 @@ const (
 // the agent reported a graceful shutdown; "offline" means it went silent.
 func connectionState(agent Agent) string {
 	switch {
-	case agent.Status != "active":
+	case agent.Status != "active" && agent.Status != "pending":
 		return ConnectionInactive
 	case agent.Online:
 		return ConnectionOnline

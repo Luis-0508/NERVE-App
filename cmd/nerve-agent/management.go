@@ -158,7 +158,8 @@ func enrollWith(ctx context.Context, apiURL, token string, transport http.RoundT
 		return nil, errors.New("core acknowledged a different public key; enrollment aborted")
 	}
 	return &identity{AgentID: response.AgentID, CredentialID: response.CredentialID, Fingerprint: response.Fingerprint,
-		APIURL: apiURL, EnrolledAt: time.Now().UTC(), key: private, coreKey: coreKey}, nil
+		APIURL: apiURL, EnrolledAt: time.Now().UTC(), key: private, coreKey: coreKey,
+		deploymentKey: parsed.Deployment, pendingApproval: response.PendingApproval}, nil
 }
 
 // manager runs the management loops for an enrolled agent.

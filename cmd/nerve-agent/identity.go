@@ -29,6 +29,24 @@ type identity struct {
 
 	key     ed25519.PrivateKey
 	coreKey ed25519.PublicKey
+	// Set only right after enrollment, for the operator-facing messages.
+	deploymentKey, pendingApproval bool
+}
+
+// tokenNotice tells the operator what happens to the token they just used.
+func (id *identity) tokenNotice() string {
+	if id.deploymentKey {
+		return "The deployment key stays valid for further endpoints until it expires, runs out of uses or is revoked."
+	}
+	return "The enrollment token is now used up; remove it from any configuration and delete any token file."
+}
+
+// approvalNotice is empty unless an operator still has to approve the agent.
+func (id *identity) approvalNotice() string {
+	if !id.pendingApproval {
+		return ""
+	}
+	return "This agent waits for approval in NERVE (Settings → Management agents) and receives no commands until then."
 }
 
 // defaultStateDir picks a per-installation location that only the agent's
