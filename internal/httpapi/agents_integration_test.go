@@ -313,3 +313,82 @@ func TestAgentAPIRequiresCoreSigningKey(t *testing.T) {
 		_ = response.Body.Close()
 	}
 }
+
+func TestDeploymentKeyAPI(t *testing.T) {
+	pool := testsupport.MigratedPool(t, "http_deploy")
+	testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
+	testsupport.CreateUser(t, pool, "tech@example.invalid", "integration-password", "technician")
+	server := httptest.NewServer(httpapi.New(pool, config.Config{AllowedOrigin: "http://localhost:3000", SessionTTL: time.Hour, CoreSigningKey: testsupport.CoreSigningKeyHex},
+		slog.New(slog.NewTextHandler(io.Discard, nil)), "test").Handler())
+	defer server.Close()
+	admin := login(t, server.URL, "admin@example.invalid", "integration-password")
+	technician := login(t, server.URL, "tech@example.invalid", "integration-password")
+
+	// Only agents.manage may list, create or revoke keys and approve agents.
+	for _, request := range [][2]string{
+		{http.MethodGet, "/api/v1/agent-deployment-keys"},
+		{http.MethodPost, "/api/v1/agent-deployment-keys"},
+		{http.MethodPost, "/api/v1/agent-deployment-keys/3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e/revoke"},
+		{http.MethodPost, "/api/v1/agents/3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e/approve"},
+	} {
+		response := doJSON(t, technician, request[0], server.URL+request[1], `{"name":"x","maxUses":1}`, nil)
+		if response.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s %s as technician = %d", request[0], request[1], response.StatusCode)
+		}
+		_ = response.Body.Close()
+	}
+
+	var created struct {
+		Key           string `json:"key"`
+		DeploymentKey struct {
+			ID    string `json:"id"`
+			State string `json:"state"`
+		} `json:"deploymentKey"`
+	}
+	response := doJSON(t, admin, http.MethodPost, server.URL+"/api/v1/agent-deployment-keys", `{"name":"Office","maxUses":2,"expiresInDays":7}`, nil)
+	if response.StatusCode != http.StatusCreated {
+		t.Fatalf("create key = %d: %s", response.StatusCode, readBody(response))
+	}
+	decodeResponse(t, response, &created)
+	if !strings.HasPrefix(created.Key, agentproto.DeploymentKeyPrefix+".") || created.DeploymentKey.State != "active" {
+		t.Fatalf("created key: %+v", created)
+	}
+	if listed := readBody(doJSON(t, admin, http.MethodGet, server.URL+"/api/v1/agent-deployment-keys", "", nil)); strings.Contains(listed, created.Key) {
+		t.Fatal("the key secret is listed again")
+	}
+	invalid := doJSON(t, admin, http.MethodPost, server.URL+"/api/v1/agent-deployment-keys", `{"name":"x","maxUses":0}`, nil)
+	if invalid.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid key = %d", invalid.StatusCode)
+	}
+	_ = invalid.Body.Close()
+
+	// The agent API reports the pending state; approval goes through the operator API.
+	agent := enrollTestAgent(t, server.URL, created.Key, "office-pc")
+	var detail struct {
+		Status string `json:"status"`
+	}
+	decodeResponse(t, doJSON(t, admin, http.MethodGet, server.URL+"/api/v1/agents/"+agent.agentID, "", nil), &detail)
+	if detail.Status != "pending" {
+		t.Fatalf("enrolled agent status = %q", detail.Status)
+	}
+	status, body := send(t, http.DefaultClient, agent.request("POST", "/agent/identity", []byte("{}"), agent.credentialID, nil))
+	if status != http.StatusOK {
+		t.Fatalf("pending agent identity = %d: %s", status, body)
+	}
+	approved := doJSON(t, admin, http.MethodPost, server.URL+"/api/v1/agents/"+agent.agentID+"/approve", `{}`, nil)
+	if approved.StatusCode != http.StatusOK {
+		t.Fatalf("approve = %d: %s", approved.StatusCode, readBody(approved))
+	}
+	_ = approved.Body.Close()
+	again := doJSON(t, admin, http.MethodPost, server.URL+"/api/v1/agents/"+agent.agentID+"/approve", `{}`, nil)
+	if again.StatusCode != http.StatusConflict {
+		t.Fatalf("second approval = %d", again.StatusCode)
+	}
+	_ = again.Body.Close()
+
+	revoked := doJSON(t, admin, http.MethodPost, server.URL+"/api/v1/agent-deployment-keys/"+created.DeploymentKey.ID+"/revoke", `{}`, nil)
+	if revoked.StatusCode != http.StatusOK {
+		t.Fatalf("revoke key = %d: %s", revoked.StatusCode, readBody(revoked))
+	}
+	_ = revoked.Body.Close()
+}
