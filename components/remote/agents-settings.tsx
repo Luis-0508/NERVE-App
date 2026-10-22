@@ -19,6 +19,20 @@ function runtimeTitle(agent: ManagementAgent) {
   return parts.join(", ") || undefined;
 }
 
+// A single-quoted PowerShell literal expands nothing; only ' itself needs doubling.
+function psQuote(value: string) {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+// The token travels through a file in the administrator's profile, never a process
+// argument, and the file is removed even when enrollment fails.
+function powershellEnrollCommand(token: string, apiBase: string, reenroll: boolean) {
+  const run = reenroll
+    ? `& (Join-Path $env:ProgramFiles 'NERVE\\Agent\\nerve-agent.exe') enroll --force --token-file $f; if ($LASTEXITCODE -ne 0) { throw "nerve-agent enroll failed with exit code $LASTEXITCODE." }`
+    : `.\\install-windows.ps1 -ApiUrl ${psQuote(apiBase)} -TokenFile $f`;
+  return `$f = Join-Path $env:TEMP ('nerve-enroll-' + [guid]::NewGuid() + '.token'); try { [IO.File]::WriteAllText($f, ${psQuote(token)}); ${run} } finally { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }`;
+}
+
 export function AgentsSettings({ permissions }: { permissions: string[] }) {
   const canManage = permissions.includes("agents.manage");
   const [agents, setAgents] = useState<ManagementAgent[] | null>(null);
@@ -28,6 +42,7 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
   const [minutes, setMinutes] = useState(60);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
   const apiBase = `${typeof window === "undefined" ? "" : window.location.origin}/api/v1`;
 
   const load = useCallback(async () => {
@@ -51,8 +66,17 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
     await act(async () => {
       const result = await api.createEnrollment({ displayName: agentId ? undefined : name.trim() || undefined, agentId, expiresInMinutes: minutes });
       setToken({ value: result.token, expiresAt: result.enrollment.expiresAt, reenroll: Boolean(agentId) });
-      setName("");
+      setName(""); setCopied(null);
     });
+  }
+
+  async function copy(label: string, value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(`${label} copied.`);
+    } catch {
+      setCopied("Copying failed; select the text and copy it manually.");
+    }
   }
 
   return <section className="settings-panel agents-settings">
@@ -99,14 +123,18 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
         {token && <div className="enroll-token">
           <p>{token.reenroll ? "Re-enrollment" : "Enrollment"} token, valid until {formatDate(token.expiresAt)}. Copy it now; it cannot be shown again.</p>
           <pre className="remote-json">{token.value}</pre>
-          <p className="muted">On the endpoint, save the token to a file only administrators can read, then delete the file afterwards.</p>
-          {token.reenroll
-            ? <p className="muted">As Administrator or root: <code className="mono">nerve-agent enroll --force --token-file &lt;file&gt;</code>. A running service switches to the new key within 15 seconds.</p>
-            : <ul className="muted enroll-commands">
-              <li>Windows (Administrator PowerShell): <code className="mono">.\install-windows.ps1 -ApiUrl {apiBase} -TokenFile &lt;file&gt;</code></li>
-              <li>Linux: <code className="mono">sudo ./install-linux.sh --api-url {apiBase} --token-file &lt;file&gt;</code></li>
-            </ul>}
-          <button className="button" type="button" onClick={() => { void navigator.clipboard?.writeText(token.value); }}>Copy</button> <button className="button" type="button" onClick={() => setToken(null)}>Done</button>
+          <p className="muted">{token.reenroll
+            ? "Windows: paste into an Administrator PowerShell on the endpoint. A running service switches to the new key within 15 seconds."
+            : "Windows: paste into an Administrator PowerShell in the folder that contains install-windows.ps1 and nerve-agent.exe."}{" "}
+            The command passes the token through a temporary file that it deletes afterwards. The pasted line may stay in the PowerShell history; the token is single-use and expires, so revoke it below if enrollment does not finish.</p>
+          <pre className="remote-json">{powershellEnrollCommand(token.value, apiBase, token.reenroll)}</pre>
+          <p className="muted">Linux or manual setup: save the token to a file only administrators can read, then run {token.reenroll
+            ? <code className="mono">sudo nerve-agent enroll --force --token-file &lt;file&gt;</code>
+            : <code className="mono">sudo ./install-linux.sh --api-url {apiBase} --token-file &lt;file&gt;</code>} and delete the file.</p>
+          <button className="button button-primary" type="button" onClick={() => void copy("PowerShell command", powershellEnrollCommand(token.value, apiBase, token.reenroll))}>Copy PowerShell command</button>{" "}
+          <button className="button" type="button" onClick={() => void copy("Token", token.value)}>Copy token</button>{" "}
+          <button className="button" type="button" onClick={() => setToken(null)}>Done</button>
+          {copied && <span className="muted enroll-copied" role="status">{copied}</span>}
         </div>}
         {enrollments.length > 0 && <div className="table-wrap"><table className="data-table"><thead><tr><th>Enrollment</th><th>State</th><th>Created by</th><th>Expires</th><th /></tr></thead><tbody>
           {enrollments.slice(0, 20).map((enrollment) => <tr key={enrollment.id}>
