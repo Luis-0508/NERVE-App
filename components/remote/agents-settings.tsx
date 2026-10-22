@@ -24,13 +24,13 @@ function psQuote(value: string) {
   return `'${value.replace(/'/g, "''")}'`;
 }
 
-// The token travels through a file in the administrator's profile, never a process
-// argument, and the file is removed even when enrollment fails.
+// The token reaches the agent through NERVE_AGENT_ENROLLMENT_TOKEN, never a process
+// argument, and the variable is cleared from the session even when enrollment fails.
 function powershellEnrollCommand(token: string, apiBase: string, reenroll: boolean) {
   const run = reenroll
-    ? `& (Join-Path $env:ProgramFiles 'NERVE\\Agent\\nerve-agent.exe') enroll --force --token-file $f; if ($LASTEXITCODE -ne 0) { throw "nerve-agent enroll failed with exit code $LASTEXITCODE." }`
-    : `.\\install-windows.ps1 -ApiUrl ${psQuote(apiBase)} -TokenFile $f`;
-  return `$f = Join-Path $env:TEMP ('nerve-enroll-' + [guid]::NewGuid() + '.token'); try { [IO.File]::WriteAllText($f, ${psQuote(token)}); ${run} } finally { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }`;
+    ? `& (Join-Path $env:ProgramFiles 'NERVE\\Agent\\nerve-agent.exe') enroll --force; if ($LASTEXITCODE -ne 0) { throw "nerve-agent enroll failed with exit code $LASTEXITCODE." }`
+    : `.\\install-windows.ps1 -ApiUrl ${psQuote(apiBase)}`;
+  return `$env:NERVE_AGENT_ENROLLMENT_TOKEN = ${psQuote(token)}; try { ${run} } finally { Remove-Item Env:\\NERVE_AGENT_ENROLLMENT_TOKEN -ErrorAction SilentlyContinue }`;
 }
 
 export function AgentsSettings({ permissions }: { permissions: string[] }) {
@@ -126,7 +126,7 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
           <p className="muted">{token.reenroll
             ? "Windows: paste into an Administrator PowerShell on the endpoint. A running service switches to the new key within 15 seconds."
             : "Windows: paste into an Administrator PowerShell in the folder that contains install-windows.ps1 and nerve-agent.exe."}{" "}
-            The command passes the token through a temporary file that it deletes afterwards. The pasted line may stay in the PowerShell history; the token is single-use and expires, so revoke it below if enrollment does not finish.</p>
+            The token is already part of the command and is handed to the agent through an environment variable, not a file. The pasted line may stay in the PowerShell history; the token is single-use and expires, so revoke it below if enrollment does not finish.</p>
           <pre className="remote-json">{powershellEnrollCommand(token.value, apiBase, token.reenroll)}</pre>
           <p className="muted">Linux or manual setup: save the token to a file only administrators can read, then run {token.reenroll
             ? <code className="mono">sudo nerve-agent enroll --force --token-file &lt;file&gt;</code>
