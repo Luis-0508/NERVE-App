@@ -427,7 +427,7 @@ func (s *Server) agentEnroll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) agentIdentity(w http.ResponseWriter, _ *http.Request, principal agents.Principal, _ []byte) {
-	writeJSON(w, http.StatusOK, agentproto.IdentityResponse{AgentID: principal.AgentID, CredentialID: principal.CredentialID, Status: "active"})
+	writeJSON(w, http.StatusOK, agentproto.IdentityResponse{AgentID: principal.AgentID, CredentialID: principal.CredentialID, Status: principal.Status})
 }
 
 func (s *Server) allowEnrollment(address string) bool {

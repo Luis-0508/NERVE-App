@@ -372,7 +372,7 @@ func TestDeploymentKeyAPI(t *testing.T) {
 		t.Fatalf("enrolled agent status = %q", detail.Status)
 	}
 	status, body := send(t, http.DefaultClient, agent.request("POST", "/agent/identity", []byte("{}"), agent.credentialID, nil))
-	if status != http.StatusOK {
+	if status != http.StatusOK || !strings.Contains(body, `"status":"pending"`) {
 		t.Fatalf("pending agent identity = %d: %s", status, body)
 	}
 	approved := doJSON(t, admin, http.MethodPost, server.URL+"/api/v1/agents/"+agent.agentID+"/approve", `{}`, nil)

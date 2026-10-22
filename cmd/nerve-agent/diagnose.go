@@ -178,6 +178,10 @@ func diagnose(ctx context.Context, stateDir string) diagnosis {
 		result.add("core-auth", "fail", "%v%s", err, hint)
 		return result
 	}
+	if identityResponse.Status == "pending" {
+		result.add("core-auth", "warn", "Core accepts agent %s, but it waits for approval in NERVE and receives no commands until then", identityResponse.AgentID)
+		return result
+	}
 	result.add("core-auth", "ok", "Core accepts agent %s (%s); response signed by the pinned Core key", identityResponse.AgentID, identityResponse.Status)
 	return result
 }

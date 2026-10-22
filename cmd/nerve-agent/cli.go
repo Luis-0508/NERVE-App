@@ -192,6 +192,9 @@ func runStatus(args []string) int {
 		return 1
 	}
 	fmt.Println("Core accepts this identity, and its response is signed by the pinned Core key.")
+	if response.Status == "pending" {
+		fmt.Println("This agent waits for approval in NERVE (Settings → Management agents) and receives no commands until then.")
+	}
 	return 0
 }
 

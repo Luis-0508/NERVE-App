@@ -54,6 +54,7 @@ var (
 type Principal struct {
 	AgentID      string
 	CredentialID string
+	Status       string // "active" or "pending"
 }
 
 type DeviceRef struct {

@@ -603,7 +603,7 @@ func (r *Repository) Authenticate(ctx context.Context, headers agentproto.Signed
 		agentID, sourceAddress); err != nil {
 		return Principal{}, fmt.Errorf("update agent presence: %w", err)
 	}
-	return Principal{AgentID: agentID, CredentialID: headers.CredentialID}, nil
+	return Principal{AgentID: agentID, CredentialID: headers.CredentialID, Status: agentStatus}, nil
 }
 
 // PruneNonces deletes replay-protection rows that are past the skew window.
