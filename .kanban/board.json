@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "version": 21,
+  "version": 25,
   "next_ticket_seq": 14,
   "next_epic_seq": 3,
   "columns": [
@@ -231,6 +231,10 @@
           "text": "Recorded during the workflow migration: implemented before the board existed, PR open for review: https://github.com/Luis-0508/NERVE-App/pull/54"
         }
       ],
+      "pr": {
+        "number": 54,
+        "url": "https://github.com/Luis-0508/NERVE-App/pull/54"
+      },
       "column": {
         "id": "review",
         "owner": "claude",
@@ -250,8 +254,17 @@
           "at": "2026-10-22T06:41:43.063440600Z",
           "author": "claude",
           "text": "PR open: https://github.com/Luis-0508/NERVE-App/pull/70. Typecheck, build (static runtime/CSP check) and map tests pass. Visual check was done against the static export with a fixture-only API harness. Docker Desktop was not running, so the isolated-stack check against real discovery data is still open."
+        },
+        {
+          "at": "2026-10-22T07:29:06.917486600Z",
+          "author": "claude",
+          "text": "Tested on an isolated Compose stack (`nerve-review`, port 3310) built from the PR branch, with a test admin, a native discovery agent scanning 192.168.178.0/24 (30 devices) and signed test traffic on the loopback sensor port. Found and fixed: after a first scan every device filled Needs attention individually; more than three new devices now collapse into one entry linking to /devices?trust=unknown (commit ae17310). Overview, Devices (search and trust filters from the URL), Device detail, Traffic map (live and unavailable states, world view) and Settings checked, plus no horizontal overflow at 390 px."
         }
       ],
+      "pr": {
+        "number": 70,
+        "url": "https://github.com/Luis-0508/NERVE-App/pull/70"
+      },
       "column": {
         "id": "review",
         "owner": "claude",
