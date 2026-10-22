@@ -31,6 +31,10 @@ npm run build
 
 CI runs these, an API startup smoke test and the image and agent builds.
 
+## Releases
+
+Maintainers cut releases from `master`; see [docs/RELEASING.md](docs/RELEASING.md).
+
 ## Optional tooling
 
 The maintainer's default workflow uses Claude Code with a local Kanban board (`CLAUDE.md`,

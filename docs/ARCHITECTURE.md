@@ -37,6 +37,7 @@ flowchart LR
 | `internal/discovery` | Discovery target, persistent scan jobs, report reconciliation (MAC first), match rules |
 | `internal/agents`, `internal/agentproto` | Enrollment tokens, per-agent Ed25519 identities, signed protocol, Core response signing, device association |
 | `internal/remote` | Provider-neutral remote management: providers, policies, audited command pipeline |
+| `internal/release`, `cmd/nerve-release` | Signed release manifests: offline verification against pinned keys (used by `nerve-agent verify-release`), manifest writing and signing for the release workflow |
 | `internal/traffic`, `internal/integrations/ntopng` | Normalized live-traffic snapshot, sensor ingest, ntopng adapter |
 | `internal/platform`, `internal/config` | Database pool, migrations, configuration from the environment |
 
