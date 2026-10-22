@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "version": 25,
+  "version": 26,
   "next_ticket_seq": 14,
   "next_epic_seq": 3,
   "columns": [
@@ -259,6 +259,11 @@
           "at": "2026-10-22T07:29:06.917486600Z",
           "author": "claude",
           "text": "Tested on an isolated Compose stack (`nerve-review`, port 3310) built from the PR branch, with a test admin, a native discovery agent scanning 192.168.178.0/24 (30 devices) and signed test traffic on the loopback sensor port. Found and fixed: after a first scan every device filled Needs attention individually; more than three new devices now collapse into one entry linking to /devices?trust=unknown (commit ae17310). Overview, Devices (search and trust filters from the URL), Device detail, Traffic map (live and unavailable states, world view) and Settings checked, plus no horizontal overflow at 390 px."
+        },
+        {
+          "at": "2026-10-22T08:07:14.059647300Z",
+          "author": "kanban",
+          "text": "branch feat/K-13-ui-redesign merged into master"
         }
       ],
       "pr": {
@@ -266,9 +271,9 @@
         "url": "https://github.com/Luis-0508/NERVE-App/pull/70"
       },
       "column": {
-        "id": "review",
-        "owner": "claude",
-        "branch": "feat/K-13-ui-redesign"
+        "id": "done",
+        "branch": "feat/K-13-ui-redesign",
+        "completed_at": "2026-10-22T08:07:14.059647Z"
       }
     }
   ]
