@@ -1,207 +1,222 @@
-# Traffic-Map: Reparaturbericht
+# Traffic Map: repair report
 
-> Historical engineering log (September 2026, mostly German). It records what was tested
-> at the time and is not maintained. Current behaviour: [README](../README.md),
-> [Traffic sensor setup](TRAFFIC_SENSOR_SETUP.md), [Windows sensor](WINDOWS_TRAFFIC_SENSOR.md),
-> [Geolocation](TRAFFIC_GEOLOCATION.md), [3D view](TRAFFIC_MAP_3D.md).
+> Historical engineering log (September 2026). It records what was tested at the time
+> and is not maintained. Current behaviour: [README](../README.md),
+> [Traffic map](TRAFFIC_MAP.md), [Traffic sensor setup](TRAFFIC_SENSOR_SETUP.md),
+> [Windows sensor](WINDOWS_TRAFFIC_SENSOR.md), [Geolocation](TRAFFIC_GEOLOCATION.md),
+> [3D view](TRAFFIC_MAP_3D.md).
 
-## Ergänzung: Sensor-Einrichtung vom 12.09.2026
+## Addendum: sensor setup, 2026-09-12
 
-Ausgangsbasis dieser Folgearbeit war Commit `278a050` auf `milestone-5-map`.
-Die reparierte Kartenprojektion, Flow-Animation, Geolocation und REST-v2-Auswertung
-wurden beibehalten. Das verbleibende Problem war die stillschweigende Voraussetzung
-einer bereits installierten ntopng-Quelle und fehlende Angaben zur Capture-Sichtbarkeit.
+This follow-up work started from commit `278a050` on `milestone-5-map`. The repaired map
+projection, flow animation, geolocation and REST v2 parsing were kept. The remaining
+problem was the silent assumption of an already installed ntopng source and missing
+information about capture visibility.
 
-Die Architektur trennt Windows-Discovery, NERVE-Dienste und Capture-Sensor. Docker
-Desktop stellt keine Windows-NIC für libpcap bereit. Deshalb startet die normale
-Compose-Konfiguration keinen irreführenden ntopng-Capture-Container. `setup.bat`
-bietet eine externe Quelle oder ein vollständig vorbereitetes Paket für einen
-nativen Linux-Sensor an; Zugangsdaten werden sicher erzeugt und zwischen Sensor/API
-abgeglichen. Bestehende `.env`-Werte, Kommentare und Secrets bleiben erhalten.
-Diagnostics enthält Capture-Modus, Interface und ausdrücklich begrenzte Sichtbarkeit.
-Ein einzelnes ntopng-Interface kann anhand der echten REST-v2-Interfaceliste automatisch
-aufgelöst werden; bei mehreren Interfaces ist eine eindeutige ID erforderlich.
+The architecture separates Windows discovery, the NERVE services and the capture sensor.
+Docker Desktop does not expose a Windows NIC to libpcap, so the normal Compose
+configuration does not start a misleading ntopng capture container. `setup.bat` offers an
+external source or a fully prepared package for a native Linux sensor; credentials are
+generated securely and kept in sync between sensor and API. Existing `.env` values,
+comments and secrets are preserved. Diagnostics show the capture mode, the interface and
+the explicitly limited visibility. A single ntopng interface can be resolved automatically
+from the real REST v2 interface list; with several interfaces an explicit ID is required.
 
-Erfolgreich geprüft:
+Verified successfully:
 
-- Go Unit Tests, `go vet ./...` und Integrationstests gegen isoliertes PostgreSQL,
-  einschließlich bestehender Discovery-Abläufe und neuer Diagnose-/Leak-Prüfungen.
-- `npm run typecheck`, `npm run test:map`, Produktionsbuild einschließlich statischer
-  Runtime-Prüfung.
-- Windows PowerShell 5.1: neue `.env`, Wiederholung, Secret-Persistenz, externe Quelle,
-  Literal-Passwort, Fehler ohne Änderung der `.env`, Erhalt benutzerdefinierter Werte.
-- Compose-Validierung der Standardinstallation und des erzeugten Sensorpakets.
-- Echte Docker-Builds: API, Web, Linux-Sensor und Windows-Discovery-Agent.
-- Echte ntopng-Version 7.0.260911 im isolierten Docker-Netzwerk: Account-Bootstrap,
-  Reader-Login, Ablehnung des Default-Passworts, Authentifizierungsfehler, Healthcheck,
-  echte HTTPS-Verbindung als Flow bis zur NERVE-API, keine Secrets in Diagnose/Logs.
-- Frische, getrennte Compose-Installation mit Bootstrap/Anmeldung, korrektem
-  Missing-Sensor-Zustand, erneutem Setup und Dienstneuerstellung bei erhaltener Sitzung
-  und Datenbank. Ausschließlich die eigenen Testressourcen wurden danach entfernt.
-- Produktionseinstieg des Sensors weist den tatsächlichen WSL2-Kernel ausdrücklich ab.
+- Go unit tests, `go vet ./...` and integration tests against an isolated PostgreSQL,
+  including the existing discovery flows and new diagnostics and leak checks.
+- `npm run typecheck`, `npm run test:map`, production build including the static
+  runtime check.
+- Windows PowerShell 5.1: new `.env`, repeated run, secret persistence, external source,
+  literal password, failure without changing `.env`, preservation of custom values.
+- Compose validation of the standard installation and of the generated sensor package.
+- Real Docker builds: API, web, Linux sensor and Windows discovery agent.
+- Real ntopng 7.0.260911 in an isolated Docker network: account bootstrap, reader login,
+  rejection of the default password, authentication failures, health check, a real HTTPS
+  connection carried as a flow through to the NERVE API, no secrets in diagnostics or logs.
+- Fresh, separate Compose installation with bootstrap and sign-in, correct missing-sensor
+  state, repeated setup and service recreation with session and database retained. Only
+  the test's own resources were removed afterwards.
+- The sensor's production entry point explicitly rejects the actual WSL2 kernel.
 
-Die Docker-Laufzeit lag außerhalb des PATH und wurde unter der lokalen
-Docker-Desktop-Installation gefunden. Der zunächst angenommene ntopng-Tag `stable`
-existiert nicht; das tatsächlich verfügbare offizielle Image ist jetzt per Digest
-gebunden. Der reale Container-Test deckte zudem erforderliche Datenverzeichnisrechte
-für den eingeschränkten ntopng-Benutzer auf; diese wurden korrigiert.
+The Docker runtime was outside `PATH` and was found under the local Docker Desktop
+installation. The initially assumed ntopng tag `stable` does not exist; the official image
+actually available is now pinned by digest. The real container test also revealed the
+data directory permissions the restricted ntopng user needs; these were corrected.
 
-Nicht nachgewiesen: physische Linux-NIC-/SPAN-/TAP-Erfassung, Windows-Host-Capture,
-vollständiges LAN-Monitoring, ARM-Sensorbetrieb und ein manueller Doppelklick-Durchlauf
-von `start.bat` samt Start des nativen Discovery-Agenten. Der isolierte Container-Test
-belegt ausdrücklich nur den Traffic seines eigenen Netzwerk-Namespace. Die frühere
-Karten-Visualprüfung unten ist kein neuer visueller Browser-Test dieser Folgearbeit.
+Not demonstrated: physical Linux NIC, SPAN or TAP capture, Windows host capture, full LAN
+monitoring, ARM sensor operation, and a manual double-click run of `start.bat` including
+the start of the native discovery agent. The isolated container test explicitly covers
+only the traffic of its own network namespace. The earlier visual map check below is not
+a new visual browser test of this follow-up work.
 
-Einrichtung, Sichtbarkeitsmatrix, Ports, Datenschutz, Diagnosebefehle und manuelle
-Capture-Abnahme: [Traffic sensor setup](TRAFFIC_SENSOR_SETUP.md).
+Setup, visibility matrix, ports, privacy, diagnostic commands and manual capture
+acceptance: [Traffic sensor setup](TRAFFIC_SENSOR_SETUP.md).
 
 ---
 
-Stand: 11.09.2026, Branch `milestone-5-map`. Kein Branchwechsel, Push, PR oder Merge.
-Die beim Beginn vorhandenen Änderungen und unversionierten Traffic-Dateien wurden weiterbearbeitet.
+## ntopng repair, 2026-09-11
 
-## Befunde
+State as of 2026-09-11, branch `milestone-5-map`. No branch switch, push, PR or merge. The
+changes and untracked traffic files present at the start were worked on further.
 
-- Die lokale `.env` enthielt keine ntopng-Schlüssel. Compose, `.env.example` und Backend kannten sie bereits; `setup.bat` erzeugte sie nicht und verlor sie beim Neukonfigurieren.
-- Es gab keine Kartenbibliothek: Kontinente und Länderlinien waren frei gezeichnete SVG-Pfade. Die Projektionshöhe 100 passte nicht zur SVG-Höhe 55; auch die inverse Klickposition war inkonsistent.
-- Frankfurt wurde ohne Benutzerentscheidung als Ursprung gesetzt. Standortwerte wurden nur auf endliche Zahlen, nicht auf gültige Koordinaten geprüft.
-- Fehlerhafte Antworten und Erreichbarkeitsfehler liefen zusammen. Eine fehlende JSON-Struktur konnte wie eine erfolgreiche leere Antwort aussehen. Login-Weiterleitungen wurden nicht explizit erkannt.
-- Es wurde nur eine Seite mit maximal 500 ntopng-Flows gelesen und anschließend auf 150 Gruppen gekürzt. Zusammengefasste Sessions zeigten nur die Ports einer einzelnen Session.
-- Die Länderzuordnung umfasste lediglich 25 Länder. Fehlerboxen lagen außerhalb der Karte; gestrichelte Linien waren die einzige Animation.
+### Findings
 
-## Umsetzung
+- The local `.env` contained no ntopng keys. Compose, `.env.example` and the backend
+  already knew them; `setup.bat` did not generate them and lost them on reconfiguration.
+- There was no map library: continents and country borders were hand-drawn SVG paths. The
+  projection height of 100 did not match the SVG height of 55, and the inverse click
+  position was inconsistent as well.
+- Frankfurt was set as the origin without a user decision. Location values were only
+  checked for being finite numbers, not for being valid coordinates.
+- Malformed responses and reachability failures were merged. A missing JSON structure
+  could look like a successful empty response. Login redirects were not detected
+  explicitly.
+- Only one page of at most 500 ntopng flows was read and then truncated to 150 groups.
+  Aggregated sessions showed only the ports of a single session.
+- The country mapping covered only 25 countries. Error boxes were placed outside the map;
+  dashed lines were the only animation.
 
-Die bestehende Seite, Session-Authentifizierung und REST-Anbindung bleiben erhalten.
-D3 Geo + topojson-client projizieren lokal gebündelte Natural-Earth-Länder im Maßstab 1:50m.
-Die Kartendatei umfasst ungefähr 756 KB; sie wird pro Seitenlauf einmal geladen und verarbeitet.
-Eine separate Canvas-Ebene verwendet stabile Pfade und inkrementelle Flow-Updates mit Ein-/Ausblenden,
-bewegtem Kopf und kurzem Schweif, Throughput-Strichstärke und unterschiedlichen Richtungsfarben.
-Datumsgrenzen werden getrennt. Light/Dark Mode, reduzierte Bewegung, Filter und kompakte Diagnosen sind berücksichtigt.
+### Implementation
 
-Standorte werden explizit manuell oder per optionaler Browser-Geolocation gesetzt und lokal gespeichert.
-Es gibt keine Defaultposition. Validierung, Löschen und Fehler bei nicht verfügbarem Browser-Speicher sind berücksichtigt.
+The existing page, session authentication and REST integration were kept. D3 Geo and
+topojson-client project locally bundled Natural Earth 1:50m countries. The map file is
+about 756 KB; it is loaded and processed once per page load. A separate canvas layer uses
+stable paths and incremental flow updates with fade-in and fade-out, a moving head and a
+short tail, throughput-based stroke width and distinct direction colours. The date line is
+split. Light and dark mode, reduced motion, filters and compact diagnostics are handled.
 
-Der ntopng-Client liest die dokumentierte `flow/active.lua`-Antwort, prüft ihre Struktur,
-behandelt Login-Redirects gesondert und begrenzt Pagination, Antwortgröße und Zeitbudget.
-Bytezähler werden im Backend als Integer gelesen. Länderinformationen kommen aus den Flows bzw. optional aus `host/active.lua`.
-Aggregierte Sessions behalten sämtliche Ports, Anzahl, Summen und stabile Gruppen-IDs.
-Die Karte listet unplatzierbare Flows und kennzeichnet Teilmengen und veraltete Statistiken.
+Locations are set explicitly, manually or through optional browser geolocation, and
+stored locally. There is no default position. Validation, clearing and errors when browser
+storage is unavailable are handled.
 
-`nerve-server traffic-check` prüft dieselbe Konfiguration im laufenden API-Container ohne Datenbankzugriff.
-Ausgegeben werden Status und Zähler, keine Zugangsdaten oder Flow-IP-Adressen.
+The ntopng client reads the documented `flow/active.lua` response, validates its
+structure, handles login redirects separately and bounds pagination, response size and
+time budget. Byte counters are read as integers in the backend. Country information comes
+from the flows or optionally from `host/active.lua`. Aggregated sessions keep all ports,
+counts, totals and stable group IDs. The map lists flows that cannot be placed and marks
+partial results and stale statistics.
 
-## Konfiguration und manuelle Abnahme
+`nerve-server traffic-check` checks the same configuration inside the running API
+container without database access. It prints status and counts, no credentials or flow IP
+addresses.
 
-Die vollständige Beispielkonfiguration, Docker-Befehle, direkte ntopng-REST-Abfragen,
-Diagnosezustände und der manuelle Abnahmeablauf stehen in [TRAFFIC_MAP.md](TRAFFIC_MAP.md).
-Die sechs Variablen sind:
+### Configuration and manual acceptance
+
+The complete example configuration, Docker commands, direct ntopng REST queries,
+diagnostic states and the manual acceptance procedure are in
+[TRAFFIC_MAP.md](TRAFFIC_MAP.md). The six variables are:
 
 - `NERVE_NTOPNG_URL`
 - `NERVE_NTOPNG_USERNAME`
 - `NERVE_NTOPNG_PASSWORD`
-- `NERVE_NTOPNG_INTERFACE_ID` (Standard `0`, tatsächliche Interface-ID auswählen)
-- `NERVE_NTOPNG_TIMEOUT` (Standard `5s`)
+- `NERVE_NTOPNG_INTERFACE_ID` (default `0`; choose the actual interface ID)
+- `NERVE_NTOPNG_TIMEOUT` (default `5s`)
 - `NERVE_TRAFFIC_LOCAL_CIDRS` (optional)
 
-Nach einer Änderung der `.env` muss der API-Container neu erzeugt werden.
-`localhost` darin bezeichnet den Container; für ntopng auf dem Docker-Desktop-Host ist typischerweise
-`host.docker.internal` erforderlich. Benutzername, Passwort, URL und Interface müssen zum echten ntopng passen.
+After changing `.env`, the API container must be recreated. `localhost` inside it refers
+to the container; for ntopng on the Docker Desktop host, `host.docker.internal` is
+usually required. Username, password, URL and interface must match the real ntopng.
 
-## Prüfungen
+### Checks
 
-| Prüfung | Ergebnis |
+| Check | Result |
 | --- | --- |
-| `go test ./...` | Bestanden mit Go 1.27.1, Windows/amd64 |
-| `go vet ./...` | Bestanden |
-| `go test -tags=integration -count=1 ./...` | Bestanden gegen temporäres PostgreSQL 18.4; keine übersprungenen DB-Tests |
-| Zusätzliche ntopng-Tests | Login-Redirect, 401/403, 5xx, ungültige Antworten, leere Antwort, Pagination, Timeout, Ports, Integer-Bytes und Cache bestanden |
-| Zusätzliche API-Integrationstests | Unterschiedliche Diagnosecodes und Session-Schutz bestanden |
-| `npm run typecheck` | Bestanden |
-| `npm run test:map` | Projektions-Roundtrip, Arc-Endpunkte, Datumsgrenze und Standortvalidierung bestanden |
-| `npm run build` | Bestanden, einschließlich vorhandenem Static-Runtime-Check |
-| Setup-Neukonfiguration | Isolierter Test: alle sechs Werte einschließlich wörtlicher `$`-/`#`-Passwortzeichen bleiben erhalten |
-| Browser | Dark/Light-Karte, Standortmarker, Speicherung nach Reload, kompakte Meldung und Diagnosepanel mit echter NERVE-API geprüft |
-| Mobile Ansicht | Bei 390 px geprüft; dabei gefundener Leerraum anschließend per CSS reduziert und Build erneut geprüft |
-| Docker-Builds | Aufgerufen, nicht ausführbar: Docker ist auf diesem Rechner nicht installiert |
-| 500-Flow-Browserlasttest | Test-Harness vorbereitet, Browser-Aufruf durch automatische Freigabeprüfung wegen Nutzungslimit abgelehnt; keine FPS-Zusage validiert |
-| Echte ntopng-Instanz | Nicht verbunden: hier liegen keine ntopng-Zugangsdaten vor; API-Vertrag mit HTTP-Testservern geprüft |
+| `go test ./...` | Passed with Go 1.27.1, Windows/amd64 |
+| `go vet ./...` | Passed |
+| `go test -tags=integration -count=1 ./...` | Passed against a temporary PostgreSQL 18.4; no skipped database tests |
+| Additional ntopng tests | Login redirect, 401/403, 5xx, invalid responses, empty response, pagination, timeout, ports, integer bytes and cache passed |
+| Additional API integration tests | Distinct diagnostic codes and session protection passed |
+| `npm run typecheck` | Passed |
+| `npm run test:map` | Projection round trip, arc endpoints, date line and location validation passed |
+| `npm run build` | Passed, including the existing static runtime check |
+| Setup reconfiguration | Isolated test: all six values, including literal `$` and `#` password characters, are preserved |
+| Browser | Dark and light map, location marker, persistence after reload, compact message and diagnostics panel checked against the real NERVE API |
+| Mobile view | Checked at 390 px; whitespace found there was then reduced in CSS and the build re-checked |
+| Docker builds | Invoked, not executable: Docker was not installed on this machine |
+| 500-flow browser load test | Test harness prepared; the browser run was refused by the automatic approval check because of a usage limit; no FPS claim validated |
+| Real ntopng instance | Not connected: no ntopng credentials were available here; API contract checked with HTTP test servers |
 
-Die temporäre Datenbank des letzten vollständigen Testlaufs wurde geordnet gestoppt.
-Die Testwerkzeuge liegen im ignorierten `.nerve`-Verzeichnis; die Anwendung enthält keinen Demo-Flow-Provider.
+The temporary database of the last full test run was stopped cleanly. The test tools live
+in the ignored `.nerve` directory; the application contains no demo flow provider.
 
-## Grenzen der damaligen ntopng-Reparatur
+### Limits of the ntopng repair at the time
 
-- Die Zielposition ist ein ungefährer Länderzentroid, keine genaue Host-Geolocation.
-- Inbound/Outbound bezeichnet den Session-Initiator; ntopng liefert hier den gesamten bidirektionalen Session-Durchsatz. Die Statistiken sind keine getrennten Upload-/Download-Messwerte.
-- Höchstens zehn Seiten à 500 Quell-Flows und 500 angezeigte Gruppen; Teilmengen sind gekennzeichnet. Paging einer laufenden Quelle ist keine atomare Momentaufnahme.
-- Ohne sichtbare interne Adressen (etwa bei NAT-Beobachtung nur auf WAN) sind zusätzliche lokale CIDRs bzw. die Wahl des geeigneten Capture-Interfaces nötig.
-- Ein Standort pro Browser; keine Multi-Site-Zuordnung und keine historische Flow-Datenbank.
-- PostgreSQL-Integration wurde hier auf Version 18.4 geprüft; das Compose-Deployment verwendet PostgreSQL 17. Docker- und echte ntopng-Abnahme bleiben deshalb erforderlich.
+- The target position is an approximate country centroid, not precise host geolocation.
+- Inbound and outbound describe the session initiator; ntopng reports total bidirectional
+  session throughput here. The statistics are not separate upload and download meters.
+- At most ten pages of 500 source flows and 500 displayed groups; partial results are
+  marked. Paging a live source is not an atomic snapshot.
+- Without visible internal addresses (for example when NAT is observed only on the WAN),
+  additional local CIDRs or a better-suited capture interface are needed.
+- One location per browser; no multi-site mapping and no historical flow database.
+- PostgreSQL integration was checked on 18.4 here, while the Compose deployment uses
+  PostgreSQL 17. Docker and real ntopng acceptance therefore remained necessary.
 
-## Native Windows-Erweiterung, 15. September 2026 — Abnahme offen
+## Native Windows extension, 2026-09-15 — acceptance pending
 
-Die bisherige Grenze war die fehlende Windows-Host-Quelle. Ergänzt wurden ein
-separater `nerve-sensor.exe`, der offizielle Windows-Netzwerk-ETW-Manifestprovider,
-ein eigener HMAC-authentifizierter Loopback-Eingang und die vorhandene
-`traffic.Source`-Abstraktion als gemeinsamer Map-Vertrag. Discovery und ntopng
-wurden nicht ersetzt. Details: [Windows Traffic Sensor](WINDOWS_TRAFFIC_SENSOR.md).
+The previous limit was the missing Windows host source. Added were a separate
+`nerve-sensor.exe`, the official Windows networking ETW manifest provider, a dedicated
+HMAC-authenticated loopback ingestion endpoint, and the existing `traffic.Source`
+abstraction as the shared map contract. Discovery and ntopng were not replaced. Details:
+[Windows traffic sensor](WINDOWS_TRAFFIC_SENSOR.md).
 
-Setup erzeugt ein separates 256-Bit-Sensor-Token und wählt automatisch einen freien
-Loopback-Port. Bestehende Datenbank-/Discovery-Secrets und externe Quellen bleiben
-erhalten. Nur der alte unkonfigurierte Windows-Standard wird einmalig migriert;
-spätere bewusste Deaktivierung bleibt erhalten. Stock-Launcher werden gezielt
-aktualisiert, Custom-Launcher bleiben bestehen. Start verwaltet einen geschützten
-LocalService-Dienst; unveränderte Starts benötigen keine erneute Installation.
-Eine verweigerte UAC-Installation verhindert weder Core noch Discovery.
+Setup generates a separate 256-bit sensor token and picks a free loopback port
+automatically. Existing database and discovery secrets and external sources are
+preserved. Only the old unconfigured Windows default is migrated, once; a later deliberate
+opt-out is kept. Stock launchers are updated selectively, custom launchers are kept. Start
+manages a protected LocalService service; unchanged starts need no reinstallation. A
+declined UAC installation stops neither Core nor discovery.
 
-Der normale Kernel-Systemlogger wurde unter LocalService tatsächlich mit
-`0x80070005` abgewiesen. Der Windows-Manifestprovider funktionierte dagegen unter
-demselben eingeschränkten Konto und lieferte reale TCP-/UDP- und IPv4-/IPv6-Flows
-des erkannten Realtek-Ethernet-Adapters. Kein fremder Capture-Treiber wurde benötigt.
-Unbenötigte proprietäre DIA-/KernelTraceControl-Helfer des NuGet-Pakets werden aus
-dem finalen Artefakt ausgeschlossen; Lizenzhinweise und Hash-Lockfiles sind enthalten.
+The normal kernel system logger was actually rejected under LocalService with
+`0x80070005`. The Windows manifest provider, by contrast, worked under the same restricted
+account and delivered real TCP and UDP, IPv4 and IPv6 flows from the detected Realtek
+Ethernet adapter. No third-party capture driver was needed. Unneeded proprietary
+DIA/KernelTraceControl helpers from the NuGet package are excluded from the final
+artifact; licence notices and hash lockfiles are included.
 
-Der kontrollierte HTTPS-Test deckte anschließend einen Fehler bei TCP-Empfang auf:
-Die Zuordnung darf nicht annehmen, dass dessen Tupel stets in Paket-Richtung
-angeordnet ist. Der Code bestimmt jetzt die lokale Seite aus den tatsächlichen
-NIC-Adressen und die Byte-Richtung unabhängig davon aus dem Ereignistyp. Der
-ergänzte Unit-Test besteht. **Die reale Abnahme dieser letzten Korrektur ist offen:**
-Windows beendete die dafür erforderliche Dienstaktualisierung mit „Vorgang wurde
-durch den Benutzer abgebrochen“. Die Korrektur und das bereinigte finale Artefakt
-wurden daher noch nicht als Windows-Dienst end-to-end geprüft.
+The controlled HTTPS test then revealed a bug with TCP receive events: the mapping must not
+assume that their tuple is always ordered in packet direction. The code now determines the
+local side from the actual NIC addresses and the byte direction independently from the
+event type. The added unit test passes. **Real acceptance of this last fix is pending:**
+Windows aborted the required service update with "The operation was cancelled by the
+user". The fix and the cleaned-up final artifact have therefore not yet been verified end
+to end as a Windows service.
 
-| Aktuelle Prüfung | Tatsächliches Ergebnis |
+| Current check | Actual result |
 | --- | --- |
-| Go Unit Tests und `go vet ./...` | Bestanden |
-| Go Integrationstests mit echtem isoliertem PostgreSQL | Bestanden |
-| HMAC, Zeitfenster, Replay, Eingabevalidierung, Offline/Recovery und Geo-Ranges | Unit-Tests bestanden; synthetische Eingaben, kein Capture-Nachweis |
-| Native `setup.bat` ohne Eingaben, Leerzeichenpfad und Wiederholung | Bestanden; vorhandene Werte/Secrets bleiben erhalten |
-| Einmalige Migration und späterer Capture-Opt-out | Bestanden |
-| `npm run typecheck`, `npm run test:map`, `npm run build` | Bestanden |
-| Compose-Konfiguration und Loopback-/Frontend-Isolation | Bestanden |
-| API-, Web-, Discovery-, Windows-Sensor- und Linux-Sensor-Docker-Builds | Bestanden |
-| Reale Compose-Installation, Login/Session nach Neuerzeugung, Datenbankpersistenz | Bestanden gegen PostgreSQL 17 |
-| Echter Windows-Start ohne Traffic-Quelle | Bestanden: Core und nativer Discovery-Agent laufen; INFO statt Abbruch |
-| Echte ntopng-REST-Abnahme im isolierten Container | Bestanden: echte HTTPS-Flows, Leserzugriff, falsches Passwort und Default-Passwort-Ablehnung |
-| Windows-ETW als LocalService | Reale Host-Flows nachgewiesen; keine vollständige TCP-Inbound-Abnahme der finalen Korrektur |
-| Finale Windows-Download-/Browser-/Doppelstart-Abnahme | Nicht abgeschlossen wegen abgebrochener UAC-Aktualisierung; Browser-Harness vorbereitet, noch nicht erfolgreich ausgeführt |
-| 500 aktive Flows / durchgehende FPS-Abnahme | Nicht gemessen; Zustände und Ausgabe sind begrenzt, keine Leistungszusage |
+| Go unit tests and `go vet ./...` | Passed |
+| Go integration tests with a real isolated PostgreSQL | Passed |
+| HMAC, time window, replay, input validation, offline/recovery and geo ranges | Unit tests passed; synthetic inputs, no capture evidence |
+| Native `setup.bat` without input, path with spaces and repeated run | Passed; existing values and secrets are preserved |
+| One-time migration and later capture opt-out | Passed |
+| `npm run typecheck`, `npm run test:map`, `npm run build` | Passed |
+| Compose configuration and loopback/frontend isolation | Passed |
+| API, web, discovery, Windows sensor and Linux sensor Docker builds | Passed |
+| Real Compose installation, sign-in and session after recreation, database persistence | Passed against PostgreSQL 17 |
+| Real Windows start without a traffic source | Passed: Core and the native discovery agent run; INFO instead of abort |
+| Real ntopng REST acceptance in an isolated container | Passed: real HTTPS flows, reader access, wrong password and default-password rejection |
+| Windows ETW as LocalService | Real host flows demonstrated; no full TCP inbound acceptance of the final fix |
+| Final Windows download, browser and double-start acceptance | Not completed because of the aborted UAC update; browser harness prepared, not yet run successfully |
+| 500 active flows / sustained FPS acceptance | Not measured; states and output are bounded, no performance claim |
 
-Die nativen Starttests unterdrücken ausschließlich die letzte kosmetische
-Konsolenpause mit `NERVE_NO_PAUSE=1`; Docker, Discovery, Browser-Startbefehl und
-Windows-Service-Aufrufe sind echt. Das ältere fokussierte CMD-Testdouble bleibt
-ein zusätzlicher Kontrollflusstest. Das ntopng-Labor belegt keine SPAN-/LAN-Abdeckung.
+The native start tests suppress only the final cosmetic console pause with
+`NERVE_NO_PAUSE=1`; Docker, discovery, the browser start command and the Windows service
+calls are real. The older focused CMD test double remains an additional control-flow
+test. The ntopng lab does not demonstrate SPAN or LAN coverage.
 
-Isolierte Testdienste und Container wurden gestoppt; die bestehende persönliche
-Installation und ihre Datenbank wurden nicht zurückgesetzt. Der demand-start
-Testdienst bleibt installiert und gestoppt. Testkonfiguration, Transfer-Metadaten
-und Protokolle bleiben ausschließlich unter dem ignorierten `.nerve`.
+Isolated test services and containers were stopped; the existing personal installation
+and its database were not reset. The demand-start test service stays installed and
+stopped. Test configuration, transfer metadata and logs remain only under the ignored
+`.nerve` directory.
 
-Nächster Abnahmeschritt: `scripts/test-windows-capture.ps1` erneut ausführen und
-die Windows-UAC-Aktualisierung bestätigen. Danach müssen beide Transfer-Richtungen,
-Bytes, Änderung der Werte, die echte Map, Ausfall/Erholung, Doppelstart und Stop
-erfolgreich geprüft sein. **Milestone 5 ist damit ausdrücklich nicht abgeschlossen.**
-# Launcher upgrade regression — 2026-09-15
+Next acceptance step: run `scripts/test-windows-capture.ps1` again and confirm the Windows
+UAC update. After that, both transfer directions, bytes, changing values, the real map,
+failure and recovery, double start and stop must be verified successfully. **Milestone 5
+is explicitly not complete at this point.**
+
+## Launcher upgrade regression — 2026-09-15
 
 The migration in `d3ce9c2` recognized only one predecessor hash per launcher.
 The actual local `start.bat` matched official commit `278a050`, so setup wrongly
@@ -242,7 +257,8 @@ their standalone unit/vet/typecheck suites were not repeated for this launcher f
 The Docker production builds and real browser test above did run. This is automated
 native Windows acceptance evidence, not a claim that the user's final Explorer
 double-click acceptance is complete. Milestone 5 remains open pending that acceptance.
-# Geography and local-site provenance — 2026-09-15
+
+## Geography and local-site provenance — 2026-09-15
 
 The old map restored an unversioned localStorage coordinate pair solely because its
 numbers were in range. No source/time existed, so the reported Atlantic value could
