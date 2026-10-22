@@ -29,7 +29,7 @@ function psQuote(value: string) {
 function powershellEnrollCommand(token: string, apiBase: string, reenroll: boolean) {
   const run = reenroll
     ? `& (Join-Path $env:ProgramFiles 'NERVE\\Agent\\nerve-agent.exe') enroll --force; if ($LASTEXITCODE -ne 0) { throw "nerve-agent enroll failed with exit code $LASTEXITCODE." }`
-    : `.\\install-windows.ps1 -ApiUrl ${psQuote(apiBase)}`;
+    : `if (-not (Test-Path -LiteralPath .\\install-windows.ps1)) { throw 'install-windows.ps1 was not found in this folder. Change to the folder that contains install-windows.ps1 and nerve-agent.exe, then paste the command again.' }; .\\install-windows.ps1 -ApiUrl ${psQuote(apiBase)}`;
   return `$env:NERVE_AGENT_ENROLLMENT_TOKEN = ${psQuote(token)}; try { ${run} } finally { Remove-Item Env:\\NERVE_AGENT_ENROLLMENT_TOKEN -ErrorAction SilentlyContinue }`;
 }
 
