@@ -11,11 +11,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-7-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
 
-<!-- Add one strong real hero screenshot of the current UI (for example the Overview or
-Traffic Map) under docs/images/ once one exists. Do not use demo or fabricated data.
-
-<img src="docs/images/hero.webp" alt="NERVE overview" width="900">
--->
+<img src="docs/images/traffic-map-3d.png" alt="NERVE Traffic Map in the Topology 3D view: discovered hosts on a derived /24 plate with traffic flows routed to remote endpoints on a globe" width="900">
 
 </div>
 
@@ -52,10 +48,28 @@ native agent or sensor outside the Core container.
 
 ## Screenshots
 
-<!-- Add 2–4 real screenshots (Overview, Devices, device identity, Traffic Map) under
-docs/images/ as a two-column gallery once they exist. Use real, non-sensitive data only. -->
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/overview.png" alt="Overview with items that need attention, recent activity, subnet coverage and service health"></td>
+    <td width="50%"><img src="docs/images/traffic-map-world.png" alt="Traffic Map World view with flows from the local site to approximate remote locations"></td>
+  </tr>
+  <tr>
+    <td><b>Overview.</b> What needs attention, recent activity, subnet coverage and the health of agent, database and Core.</td>
+    <td><b>Traffic Map, World.</b> Flows from the user-set local site to approximate remote locations.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/devices.png" alt="Device inventory with discovery controls, status, trust, addresses and MAC addresses"></td>
+    <td><img src="docs/images/device-detail.png" alt="Device detail with discovered and operator-owned identity values and trust state"></td>
+  </tr>
+  <tr>
+    <td><b>Devices.</b> Discovery controls and the searchable inventory.</td>
+    <td><b>Device identity.</b> Discovered values next to operator-owned metadata and the audited trust state.</td>
+  </tr>
+</table>
 
-No screenshots yet.
+Screenshots come from an isolated test installation: the devices were discovered by the
+NERVE agent in a Docker lab network, and the traffic comes from a signed test sensor feed
+with public endpoint addresses.
 
 ## Quick start
 
