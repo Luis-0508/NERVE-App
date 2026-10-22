@@ -2,11 +2,22 @@
 
 import Link from "next/link";
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Columns3, MonitorCog, Play, Radar, RefreshCw, Save, Search, SlidersHorizontal, Square } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { APIError, api } from "@/lib/api";
 import type { DeviceFacets, DeviceList, DeviceSummary, DiscoveryState, DuplicateCandidate } from "@/lib/types";
 import { TrustBadge } from "./device-identity-panel";
 import { DeviceStatus } from "./device-status";
+
+// Links into the inventory (the shell search, the Overview) carry ?search= and ?trust=;
+// apply them to the matching controls.
+function FiltersFromUrl({ onSearch, onTrust }: { onSearch: (value: string) => void; onTrust: (value: string) => void }) {
+  const params = useSearchParams();
+  const search = params.get("search"), trust = params.get("trust");
+  useEffect(() => { if (search !== null) onSearch(search); }, [search, onSearch]);
+  useEffect(() => { if (trust !== null) onTrust(trust); }, [trust, onTrust]);
+  return null;
+}
 
 type SortKey = "name" | "status" | "classification" | "trust" | "hostname" | "ip" | "vendor" | "first_seen" | "last_seen";
 type Direction = "asc" | "desc";
@@ -102,6 +113,7 @@ export function DevicesView() {
   const filtersActive = Boolean(search || status || classification || trust || tag);
 
   return <div className="page devices-page">
+    <Suspense fallback={null}><FiltersFromUrl onSearch={setSearchInput} onTrust={setTrust} /></Suspense>
     <div className="page-heading">
       <div><h1>Devices</h1><p>Physical and logical network identities known to NERVE.</p></div>
       <button className="button" type="button" onClick={() => void load()} disabled={loading}><RefreshCw size={14} aria-hidden="true" />Refresh</button>

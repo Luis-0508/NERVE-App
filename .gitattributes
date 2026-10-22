@@ -1,3 +1,8 @@
 migrations/*.sql text eol=lf
 *.bat text eol=crlf
 *.sh text eol=lf
+
+# Merge the claude-kanban board by ticket ID instead of by line.
+# Needs a one-time local `git config` (see docs/WORKFLOW.md); without it git
+# falls back to its normal text merge.
+.kanban/board.json merge=kanban-board

@@ -1,59 +1,47 @@
 version: 2
 
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
+  - package-ecosystem: npm
+    directory: /
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      npm-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
+      interval: cron
+      cronjob: "0 6 * * *"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 100
+    commit-message:
+      prefix: deps
 
-  - package-ecosystem: "gomod"
-    directory: "/"
+  - package-ecosystem: gomod
+    directory: /
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
+      interval: cron
+      cronjob: "10 6 * * *"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 100
+    commit-message:
+      prefix: deps
     ignore:
-      # pgx 5.11 adds Rows.TypeMap; pgxmock v4.9.0 (latest) does not implement it yet,
-      # so inventory tests stop compiling. Remove once a pgxmock release supports pgx 5.11.
+      # pgx 5.11 adds Rows.TypeMap; pgxmock v4.9.0 does not implement it yet.
+      # Remove this temporary block once pgxmock supports that interface.
       - dependency-name: "github.com/jackc/pgx/v5"
         versions: [">= 5.11.0"]
-    groups:
-      go-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
 
-  - package-ecosystem: "docker"
-    directory: "/"
+  - package-ecosystem: docker
+    directory: /
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      docker-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
+      interval: cron
+      cronjob: "20 6 * * *"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 100
+    commit-message:
+      prefix: deps
 
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    groups:
-      actions-minor-patch:
-        patterns:
-          - "*"
-        update-types:
-          - "minor"
-          - "patch"
+      interval: cron
+      cronjob: "30 6 * * *"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 100
+    commit-message:
+      prefix: ci
