@@ -28,8 +28,8 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
 ### Missing
 
 - Device identity follow-ups: vendor (OUI) lookup and automatic classification; more
-  evidence sources (DHCP, SNMP, LLDP, ARP history); the Traffic Map still correlates devices
-  by one primary address; `devices.approved_at` is superseded by trust state and unused.
+  evidence sources (DHCP, SNMP, LLDP, ARP history); `devices.approved_at` is superseded by
+  trust state and unused.
 - Discovery 2.0: multiple targets, scheduled scans (`subnets.discovery_interval_seconds`
   exists but nothing schedules), incremental progress, idempotent report ingestion.
 - Shared local secrets: the discovery worker still uses the shared `NERVE_DISCOVERY_AGENT_TOKEN`
