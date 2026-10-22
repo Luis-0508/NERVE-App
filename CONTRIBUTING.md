@@ -3,6 +3,10 @@
 Read [AGENTS.md](AGENTS.md) for the project rules; they apply to human contributors too.
 Setup and the subsystem guides are in the [README](README.md) and [`docs/`](docs/).
 
+Repository-facing collaboration is in English: documentation, filenames, branches, commits,
+issues and pull requests. Report suspected vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md), and follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## Workflow
 
 1. Branch from `master` with a focused change.

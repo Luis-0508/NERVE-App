@@ -79,6 +79,7 @@ documentation:
   - changed-files:
       - any-glob-to-any-file:
           - '**/*.md'
+          - 'docs/**'
           - 'LICENSE'
 
 dependencies:
@@ -88,8 +89,13 @@ dependencies:
           - 'package-lock.json'
           - 'go.mod'
           - 'go.sum'
+          - '.github/dependabot.yml'
 
 ci:
   - changed-files:
       - any-glob-to-any-file:
           - '.github/**'
+          - '.claude/**'
+          - 'scripts/workflow/**'
+          - '.gitattributes'
+          - '.editorconfig'
