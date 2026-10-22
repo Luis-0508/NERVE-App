@@ -61,6 +61,9 @@ jobs:
       - name: Run Go vet
         run: go vet ./...
 
+      - name: Run Go vet for the Windows agent
+        run: GOOS=windows go vet ./cmd/nerve-agent/
+
       - name: Run Go vet for integration tests
         run: go vet -tags=integration ./...
 

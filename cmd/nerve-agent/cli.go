@@ -5,10 +5,13 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -18,31 +21,51 @@ import (
 )
 
 const usage = `Usage:
-  nerve-agent                 run discovery and/or management (default)
+  nerve-agent [run]           run discovery and/or management (default)
   nerve-agent enroll          enroll this host with a one-time token
   nerve-agent status          show the local identity and verify it with Core
+  nerve-agent diagnose        check configuration, identity, network, TLS and Core
+  nerve-agent service ...     install, uninstall, start, stop or query the service
   nerve-agent version         print the agent version
 
-Environment:
+Environment (overrides config.json in the state directory):
   NERVE_AGENT_API_URL            Core API base URL, e.g. https://nerve.example/api/v1
   NERVE_AGENT_STATE_DIR          identity directory (default: per-OS private location)
+  NERVE_AGENT_CA_FILE            additional PEM CA for Core's TLS certificate
+  NERVE_AGENT_LOG_LEVEL          debug, info, warn or error
   NERVE_AGENT_ENROLLMENT_TOKEN   one-time token; enrolls automatically on first run
   NERVE_DISCOVERY_AGENT_TOKEN    shared local discovery token (legacy discovery worker)
 `
 
+// identityPollInterval is how often a running agent checks whether its
+// identity file was replaced (re-enrollment while the service runs).
+var identityPollInterval = 15 * time.Second
+
+// runOptions configure the long-running agent.
+type runOptions struct {
+	stateDir string
+	runMode  string
+	// logToFile writes logs to <state dir>/logs (Windows services have no
+	// stdout collector).
+	logToFile bool
+}
+
 func runCLI(args []string) int {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	command := "run"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		command, args = args[0], args[1:]
 	}
 	switch command {
 	case "run":
-		return runAgent(logger)
+		return runCommand(args)
 	case "enroll":
 		return runEnroll(args)
 	case "status":
 		return runStatus(args)
+	case "diagnose":
+		return runDiagnose(args)
+	case "service":
+		return runService(args)
 	case "version":
 		fmt.Println(version)
 		return 0
@@ -55,9 +78,25 @@ func runCLI(args []string) int {
 	}
 }
 
+func runCommand(args []string) int {
+	flags := flag.NewFlagSet("run", flag.ContinueOnError)
+	stateDir := flags.String("state-dir", defaultStateDir(), "directory for the agent identity and configuration")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	options := runOptions{stateDir: *stateDir, runMode: detectRunMode()}
+	if runningAsService() {
+		options.logToFile = true
+		return runAsService(options)
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	return runAgent(ctx, options)
+}
+
 func runEnroll(args []string) int {
 	flags := flag.NewFlagSet("enroll", flag.ContinueOnError)
-	apiURL := flags.String("api-url", os.Getenv("NERVE_AGENT_API_URL"), "Core API base URL ending in /api/v1")
+	apiURL := flags.String("api-url", "", "Core API base URL ending in /api/v1 (default: configuration)")
 	tokenFile := flags.String("token-file", "", "file containing the one-time enrollment token")
 	stateDir := flags.String("state-dir", defaultStateDir(), "directory for the agent identity")
 	force := flags.Bool("force", false, "replace an existing local identity")
@@ -77,13 +116,27 @@ func runEnroll(args []string) int {
 		fmt.Fprintln(os.Stderr, "Provide the token with --token-file or NERVE_AGENT_ENROLLMENT_TOKEN. Tokens are not accepted as command-line arguments because other local users can read process arguments.")
 		return 2
 	}
-	if existing, err := loadIdentity(*stateDir); err == nil && !*force {
+	existing, err := loadIdentity(*stateDir)
+	if err == nil && !*force {
 		fmt.Fprintf(os.Stderr, "This host is already enrolled as agent %s (%s). Use --force with a re-enrollment token to replace the key.\n", existing.AgentID, *stateDir)
+		return 1
+	}
+	config, err := resolveSettings(*stateDir, existing)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "configuration:", err)
+		return 1
+	}
+	if *apiURL != "" {
+		config.APIURL = strings.TrimRight(strings.TrimSpace(*apiURL), "/")
+	}
+	transport, err := newTransport(config.CAFile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "TLS configuration:", err)
 		return 1
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	id, err := enroll(ctx, *apiURL, token)
+	id, err := enrollWith(ctx, config.APIURL, token, transport)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "enrollment failed:", err)
 		return 1
@@ -96,6 +149,9 @@ func runEnroll(args []string) int {
 	fmt.Printf("Enrolled as agent %s\nKey fingerprint (compare in NERVE): %s\nPinned NERVE Core key: %s\nIdentity: %s\n",
 		id.AgentID, id.Fingerprint, agentproto.CoreKeyID(id.coreKey), *stateDir)
 	fmt.Println("The enrollment token is now used up; remove it from any configuration.")
+	if existing != nil {
+		fmt.Println("A running agent picks up the new identity within", identityPollInterval.String()+".")
+	}
 	return 0
 }
 
@@ -110,13 +166,25 @@ func runStatus(args []string) int {
 		fmt.Fprintln(os.Stderr, "not enrolled:", err)
 		return 1
 	}
-	apiURL := managementAPIURL(id)
-	fmt.Printf("Agent:       %s\nCredential:  %s\nFingerprint: %s\nCore:        %s\nCore key:    %s (pinned)\n",
-		id.AgentID, id.CredentialID, id.Fingerprint, apiURL, agentproto.CoreKeyID(id.coreKey))
+	config, err := resolveSettings(*stateDir, id)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "configuration:", err)
+		return 1
+	}
+	fmt.Printf("Agent:       %s\nCredential:  %s\nFingerprint: %s\nCore:        %s\nCore key:    %s (pinned)\nState dir:   %s\n",
+		id.AgentID, id.CredentialID, id.Fingerprint, config.APIURL, agentproto.CoreKeyID(id.coreKey), *stateDir)
+	if state, err := controlService("status"); err == nil {
+		fmt.Printf("Service:     %s\n", state)
+	}
+	transport, err := newTransport(config.CAFile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "TLS configuration:", err)
+		return 1
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	var response agentproto.IdentityResponse
-	if _, err := newManagementClient(apiURL, id).post(ctx, "/agent/identity", struct{}{}, &response); err != nil {
+	if _, err := newManagementClientWith(config.APIURL, id, transport).post(ctx, "/agent/identity", struct{}{}, &response); err != nil {
 		fmt.Fprintln(os.Stderr, "Core check failed:", err)
 		return 1
 	}
@@ -124,39 +192,57 @@ func runStatus(args []string) int {
 	return 0
 }
 
-// managementAPIURL prefers an explicit NERVE_AGENT_API_URL (for example after
-// Core moved) over the URL recorded at enrollment.
-func managementAPIURL(id *identity) string {
-	if value := strings.TrimSpace(os.Getenv("NERVE_AGENT_API_URL")); value != "" {
-		return strings.TrimRight(value, "/")
+// runAgent runs until ctx ends. It returns a process exit code.
+func runAgent(ctx context.Context, options runOptions) int {
+	level := new(slog.LevelVar)
+	var output io.Writer = os.Stdout
+	if options.logToFile {
+		file, err := openRotatingFile(filepath.Join(options.stateDir, "logs"))
+		if err != nil {
+			return 1
+		}
+		defer file.Close()
+		output = file
 	}
-	return id.APIURL
-}
+	logger := newLogger(output, level)
 
-func runAgent(logger *slog.Logger) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-
-	stateDir := defaultStateDir()
-	id, err := loadIdentity(stateDir)
+	id, err := loadIdentity(options.stateDir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		logger.Error("agent identity unusable", "error", err, "state_dir", stateDir)
+		logger.Error("agent identity unusable", "error", err, "state_dir", options.stateDir)
+		return 1
+	}
+	config, err := resolveSettings(options.stateDir, id)
+	if err != nil {
+		logger.Error("agent configuration invalid", "error", err, "state_dir", options.stateDir)
+		return 1
+	}
+	level.Set(config.LogLevel)
+	transport, err := newTransport(config.CAFile)
+	if err != nil {
+		logger.Error("TLS configuration invalid", "error", err)
 		return 1
 	}
 	if id == nil {
 		if token := strings.TrimSpace(os.Getenv("NERVE_AGENT_ENROLLMENT_TOKEN")); token != "" {
+			apiURL := config.APIURL
+			if apiURL == "" {
+				apiURL = "http://localhost:3000/api/v1"
+			}
 			enrollCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
-			id, err = enroll(enrollCtx, envOr("NERVE_AGENT_API_URL", "http://localhost:3000/api/v1"), token)
+			id, err = enrollWith(enrollCtx, apiURL, token, transport)
 			cancel()
 			if err != nil {
 				logger.Error("automatic enrollment failed", "error", err)
 				return 1
 			}
-			if err := saveIdentity(stateDir, id); err != nil {
+			if err := saveIdentity(options.stateDir, id); err != nil {
 				logger.Error("enrolled, but the identity could not be saved; revoke the agent and enroll again", "agent_id", id.AgentID, "error", err)
 				return 1
 			}
-			logger.Info("agent enrolled", "agent_id", id.AgentID, "fingerprint", id.Fingerprint, "state_dir", stateDir)
+			logger.Info("agent enrolled", "agent_id", id.AgentID, "fingerprint", id.Fingerprint, "state_dir", options.stateDir)
+			if config.APIURL == "" {
+				config.APIURL = apiURL
+			}
 		}
 	}
 
@@ -165,7 +251,7 @@ func runAgent(logger *slog.Logger) int {
 		discoveryToken = ""
 	}
 	if id == nil && discoveryToken == "" {
-		logger.Error("nothing to run: enroll this agent for management or set NERVE_DISCOVERY_AGENT_TOKEN for discovery")
+		logger.Error("nothing to run: enroll this agent for management or set NERVE_DISCOVERY_AGENT_TOKEN for discovery", "state_dir", options.stateDir)
 		return 1
 	}
 
@@ -184,23 +270,108 @@ func runAgent(logger *slog.Logger) int {
 		}()
 	}
 	if id != nil {
-		apiURL := managementAPIURL(id)
-		m := &manager{client: newManagementClient(apiURL, id), agentID: id.AgentID, logger: logger, heartbeatInterval: 30 * time.Second,
-			capabilities: supportedCapabilities, facts: collectHostFacts}
-		logger.Info("NERVE management agent started", "agent_id", id.AgentID, "fingerprint", id.Fingerprint, "api", apiURL, "version", version)
 		workers.Add(1)
 		go func() {
 			defer workers.Done()
-			m.run(ctx)
+			runManagement(ctx, managementOptions{stateDir: options.stateDir, runMode: options.runMode, settings: config,
+				transport: transport, logger: logger}, id)
+		}()
+	}
+	sdNotify("READY=1")
+	if interval := watchdogInterval(); interval > 0 {
+		go func() {
+			ticker := time.NewTicker(interval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					sdNotify("WATCHDOG=1")
+				}
+			}
 		}()
 	}
 	go func() {
 		workers.Wait()
 		close(failed)
 	}()
-	if err, ok := <-failed; ok && err != nil {
+	err, ok := <-failed
+	sdNotify("STOPPING=1")
+	if ok && err != nil {
 		logger.Error("agent stopped", "error", err)
 		return 1
 	}
+	logger.Info("agent stopped")
 	return 0
+}
+
+type managementOptions struct {
+	stateDir  string
+	runMode   string
+	settings  settings
+	transport http.RoundTripper
+	logger    *slog.Logger
+}
+
+// runManagement runs the management loops and restarts them with the new key
+// when the identity file is replaced (for example `enroll --force` while the
+// service runs). On shutdown it reports a final "stopping" heartbeat.
+func runManagement(ctx context.Context, options managementOptions, id *identity) {
+	startedAt := time.Now()
+	for {
+		apiURL := options.settings.APIURL
+		if apiURL == "" {
+			apiURL = id.APIURL
+		}
+		m := &manager{client: newManagementClientWith(apiURL, id, options.transport), agentID: id.AgentID, logger: options.logger,
+			heartbeatInterval: 30 * time.Second, capabilities: capabilitiesWithout(options.settings.DisabledCapabilities),
+			facts: collectHostFacts, runtime: runtimeReporter(options.runMode, startedAt)}
+		options.logger.Info("NERVE management agent started", "agent_id", id.AgentID, "fingerprint", id.Fingerprint, "api", apiURL,
+			"version", version, "run_mode", options.runMode)
+		loopCtx, stopLoops := context.WithCancel(ctx)
+		go watchIdentity(loopCtx, options.stateDir, id.CredentialID, stopLoops, options.logger)
+		m.run(loopCtx)
+		stopLoops()
+		if ctx.Err() != nil {
+			m.reportStopping()
+			return
+		}
+		for ctx.Err() == nil {
+			next, err := loadIdentity(options.stateDir)
+			if err == nil {
+				options.logger.Info("agent identity changed; restarting management with the new credential", "agent_id", next.AgentID,
+					"fingerprint", next.Fingerprint)
+				id = next
+				break
+			}
+			options.logger.Error("agent identity unreadable; retrying", "error", err, "state_dir", options.stateDir)
+			if !sleepContext(ctx, identityPollInterval) {
+				return
+			}
+		}
+	}
+}
+
+// watchIdentity calls changed when the identity file holds a different
+// credential than the running one.
+func watchIdentity(ctx context.Context, dir, credentialID string, changed func(), logger *slog.Logger) {
+	path := filepath.Join(dir, identityFileName)
+	last, _ := os.Stat(path)
+	for sleepContext(ctx, identityPollInterval) {
+		info, err := os.Stat(path)
+		if err != nil || (last != nil && info.ModTime().Equal(last.ModTime()) && info.Size() == last.Size()) {
+			continue
+		}
+		last = info
+		next, err := loadIdentity(dir)
+		if err != nil {
+			logger.Warn("agent identity file changed but cannot be loaded", "error", err)
+			continue
+		}
+		if next.CredentialID != credentialID {
+			changed()
+			return
+		}
+	}
 }

@@ -149,7 +149,8 @@ func Identity(ctx context.Context, db *pgxpool.Pool, deviceID string) (IdentityR
 	}
 
 	agentRows, err := db.Query(ctx, `SELECT id::text, display_name, status,
-		COALESCE(status = 'active' AND last_seen_at > now() - interval '90 seconds', false), association_status, last_seen_at
+		COALESCE(status = 'active' AND last_seen_at > now() - interval '90 seconds'
+			AND (last_shutdown_at IS NULL OR last_shutdown_at < last_seen_at), false), association_status, last_seen_at
 		FROM agents WHERE device_id = $1::uuid ORDER BY display_name`, deviceID)
 	if err != nil {
 		return IdentityReport{}, fmt.Errorf("query device agents: %w", err)

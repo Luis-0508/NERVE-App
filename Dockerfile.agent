@@ -6,13 +6,17 @@ RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
 COPY migrations ./migrations
+COPY scripts/agent ./scripts/agent
 RUN go test ./...
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
 ARG NERVE_VERSION=dev
+# The artifact holds the binary plus the platform's install/uninstall scripts.
 RUN output=/out/nerve-agent; if [ "$TARGETOS" = "windows" ]; then output="$output.exe"; fi; \
     CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH" go build -trimpath \
-    -ldflags="-s -w -X main.version=${NERVE_VERSION}" -o "$output" ./cmd/nerve-agent
+    -ldflags="-s -w -X main.version=${NERVE_VERSION}" -o "$output" ./cmd/nerve-agent && \
+    if [ "$TARGETOS" = "windows" ]; then cp scripts/agent/*-windows.ps1 /out/; \
+    else install -m 0755 scripts/agent/*-linux.sh /out/; fi
 
 FROM scratch AS artifact
 COPY --from=build /out/ /

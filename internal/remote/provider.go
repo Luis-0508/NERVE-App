@@ -30,6 +30,7 @@ type Endpoint struct {
 	DisplayName  string       `json:"displayName"`
 	Status       string       `json:"status"`
 	Online       bool         `json:"online"`
+	Connection   string       `json:"connection,omitempty"`
 	Version      string       `json:"version,omitempty"`
 	LastSeenAt   *time.Time   `json:"lastSeenAt,omitempty"`
 	Association  string       `json:"association"`
@@ -81,7 +82,7 @@ func (p NativeProvider) EndpointsForDevice(ctx context.Context, deviceID string)
 	for _, agent := range items {
 		endpoints = append(endpoints, Endpoint{
 			Provider: ProviderNativeAgent, EndpointID: agent.ID, DisplayName: agent.DisplayName, Status: agent.Status,
-			Online: agent.Online, Version: agent.AgentVersion, LastSeenAt: agent.LastSeenAt, Association: agent.Association.Status,
+			Online: agent.Online, Connection: agent.Connection, Version: agent.AgentVersion, LastSeenAt: agent.LastSeenAt, Association: agent.Association.Status,
 			Capabilities: Capabilities(agent.Capabilities),
 		})
 	}

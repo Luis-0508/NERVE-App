@@ -450,6 +450,8 @@ table, time, .mono { font-variant-numeric: tabular-nums; }
 .enroll-token { margin: 14px 0; padding: 12px; border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border)); border-radius: var(--radius-panel); background: color-mix(in srgb, var(--warning) 6%, var(--surface)); font-size: 12px; }
 .enroll-token p { margin: 0 0 8px; }
 .enroll-token .remote-json { margin-bottom: 8px; padding: 8px; }
+.enroll-commands { margin: 0 0 8px; padding-left: 18px; }
+.enroll-commands li { margin: 2px 0; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .agents-settings .settings-row { grid-template-columns: 1fr; gap: 12px; }
   .agent-actions { flex-wrap: wrap; }
