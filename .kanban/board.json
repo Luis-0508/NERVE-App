@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "version": 19,
+  "version": 21,
   "next_ticket_seq": 14,
   "next_epic_seq": 3,
   "columns": [
@@ -245,9 +245,17 @@
       "labels": [
         "ui"
       ],
+      "notes": [
+        {
+          "at": "2026-10-22T06:41:43.063440600Z",
+          "author": "claude",
+          "text": "PR open: https://github.com/Luis-0508/NERVE-App/pull/70. Typecheck, build (static runtime/CSP check) and map tests pass. Visual check was done against the static export with a fixture-only API harness. Docker Desktop was not running, so the isolated-stack check against real discovery data is still open."
+        }
+      ],
       "column": {
-        "id": "doing",
-        "owner": "claude"
+        "id": "review",
+        "owner": "claude",
+        "branch": "feat/K-13-ui-redesign"
       }
     }
   ]
