@@ -3,8 +3,8 @@
 Narrative snapshot of where NERVE stands. **The repository is authoritative:** if git, the
 code, the task board or GitHub disagree with this file, trust them and correct this file.
 
-- Last updated: 2026-10-16
-- Verified against: `master` at `04b4fcd`
+- Last updated: 2026-10-22
+- Verified against: `master` at `137603b`
 
 ## What exists
 
@@ -16,6 +16,8 @@ code, the task board or GitHub disagree with this file, trust them and correct t
 - Local discovery of one administrator-configured subnet through the native Go agent
   (Windows/Linux); MAC-first reconciliation and online/offline tracking.
 - Live traffic from the Windows ETW sensor or ntopng; geographic and 3D Traffic Map.
+- Neutral dark UI design system (`DESIGN.md`, decision 0002), top-bar shell and an
+  attention-first Overview (K-13).
 - Remote management foundation: enrolled agents with Ed25519 identities, Core-signed
   responses, heartbeats, device association, five audited read-only commands.
 - CI: Go tests, vet, PostgreSQL integration tests, API startup smoke test, frontend
@@ -28,15 +30,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Active work
 
-- **K-13** (Review): PR #70 `feat/K-13-ui-redesign`, UI redesign: neutral dark design system
-  (`DESIGN.md`, decision 0002), top-bar shell and an attention-first Overview. Frontend only.
 - **K-1** (Review): PR #54 `feat/agent-service-lifecycle`, agent service installation and
   lifecycle, the first PR of the production RMM milestone. It also adds the milestone's
   PR table to `IMPLEMENTATION_PLAN.md`. Windows service installation on a real elevated
   host is not verified yet.
-- Workflow migration on `chore/unified-claude-workflow`; PR open for review. Maintenance
-  work, no ticket.
-- Open Dependabot PRs #51, #52, #55 to #59.
+- No open Dependabot PRs; all pending updates were merged on 2026-10-22.
 
 ## Blockers
 
