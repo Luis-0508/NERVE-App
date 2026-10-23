@@ -126,7 +126,9 @@ export type IdentityReport = {
   agents: Array<{ id: string; displayName: string; status: string; online: boolean; association: string; lastSeenAt?: string }>;
   facts: DeviceFact[];
   discoveryMatches: Array<{ reason: string; count: number; last: string }>;
+  classification?: ClassificationSuggestion;
 };
+export type ClassificationSuggestion = { classification: string; source: string; confidence: number; reason: string };
 export type DuplicateCandidate = { deviceA: DeviceRef; deviceB: DeviceRef; confidence: "high" | "medium"; reasons: string[]; signals: Array<{ type: string; value: string; fromAgent: boolean }> };
 export type DeviceVocabulary = { trustStates: TrustState[]; classifications: string[] };
 export type DeviceMetadataUpdate = { displayName?: string | null; notes?: string | null; owner?: string | null; location?: string | null; classification?: string | null; tags?: string[] };
@@ -249,5 +251,5 @@ export type RemoteCommand = {
   failureCode?: string;
   failureReason?: string;
   resultPruned?: boolean;
-  result?: { output?: unknown; outputTruncated: boolean; outputBytes: number; submittedAt: string };
+  result?: { output?: unknown; outputTruncated: boolean; outputBytes: number; submittedAt: string; redactions?: Record<string, number>; outputWithheld?: boolean };
 };

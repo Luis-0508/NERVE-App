@@ -157,6 +157,8 @@ func failed(status, code, reason string) agentproto.CommandResult {
 // submit delivers a result, retrying transient failures. Core acknowledges an
 // identical resubmission, so a retry after a lost response is safe.
 func (m *manager) submit(ctx context.Context, command agentproto.Command, result agentproto.CommandResult) {
+	// Secrets never leave the host; Core applies the same rules again.
+	result.Redact()
 	giveUp := time.Now().Add(5 * time.Minute)
 	for attempt := 1; ; attempt++ {
 		var ack agentproto.ResultAck

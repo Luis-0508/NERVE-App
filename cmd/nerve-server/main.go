@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nerve-labs/nerve/internal/config"
+	"github.com/nerve-labs/nerve/internal/devices"
 	"github.com/nerve-labs/nerve/internal/httpapi"
 	"github.com/nerve-labs/nerve/internal/platform/database"
 )
@@ -63,6 +64,19 @@ func main() {
 	shutdownContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go api.RunMaintenance(shutdownContext, 30*time.Second)
+	go func() {
+		ctx, cancel := context.WithTimeout(shutdownContext, 10*time.Minute)
+		defer cancel()
+		recorded, err := devices.BackfillVendors(ctx, pool)
+		if err != nil {
+			logger.Warn("vendor backfill incomplete", "recorded", recorded, "error", err)
+		} else if recorded > 0 {
+			logger.Info("vendor backfill finished", "recorded", recorded)
+		}
+		if classified, err := devices.BackfillClassifications(ctx, pool); err != nil {
+			logger.Warn("classification backfill incomplete", "classified", classified, "error", err)
+		}
+	}()
 	go func() {
 		<-shutdownContext.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

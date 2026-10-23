@@ -7,7 +7,10 @@ import "crypto/ed25519"
 // creates the release key; keep an old key next to a new one while agents
 // built with only the old key are still in use. With no key pinned, release
 // verification fails closed.
-var pinnedKeys = []string{}
+var pinnedKeys = []string{
+	// Key ID wDVWMqmaZhZQWUI20kdQUfJM3aXgESh3fA44EWaVGDk, created 2026-10-23.
+	"ZfrKtNPIHzdieje+sYRzmlauUlOG2d650s1/qTKCHz4=",
+}
 
 // PinnedKeys returns the release keys compiled into this build.
 func PinnedKeys() []ed25519.PublicKey {

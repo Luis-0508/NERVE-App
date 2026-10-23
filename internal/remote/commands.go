@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/nerve-labs/nerve/internal/agentproto"
 	"github.com/nerve-labs/nerve/internal/agents"
 	"github.com/nerve-labs/nerve/internal/audit"
+	"github.com/nerve-labs/nerve/internal/redact"
 )
 
 const (
@@ -24,8 +26,12 @@ const (
 	MaxActivePerAgent    = 20
 	// ResultGrace is how long after its timeout a claimed command may still
 	// report before the sweeper marks it timed_out.
-	ResultGrace     = time.Minute
-	ResultRetention = 30 * 24 * time.Hour
+	ResultGrace = time.Minute
+	// DefaultResultRetention is how long stored output is kept unless
+	// NERVE_COMMAND_RESULT_RETENTION says otherwise.
+	DefaultResultRetention = 30 * 24 * time.Hour
+	// maxRedactionCount bounds an agent-reported count per kind.
+	maxRedactionCount = 1_000_000
 )
 
 var (
@@ -60,6 +66,10 @@ type Result struct {
 	OutputBytes     int             `json:"outputBytes"`
 	Digest          string          `json:"digest"`
 	SubmittedAt     time.Time       `json:"submittedAt"`
+	Redactions      redact.Counts   `json:"redactions,omitempty"`
+	// OutputWithheld is set when the viewer may see the command but not
+	// its output (privileged commands without RemoteExecutePrivileged).
+	OutputWithheld bool `json:"outputWithheld,omitempty"`
 }
 
 type Command struct {
@@ -99,12 +109,20 @@ type CreateInput struct {
 
 // Service is the command pipeline for the native agent provider.
 type Service struct {
-	db       *pgxpool.Pool
-	notifier *notifier
+	db              *pgxpool.Pool
+	notifier        *notifier
+	resultRetention time.Duration
 }
 
 func NewService(db *pgxpool.Pool) *Service {
-	return &Service{db: db, notifier: newNotifier()}
+	return &Service{db: db, notifier: newNotifier(), resultRetention: DefaultResultRetention}
+}
+
+// SetResultRetention changes how long Sweep keeps stored output.
+func (s *Service) SetResultRetention(retention time.Duration) {
+	if retention > 0 {
+		s.resultRetention = retention
+	}
 }
 
 // Create validates and queues a command. The caller has already checked the
@@ -352,6 +370,14 @@ func validateResult(result agentproto.CommandResult) error {
 		strings.ContainsRune(result.FailureCode, 0) || jsonContainsNUL(result.Output) {
 		return fmt.Errorf("%w: results must not contain NUL characters", ErrInvalidResult)
 	}
+	if len(result.Redactions) > len(redact.Kinds) {
+		return fmt.Errorf("%w: too many redaction kinds", ErrInvalidResult)
+	}
+	for kind, count := range result.Redactions {
+		if !slices.Contains(redact.Kinds, kind) || count < 0 || count > maxRedactionCount {
+			return fmt.Errorf("%w: invalid redaction count for %q", ErrInvalidResult, kind)
+		}
+	}
 	if len(result.Output) > 0 {
 		trimmed := strings.TrimSpace(string(result.Output))
 		if !json.Valid(result.Output) || (!strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[")) {
@@ -368,6 +394,9 @@ func (s *Service) SubmitResult(ctx context.Context, principal agents.Principal, 
 	if err := validateResult(result); err != nil {
 		return agentproto.ResultAck{}, err
 	}
+	// Re-apply redaction so an outdated or modified agent cannot store
+	// secrets the current rules catch; the digest covers the redacted result.
+	result.Redact()
 	digest := resultDigest(result)
 	outputBytes := len(result.Output) + len(result.Stdout) + len(result.Stderr)
 
@@ -425,9 +454,14 @@ func (s *Service) SubmitResult(ctx context.Context, principal agents.Principal, 
 	if len(result.Output) > 0 {
 		output = string(result.Output)
 	}
+	redactions := result.Redactions
+	if redactions == nil {
+		redactions = redact.Counts{}
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO remote_command_results (command_id, output, stdout, stderr, output_truncated, stdout_truncated,
-		stderr_truncated, output_bytes, result_digest) VALUES ($1::uuid, $2::jsonb, NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8, $9)`,
-		commandID, output, result.Stdout, result.Stderr, result.OutputTruncated, result.StdoutTruncated, result.StderrTruncated, outputBytes, digest); err != nil {
+		stderr_truncated, output_bytes, result_digest, redactions) VALUES ($1::uuid, $2::jsonb, NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8, $9, $10)`,
+		commandID, output, result.Stdout, result.Stderr, result.OutputTruncated, result.StdoutTruncated, result.StderrTruncated, outputBytes, digest,
+		redactions); err != nil {
 		return agentproto.ResultAck{}, fmt.Errorf("store command result: %w", err)
 	}
 	auditResult := audit.ResultSuccess
@@ -441,7 +475,7 @@ func (s *Service) SubmitResult(ctx context.Context, principal agents.Principal, 
 	if err := audit.Write(ctx, tx, audit.Entry{ActorAgentID: principal.AgentID, Action: "remote.command.completed", TargetType: "remote_command",
 		TargetID: commandID, Result: auditResult, ErrorCode: failureCode, Parameters: map[string]any{"type": commandType, "status": result.Status,
 			"exitCode": result.ExitCode, "outputBytes": outputBytes, "outputTruncated": result.OutputTruncated || result.StdoutTruncated || result.StderrTruncated,
-			"resultDigest": digest, "durationMs": durationMS}}); err != nil {
+			"resultDigest": digest, "durationMs": durationMS, "redactions": redactions}}); err != nil {
 		return agentproto.ResultAck{}, err
 	}
 	severity, verb := "info", "succeeded"
@@ -571,7 +605,7 @@ func (s *Service) Sweep(ctx context.Context) error {
 		}
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM remote_command_results WHERE submitted_at < now() - $1::interval`,
-		fmt.Sprintf("%d seconds", int64(ResultRetention.Seconds()))); err != nil {
+		fmt.Sprintf("%d seconds", int64(s.resultRetention.Seconds()))); err != nil {
 		return fmt.Errorf("prune command results: %w", err)
 	}
 	return tx.Commit(ctx)
@@ -605,12 +639,13 @@ func (s *Service) Get(ctx context.Context, commandID string) (Command, error) {
 		outputTruncated, stdoutTrunc, stderrTrunc *bool
 		outputBytes                               *int
 		submittedAt                               *time.Time
+		redactions                                redact.Counts
 	)
 	command, err := scanCommand(s.db.QueryRow(ctx, `SELECT `+commandColumns+`, r.output, r.stdout, r.stderr, r.output_truncated,
-		r.stdout_truncated, r.stderr_truncated, r.output_bytes, r.result_digest, r.submitted_at
+		r.stdout_truncated, r.stderr_truncated, r.output_bytes, r.result_digest, r.submitted_at, r.redactions
 		FROM remote_commands c JOIN agents a ON a.id = c.agent_id LEFT JOIN users u ON u.id = c.requested_by
 		LEFT JOIN remote_command_results r ON r.command_id = c.id WHERE c.id = $1::uuid`, commandID),
-		&output, &stdout, &stderr, &outputTruncated, &stdoutTrunc, &stderrTrunc, &outputBytes, &digest, &submittedAt)
+		&output, &stdout, &stderr, &outputTruncated, &stdoutTrunc, &stderrTrunc, &outputBytes, &digest, &submittedAt, &redactions)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Command{}, ErrNotFound
 	}
@@ -619,7 +654,8 @@ func (s *Service) Get(ctx context.Context, commandID string) (Command, error) {
 	}
 	if digest != nil {
 		command.Result = &Result{Output: output, Stdout: deref(stdout), Stderr: deref(stderr), OutputTruncated: *outputTruncated,
-			StdoutTruncated: *stdoutTrunc, StderrTruncated: *stderrTrunc, OutputBytes: *outputBytes, Digest: *digest, SubmittedAt: *submittedAt}
+			StdoutTruncated: *stdoutTrunc, StderrTruncated: *stderrTrunc, OutputBytes: *outputBytes, Digest: *digest, SubmittedAt: *submittedAt,
+			Redactions: redactions}
 	} else if (command.Status == "succeeded" || command.Status == "failed" || command.Status == "timed_out") && !reservedFailureCodes[command.FailureCode] {
 		command.ResultPruned = true
 	}

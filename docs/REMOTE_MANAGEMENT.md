@@ -273,7 +273,22 @@ operator ── POST /remote/commands/{id}/cancel ──▶ cancelled
 - **Database invariants.** Triggers enforce the allowed transitions, terminal finality,
   immutable request fields and claims, no deletion of commands, and write-once results.
   CHECK constraints keep timestamps consistent with the state.
-- **Retention.** Results are pruned after 30 days. Command rows and audit records remain.
+- **Redaction.** Before storage, `internal/redact` replaces common secrets in stdout,
+  stderr, the failure reason and every string value of structured output with
+  `[redacted:<kind>]`: private key blocks, credentials in URLs, bearer tokens, AWS access
+  keys, and values of `password=`, `pwd:`, `secret=`, `api_key=`, `token=` and similar
+  assignments (key names stay readable). The agent redacts before upload; Core applies the
+  same rules again on receipt, so an outdated or modified agent cannot store what the
+  current rules catch. The rules are idempotent, so the result digest is the same either way.
+  The counts per kind are stored with the result, shown under the output and recorded in
+  the `remote.command.completed` audit entry. Redaction is pattern-based: a secret in an
+  unrecognized format is stored as is.
+- **Retention.** Results are pruned after `NERVE_COMMAND_RESULT_RETENTION` (default `30d`;
+  a Go duration such as `720h` or whole days, from 1 hour to 3650 days). Command rows and
+  audit records remain, and the UI says the output was removed by retention.
+- **Access to output.** Every operator with `remote.view` sees the command history. The
+  output of any command that is not read-only is shown only to operators who also hold
+  `remote.execute.privileged`; others see that it was withheld.
 - **Transport.** Polling and long polling over the same HTTP(S) origin as the UI, through
   Nginx. The agent tolerates network loss and Core restarts (jittered backoff, 2 s to
   60 s), its own restarts (identity on disk; after a crash an in-flight command times out on Core,
@@ -460,4 +475,3 @@ all of these exist:
 - Per-device or per-group authorization scope, plus policies or allowlists.
 - A privileged helper separated from the unprivileged agent.
 - Signed agent releases and updates.
-- A stdout/stderr transcript policy: the size limits exist; retention and redaction do not.

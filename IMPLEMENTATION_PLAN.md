@@ -28,7 +28,7 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
 
 ### Missing
 
-- Device identity follow-ups: vendor (OUI) lookup and automatic classification; more
+- Device identity follow-ups: more
   evidence sources (DHCP, SNMP, LLDP, ARP history); `devices.approved_at` is superseded by
   trust state and unused.
 - Discovery 2.0: multiple targets, scheduled scans (`subnets.discovery_interval_seconds`
@@ -47,7 +47,7 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
   `remote_commands` and can be dropped in a later migration.
 - Operations: release signing, versioning and the changelog exist (`docs/RELEASING.md`), but
   no release key is pinned and no version is tagged yet. No licence file, backup/restore,
-  retention policy, diagnostics bundle or upgrade/rollback procedure.
+  retention policy beyond command output, diagnostics bundle or upgrade/rollback procedure.
 
 ## How delivery diverged from the original plan
 
@@ -74,8 +74,8 @@ remote-management foundation, then device identity.
 1. **Device identity — implemented (October 2026)** (former Milestone 4). Human-owned
    metadata and trust state, provenance, identity evidence, duplicate candidates, merge and
    split; agents and discovery converge on one record. See
-   [Device identity](docs/DEVICE_IDENTITY.md). Still open: OUI/vendor and classification,
-   more evidence sources, multi-address matching in the Traffic Map.
+   [Device identity](docs/DEVICE_IDENTITY.md). Vendor comes from an embedded IEEE OUI registry; a rule table suggests the
+   device type. Still open: more evidence sources, multi-address matching in the Traffic Map.
 2. **Remote management foundation — implemented (October 2026).** Agent enrollment and
    identity, Core-signed responses, heartbeat, capabilities, device association, audited
    read-only command pipeline. See [Remote management](docs/REMOTE_MANAGEMENT.md).
@@ -88,7 +88,7 @@ remote-management foundation, then device identity.
    | PR | Scope | State |
    | --- | --- | --- |
    | 1 | Agent as Windows service / systemd unit with unprivileged accounts, installers, persistent config, private-CA TLS, diagnostics, run state and graceful-stop reporting (`connection`: online/stopped/offline), live re-enrollment | implemented |
-   | 2 | Security hardening and privileged execution architecture: HTTPS enforcement for privileged agents, per-command operator approval the agent can verify, device-level scopes, trusted-device policy check, separate privileged helper (Windows service as LocalSystem / root systemd unit) reachable only over a local authenticated channel, output redaction and transcript retention | planned |
+   | 2 | Security hardening and privileged execution architecture: HTTPS enforcement for privileged agents, per-command operator approval the agent can verify, device-level scopes, trusted-device policy check, separate privileged helper (Windows service as LocalSystem / root systemd unit) reachable only over a local authenticated channel; output redaction and transcript retention are implemented (K-18) | planned |
    | 3 | System-management commands on that foundation: service restart/stop, process termination, reboot/shutdown, log retrieval, detailed hardware/network inventory, each with permission, validation, confirmation and audit | planned |
    | 4 | RMM device page: overview, system, performance, processes, services, software, actions, command history, agent status, audit; loading/offline/denied/failed states | planned |
    | 5 | Bounded non-interactive remote commands (PowerShell, shell) with timeouts, cancellation, polled output and protected transcripts | planned |
@@ -103,7 +103,7 @@ remote-management foundation, then device identity.
    command); explicit operator confirmation showing target
    identity and evidence; per-device/group authorization scope and command policies;
    a privileged helper separate from the unprivileged agent; signed agent releases and
-   updates; transcript retention and redaction rules for stdout/stderr.
+   updates. Transcript redaction, configurable retention and output access are implemented.
 4. **Interactive sessions.** A MeshCentral adapter behind `remote.Provider` (time-boxed
    spike first: read-only node listing, operator-confirmed `meshcentral` identities, deep
    links before embedding, audited handoff).

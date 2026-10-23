@@ -34,6 +34,8 @@ stays `Luis-PC` until an operator clears the manual name.
 
 | Source | Attributes | Confidence |
 | --- | --- | --- |
+| `oui` (embedded IEEE registry, from a MAC address) | manufacturer | 40 |
+| `heuristic` (classification rules, see below) | classification | 40–75 per rule |
 | `reverse-dns` (local discovery) | hostname | 50 |
 | `nerve-agent` (enrolled management agent) | hostname, operating system, architecture | 85 |
 
@@ -41,6 +43,31 @@ The discovered value is the most confident current claim (then the most recent).
 device's Identity tab lists every claim and marks which one is used. When an agent is
 detached or removed, its claims are deleted and the values are recomputed from what
 remains.
+
+The `oui` manufacturer is the organization the IEEE assigned the device's MAC address block
+to, looked up offline in `internal/oui` (see [decision 0004](DECISIONS/0004-ieee-oui-registry.md)).
+A MAC seen by discovery is preferred over adapters only an agent reports. Multicast and
+locally administered (randomized) addresses yield no vendor. It is recorded whenever
+discovery or an associated agent reports a MAC, and once at Core startup for devices that
+have a MAC but no `oui` claim yet. It has the lowest confidence because an adapter's vendor
+is not always the device's maker.
+
+### Suggested classification
+
+`internal/devices/classify.go` holds a small rule table. Each rule looks at one kind of
+evidence: the effective manufacturer, the effective operating system, or the open TCP ports
+in `service_endpoints`. It suggests a type from the classification vocabulary with a
+confidence and a reason. Examples: a Windows Server edition reported by an agent (server, 75),
+a VMware or Parallels adapter (virtual machine, 70), a printer maker's adapter (printer, 50).
+Vendors that make many kinds of devices have no rule. The most confident matching rule wins,
+and on a tie the earlier rule in the table wins.
+
+The verdict is stored as the `classification` claim with source `heuristic`. It is recomputed
+whenever the manufacturer or operating system claim changes, when a source's claims are
+forgotten, and for every device at Core startup. When no rule matches any more, the claim is
+withdrawn and the discovered type falls back to `unknown`. The operator's type override
+always wins. The Identity tab shows the discovered type with its source, confidence and
+reason.
 
 ## Trust state
 
@@ -183,9 +210,12 @@ needs `devices.merge`. It separates records that NERVE grouped wrongly.
 
 ## Limitations
 
-- No vendor (OUI) lookup yet. The vendor stays empty unless a source reports it.
-- Classification is discovered only as `unknown` today, and operators set the type
-  manually.
+- The vendor comes from the MAC address block only. No source reports a device's own
+  manufacturer, model or serial number yet, and the embedded registry ages until it is
+  regenerated (`node scripts/generate-oui.mjs`).
+- Classification rules are deliberately few. Laptops, phones and Linux hosts are not told
+  apart, and port rules only fire once a source records open service endpoints (local
+  discovery does not scan ports yet).
 - Hostname and address evidence come from reverse DNS and agents only. There are no DHCP,
   SNMP, LLDP or ARP-history sources yet.
 - Duplicate candidates are computed on request. There is no background job or

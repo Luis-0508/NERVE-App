@@ -102,7 +102,8 @@ func (s *Server) listDeviceCommands(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) commandDetail(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.requirePermission(w, r, authz.RemoteView); !ok {
+	user, ok := s.requirePermission(w, r, authz.RemoteView)
+	if !ok {
 		return
 	}
 	commandID := r.PathValue("commandID")
@@ -113,6 +114,12 @@ func (s *Server) commandDetail(w http.ResponseWriter, r *http.Request) {
 	command, err := s.commands.Get(r.Context(), commandID)
 	if s.writeCommandError(w, err) {
 		return
+	}
+	// Output of anything beyond read-only commands may hold transcripts;
+	// only operators who could run such commands may read it.
+	if command.Result != nil && command.Risk != string(agentproto.RiskReadOnly) && !user.Can(authz.RemoteExecutePrivileged) {
+		command.Result.Output, command.Result.Stdout, command.Result.Stderr = nil, "", ""
+		command.Result.OutputWithheld = true
 	}
 	writeJSON(w, http.StatusOK, command)
 }

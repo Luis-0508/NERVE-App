@@ -35,8 +35,10 @@ flowchart LR
 | `internal/auth`, `internal/authz`, `internal/audit` | Bootstrap, sessions, login rate limiting; role-to-permission checks; append-only audit log |
 | `internal/inventory`, `internal/devices` | Device read model and search; operator-owned identity, evidence, duplicates, merge and split |
 | `internal/discovery` | Discovery target, persistent scan jobs, report reconciliation (MAC first), match rules |
+| `internal/oui` | Offline MAC vendor lookup in the embedded IEEE registry (`scripts/generate-oui.mjs`, decision 0004) |
 | `internal/agents`, `internal/agentproto` | Enrollment tokens and reusable deployment keys (with operator approval of pending agents), per-agent Ed25519 identities, signed protocol, Core response signing, device association |
-| `internal/remote` | Provider-neutral remote management: providers, policies, audited command pipeline |
+| `internal/remote` | Provider-neutral remote management: providers, policies, audited command pipeline, result retention |
+| `internal/redact` | Secret redaction rules for command output, shared by the agent and Core |
 | `internal/release`, `cmd/nerve-release` | Signed release manifests: offline verification against pinned keys (used by `nerve-agent verify-release`), manifest writing and signing for the release workflow |
 | `internal/traffic`, `internal/integrations/ntopng` | Normalized live-traffic snapshot, sensor ingest, ntopng adapter |
 | `internal/platform`, `internal/config` | Database pool, migrations, configuration from the environment |
@@ -58,7 +60,9 @@ queues a scan (`POST /api/v1/discovery/scans`); the database allows one active s
 native agent claims the job (`.../discovery/agent/jobs/claim`), probes the network, posts
 reports and completes the job. `internal/discovery` reconciles each report into devices,
 interfaces and addresses (MAC first, then subnet and IP, using the explicit match rules),
-records identity evidence, and updates online/offline state; changes reach open UIs through
+records identity evidence and the MAC vendor (`internal/oui`, as a low-confidence sourced
+fact), re-runs the classification rules (`internal/devices/classify.go`) when vendor or OS
+change, and updates online/offline state; changes reach open UIs through
 SSE (one shared PostgreSQL listener).
 
 Remote commands: an operator with the permission queues one of the read-only commands
