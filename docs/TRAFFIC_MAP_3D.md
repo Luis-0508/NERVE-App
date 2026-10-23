@@ -9,7 +9,7 @@ flow inspector and diagnostics. The last chosen view is remembered in the browse
 | Element | Source | Provenance |
 | --- | --- | --- |
 | Devices | `GET /api/v1/devices` (up to 1,000, refreshed every 30 s) | Inventory |
-| Hosts marked "Seen in traffic" | `localIp` of live flows that is not the `primaryIpAddress` of any inventory device | Observed traffic |
+| Hosts marked "Seen in traffic" | `localIp` of live flows that is not a current address (`ipAddresses`) of any inventory device | Observed traffic |
 | Remote endpoints | `remoteIp` of live flows | Observed traffic |
 | Links and pulses | Live flow groups, aggregated per local host, remote IP and direction | Measured |
 | Plates | Derived /24 address block of each host (IPv6 and hosts without an address are grouped separately) | Derived, not a verified VLAN or segment |
@@ -23,10 +23,12 @@ device: the shared uplink only means "traffic leaves the local site".
 
 Known limits of the derivation:
 
-- Only a device's primary address is matched. Traffic on a secondary address of an
-  inventory device appears as a separate "Seen in traffic" host.
-- When several devices share a primary address, traffic is attributed to the online,
-  most recently seen one; the others stay visible without traffic.
+- Flows match a device by any of its current addresses (up to 16 per device, primary
+  first). Ended leases never attract traffic. The node is labelled with the primary
+  address; its details list the other current addresses.
+- When several devices share an address, traffic on that address is attributed to the
+  online, most recently seen one; the others stay visible without it. This applies per
+  address, so a device can lose a shared address and keep its own.
 - Inventory devices hidden by the device filter are not re-added as traffic-only hosts.
 - While the traffic source is unavailable, links are removed instead of showing stale flows.
 

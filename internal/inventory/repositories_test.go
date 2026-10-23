@@ -40,10 +40,11 @@ func TestDeviceRepositoryList(t *testing.T) {
 		WillReturnRows(pgxmock.NewRows([]string{
 			"id", "name", "display_name", "discovered_name", "status", "classification", "discovered_classification",
 			"overridden", "trust_state", "tags", "hostname", "ip", "mac",
-			"manufacturer", "operating_system", "first_seen_at", "last_seen_at", "total",
+			"manufacturer", "operating_system", "first_seen_at", "last_seen_at", "ip_addresses", "total",
 		}).AddRow(
 			"01991b36-0478-7de8-9daa-22b30c4a9255", "Edge gateway", "Edge gateway", "edge-01", "online", "network", "unknown",
-			true, "trusted", []string{"core"}, "edge-01", "192.0.2.1", "00:11:22:33:44:55", "NERVE", "Linux", seen, seen, int64(1),
+			true, "trusted", []string{"core"}, "edge-01", "192.0.2.1", "00:11:22:33:44:55", "NERVE", "Linux", seen, seen,
+			[]string{"192.0.2.1", "198.51.100.1"}, int64(1),
 		))
 
 	repository := NewRepositories(mock).Devices
@@ -55,7 +56,8 @@ func TestDeviceRepositoryList(t *testing.T) {
 		t.Fatalf("List() error = %v", err)
 	}
 	if result.Total != 1 || len(result.Items) != 1 || result.Items[0].PrimaryIPAddress != "192.0.2.1" ||
-		!result.Items[0].ClassificationOverridden || result.Items[0].TrustState != "trusted" || len(result.Items[0].Tags) != 1 {
+		!result.Items[0].ClassificationOverridden || result.Items[0].TrustState != "trusted" || len(result.Items[0].Tags) != 1 ||
+		len(result.Items[0].IPAddresses) != 2 {
 		t.Fatalf("List() = %#v", result)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
