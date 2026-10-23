@@ -303,4 +303,5 @@ type Attribute struct {
 const (
 	SourceReverseDNS = "reverse-dns"
 	SourceAgent      = "nerve-agent"
+	SourceOUI        = "oui"
 )

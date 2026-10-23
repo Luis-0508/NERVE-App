@@ -164,7 +164,7 @@ forward plan, and [DESIGN.md](DESIGN.md) for the UI design system.
 NERVE is in active development and has no releases yet. Everything listed under Features
 works today; remote management is a foundation with read-only commands only.
 
-Not available yet: vendor (OUI) lookup and automatic device classification; multiple or scheduled discovery targets; observed local topology (LLDP/CDP/SNMP, switch ports, device-to-device links); Proxmox and Docker integrations; remote desktop, terminal, file transfer, shell or PowerShell commands and other privileged remote actions; releases and backup tooling. No screen uses static or demo data. The plan for these is in [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md), and the remote-management direction is in [docs/REMOTE_MANAGEMENT.md](docs/REMOTE_MANAGEMENT.md).
+Not available yet: automatic device classification; multiple or scheduled discovery targets; observed local topology (LLDP/CDP/SNMP, switch ports, device-to-device links); Proxmox and Docker integrations; remote desktop, terminal, file transfer, shell or PowerShell commands and other privileged remote actions; releases and backup tooling. No screen uses static or demo data. The plan for these is in [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md), and the remote-management direction is in [docs/REMOTE_MANAGEMENT.md](docs/REMOTE_MANAGEMENT.md).
 
 Current priorities and known limitations are tracked in
 [docs/PROJECT_STATE.md](docs/PROJECT_STATE.md).
