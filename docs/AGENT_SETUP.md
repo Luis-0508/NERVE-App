@@ -49,6 +49,13 @@ release artifacts are not published yet; build from a reviewed checkout.
    sudo ./install-linux.sh --api-url https://nerve.example.lan/api/v1 --token-file ./token
    ```
 
+   On Windows, **Copy PowerShell command** next to the token does steps 2 and 3 in one
+   line without a token file: it sets `NERVE_AGENT_ENROLLMENT_TOKEN` for the session, runs
+   `install-windows.ps1` (or `nerve-agent enroll --force` for a re-enrollment token) and
+   clears the variable again. Both `service install` and `enroll` read the token from that
+   variable when no `--token-file` is given. The pasted line can stay in the PowerShell
+   history; the token is single-use and expires, so revoke it if enrollment does not finish.
+
    The installer prints the agent ID and key fingerprint. Compare the fingerprint with the
    one shown in NERVE, then delete the token file. The token carries the fingerprint of
    NERVE Core's signing key, so the agent refuses to enroll with a server that cannot prove

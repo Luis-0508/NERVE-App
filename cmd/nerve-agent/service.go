@@ -37,7 +37,8 @@ const serviceUsage = `Usage:
 install registers the agent as a Windows service (virtual account
 NT SERVICE\NERVEAgent) or a systemd unit (user nerve-agent), with automatic
 restart after crashes. It must run as Administrator or root. With --token-file
-it also enrolls the host; --force replaces an existing identity (re-enrollment).
+or NERVE_AGENT_ENROLLMENT_TOKEN it also enrolls the host; --force replaces an
+existing identity (re-enrollment).
 uninstall removes the service; --purge also deletes the local identity. Revoke
 or remove the agent in NERVE as well, so its key can no longer be used.
 `
@@ -106,9 +107,13 @@ func runService(args []string) int {
 // host. It runs after the service account exists, so the state directory can
 // grant it access.
 func prepareServiceState(options installOptions) (*identity, error) {
+	token, err := installToken(options.TokenFile)
+	if err != nil {
+		return nil, err
+	}
 	existing, err := loadIdentity(options.StateDir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		if options.TokenFile == "" || !options.Force {
+		if token == "" || !options.Force {
 			return nil, fmt.Errorf("existing identity in %s is unusable (%v); re-enroll with --token-file and --force", options.StateDir, err)
 		}
 		existing = nil
@@ -150,16 +155,12 @@ func prepareServiceState(options installOptions) (*identity, error) {
 	if strings.HasPrefix(config.APIURL, "http://") {
 		fmt.Println("Warning: the Core URL uses plain HTTP. Requests are authenticated in both directions, but results and host facts are readable on the network. Use HTTPS outside a trusted network.")
 	}
-	if options.TokenFile == "" {
+	if token == "" {
 		return existing, nil
 	}
 	if existing != nil && !options.Force {
 		fmt.Printf("Already enrolled as agent %s; the token was not used. Use --force with a re-enrollment token to replace the key.\n", existing.AgentID)
 		return existing, nil
-	}
-	raw, err := os.ReadFile(options.TokenFile)
-	if err != nil {
-		return nil, fmt.Errorf("read token file: %w", err)
 	}
 	transport, err := newTransport(config.CAFile)
 	if err != nil {
@@ -167,7 +168,7 @@ func prepareServiceState(options installOptions) (*identity, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
-	id, err := enrollWith(ctx, config.APIURL, strings.TrimSpace(string(raw)), transport)
+	id, err := enrollWith(ctx, config.APIURL, token, transport)
 	if err != nil {
 		return nil, fmt.Errorf("enrollment: %w", err)
 	}
@@ -175,6 +176,23 @@ func prepareServiceState(options installOptions) (*identity, error) {
 		return nil, fmt.Errorf("enrolled as %s, but the identity could not be saved (revoke it in NERVE): %w", id.AgentID, err)
 	}
 	fmt.Printf("Enrolled as agent %s\nKey fingerprint (compare in NERVE): %s\n", id.AgentID, id.Fingerprint)
-	fmt.Println("The enrollment token is now used up; delete the token file.")
+	if options.TokenFile != "" {
+		fmt.Println("The enrollment token is now used up; delete the token file.")
+	}
 	return id, nil
+}
+
+// installToken returns the enrollment token from the token file, else from
+// NERVE_AGENT_ENROLLMENT_TOKEN. Tokens are never command-line arguments, because
+// other local users can read process arguments; a process environment is
+// readable only by its owner and administrators.
+func installToken(tokenFile string) (string, error) {
+	if tokenFile == "" {
+		return strings.TrimSpace(os.Getenv("NERVE_AGENT_ENROLLMENT_TOKEN")), nil
+	}
+	raw, err := os.ReadFile(tokenFile)
+	if err != nil {
+		return "", fmt.Errorf("read token file: %w", err)
+	}
+	return strings.TrimSpace(string(raw)), nil
 }
