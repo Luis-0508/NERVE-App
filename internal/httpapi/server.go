@@ -133,6 +133,7 @@ func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, ve
 		}
 	}
 	server.commands = remote.NewService(db)
+	server.commands.SetResultRetention(cfg.CommandResultRetention)
 	server.remote = remote.NewRegistry(remote.NativeProvider{Agents: server.agents})
 	server.agentLifecycleHooks = append(server.agentLifecycleHooks, server.commands.CancelForAgent)
 	server.maintenanceTasks = append(server.maintenanceTasks, server.commands.Sweep)

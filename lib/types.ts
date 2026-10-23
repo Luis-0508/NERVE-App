@@ -236,5 +236,5 @@ export type RemoteCommand = {
   failureCode?: string;
   failureReason?: string;
   resultPruned?: boolean;
-  result?: { output?: unknown; outputTruncated: boolean; outputBytes: number; submittedAt: string };
+  result?: { output?: unknown; outputTruncated: boolean; outputBytes: number; submittedAt: string; redactions?: Record<string, number>; outputWithheld?: boolean };
 };

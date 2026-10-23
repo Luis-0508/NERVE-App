@@ -133,7 +133,8 @@ function CommandResult({ command }: { command: RemoteCommand }) {
     {command.resultPruned && <p className="remote-note muted">The output was removed by the result retention policy.</p>}
     {command.result && <>
       <p className="remote-note muted">{command.result.outputBytes.toLocaleString()} bytes · received {formatDate(command.result.submittedAt)}{command.result.outputTruncated ? " · truncated to the output limit" : ""}</p>
-      <ResultView output={command.result.output} />
+      {command.result.redactions && Object.keys(command.result.redactions).length > 0 && <p className="remote-note muted">Secrets removed before storage: {Object.entries(command.result.redactions).map(([kind, count]) => `${count} × ${kind.replaceAll("_", " ")}`).join(", ")}.</p>}
+      {command.result.outputWithheld ? <p className="remote-note muted">The output of privileged commands is shown only to operators allowed to run them.</p> : <ResultView output={command.result.output} />}
     </>}
   </section>;
 }

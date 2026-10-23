@@ -3,6 +3,8 @@ package agentproto
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/nerve-labs/nerve/internal/redact"
 )
 
 const (
@@ -51,6 +53,31 @@ type CommandResult struct {
 	StderrTruncated bool            `json:"stderrTruncated,omitempty"`
 	FailureCode     string          `json:"failureCode,omitempty"`
 	FailureReason   string          `json:"failureReason,omitempty"`
+	// Redactions counts the secrets replaced per kind (see internal/redact).
+	Redactions redact.Counts `json:"redactions,omitempty"`
+}
+
+// Redact replaces secrets in the output, transcripts and failure reason and
+// adds what it replaced to Redactions. The agent calls it before upload and
+// Core again on receipt; a second pass finds nothing new.
+func (r *CommandResult) Redact() {
+	found := redact.Counts{}
+	add := func(text string) string {
+		redacted, counts := redact.Text(text)
+		found.Add(counts)
+		return redacted
+	}
+	r.Stdout, r.Stderr, r.FailureReason = add(r.Stdout), add(r.Stderr), add(r.FailureReason)
+	output, counts := redact.JSON(r.Output)
+	r.Output = output
+	found.Add(counts)
+	if len(found) == 0 {
+		return
+	}
+	if r.Redactions == nil {
+		r.Redactions = redact.Counts{}
+	}
+	r.Redactions.Add(found)
 }
 
 type ResultAck struct {
