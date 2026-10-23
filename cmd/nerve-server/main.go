@@ -73,6 +73,9 @@ func main() {
 		} else if recorded > 0 {
 			logger.Info("vendor backfill finished", "recorded", recorded)
 		}
+		if classified, err := devices.BackfillClassifications(ctx, pool); err != nil {
+			logger.Warn("classification backfill incomplete", "classified", classified, "error", err)
+		}
 	}()
 	go func() {
 		<-shutdownContext.Done()

@@ -70,6 +70,11 @@ export function DeviceIdentityPanel({ detail, permissions, onChanged }: { detail
 
   const otherDevice = (candidate: DuplicateCandidate) => candidate.deviceA.id === device.id ? candidate.deviceB : candidate.deviceA;
 
+  // The discovered type is shown with the claim it came from; a rule's reason
+  // is only shown while it still explains that claim.
+  const typeFact = identity?.facts.find((fact) => fact.attribute === "classification" && fact.effective);
+  const suggestion = identity?.classification;
+  const typeReason = suggestion && typeFact && typeFact.source === suggestion.source && typeFact.value === suggestion.classification ? suggestion.reason : undefined;
   return <div className="identity-panel">
     {device.mergedInto && <div className="form-error" role="status">This record was merged. Its history now lives on <Link className="device-link" href={`/devices/detail?id=${encodeURIComponent(device.mergedInto)}`}>the surviving device</Link>.</div>}
     {message && <div className={message.kind === "error" ? "form-error" : "form-ok"} role={message.kind === "error" ? "alert" : "status"}>{message.text}</div>}
@@ -81,7 +86,7 @@ export function DeviceIdentityPanel({ detail, permissions, onChanged }: { detail
           <div><dt>Effective name</dt><dd>{device.name}</dd></div>
           <div><dt>Discovered name</dt><dd className="mono">{device.discoveredName || "—"}</dd></div>
           <div><dt>Discovered hostname</dt><dd className="mono">{device.hostname || "—"}</dd></div>
-          <div><dt>Discovered type</dt><dd>{device.discoveredClassification}</dd></div>
+          <div><dt>Discovered type</dt><dd>{device.discoveredClassification}{typeFact ? ` · ${typeFact.source}, confidence ${typeFact.confidence}` : identity && device.discoveredClassification === "unknown" ? " · no rule matched" : ""}{typeReason && <span className="muted classification-reason">{typeReason}</span>}</dd></div>
           {device.metadataUpdatedAt && <div><dt>Last edited</dt><dd>{formatDate(device.metadataUpdatedAt)} · {device.metadataUpdatedBy || "operator"}</dd></div>}
         </dl>
         <form className="identity-form" onSubmit={(event) => { event.preventDefault(); saveMetadata(); }}>

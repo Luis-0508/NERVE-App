@@ -60,7 +60,8 @@ native agent claims the job (`.../discovery/agent/jobs/claim`), probes the netwo
 reports and completes the job. `internal/discovery` reconciles each report into devices,
 interfaces and addresses (MAC first, then subnet and IP, using the explicit match rules),
 records identity evidence and the MAC vendor (`internal/oui`, as a low-confidence sourced
-fact), and updates online/offline state; changes reach open UIs through
+fact), re-runs the classification rules (`internal/devices/classify.go`) when vendor or OS
+change, and updates online/offline state; changes reach open UIs through
 SSE (one shared PostgreSQL listener).
 
 Remote commands: an operator with the permission queues one of the read-only commands
