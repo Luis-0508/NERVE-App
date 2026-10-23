@@ -27,7 +27,7 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
 
 ### Missing
 
-- Device identity follow-ups: automatic classification; more
+- Device identity follow-ups: more
   evidence sources (DHCP, SNMP, LLDP, ARP history); `devices.approved_at` is superseded by
   trust state and unused.
 - Discovery 2.0: multiple targets, scheduled scans (`subnets.discovery_interval_seconds`
@@ -73,8 +73,8 @@ remote-management foundation, then device identity.
 1. **Device identity — implemented (October 2026)** (former Milestone 4). Human-owned
    metadata and trust state, provenance, identity evidence, duplicate candidates, merge and
    split; agents and discovery converge on one record. See
-   [Device identity](docs/DEVICE_IDENTITY.md). Vendor comes from an embedded IEEE OUI registry. Still open: classification,
-   more evidence sources, multi-address matching in the Traffic Map.
+   [Device identity](docs/DEVICE_IDENTITY.md). Vendor comes from an embedded IEEE OUI registry; a rule table suggests the
+   device type. Still open: more evidence sources, multi-address matching in the Traffic Map.
 2. **Remote management foundation — implemented (October 2026).** Agent enrollment and
    identity, Core-signed responses, heartbeat, capabilities, device association, audited
    read-only command pipeline. See [Remote management](docs/REMOTE_MANAGEMENT.md).
