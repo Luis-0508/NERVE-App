@@ -34,6 +34,7 @@ stays `Luis-PC` until an operator clears the manual name.
 
 | Source | Attributes | Confidence |
 | --- | --- | --- |
+| `oui` (embedded IEEE registry, from a MAC address) | manufacturer | 40 |
 | `reverse-dns` (local discovery) | hostname | 50 |
 | `nerve-agent` (enrolled management agent) | hostname, operating system, architecture | 85 |
 
@@ -41,6 +42,14 @@ The discovered value is the most confident current claim (then the most recent).
 device's Identity tab lists every claim and marks which one is used. When an agent is
 detached or removed, its claims are deleted and the values are recomputed from what
 remains.
+
+The `oui` manufacturer is the organization the IEEE assigned the device's MAC address block
+to, looked up offline in `internal/oui` (see [decision 0004](DECISIONS/0004-ieee-oui-registry.md)).
+A MAC seen by discovery is preferred over adapters only an agent reports. Multicast and
+locally administered (randomized) addresses yield no vendor. It is recorded whenever
+discovery or an associated agent reports a MAC, and once at Core startup for devices that
+have a MAC but no `oui` claim yet. It has the lowest confidence because an adapter's vendor
+is not always the device's maker.
 
 ## Trust state
 
@@ -183,7 +192,9 @@ needs `devices.merge`. It separates records that NERVE grouped wrongly.
 
 ## Limitations
 
-- No vendor (OUI) lookup yet. The vendor stays empty unless a source reports it.
+- The vendor comes from the MAC address block only. No source reports a device's own
+  manufacturer, model or serial number yet, and the embedded registry ages until it is
+  regenerated (`node scripts/generate-oui.mjs`).
 - Classification is discovered only as `unknown` today, and operators set the type
   manually.
 - Hostname and address evidence come from reverse DNS and agents only. There are no DHCP,
