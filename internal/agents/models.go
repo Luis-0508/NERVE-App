@@ -5,6 +5,7 @@ package agents
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -49,6 +50,30 @@ var (
 	ErrCredentialRevoked = errors.New("agent credential was revoked")
 	ErrReplay            = errors.New("agent request was replayed")
 )
+
+// RejectionError explains why a deployment key was refused. It matches
+// ErrEnrollmentRejected with errors.Is.
+type RejectionError struct {
+	Reason  string
+	Message string
+}
+
+func (e *RejectionError) Error() string { return e.Message }
+
+func (e *RejectionError) Unwrap() error { return ErrEnrollmentRejected }
+
+func deploymentKeyRejection(reason string, maxUses int) error {
+	message := map[string]string{
+		"revoked":           "the deployment key was revoked; create a new one",
+		"use_limit_reached": fmt.Sprintf("the deployment key has reached its use limit (%d of %d); create a new one or use another key", maxUses, maxUses),
+		"expired":           "the deployment key has expired; create a new one",
+		"core_key_mismatch": "the deployment key was issued for a different NERVE Core signing key; create a new one",
+	}[reason]
+	if message == "" {
+		return ErrEnrollmentRejected
+	}
+	return &RejectionError{Reason: reason, Message: message}
+}
 
 // Principal is an authenticated agent request.
 type Principal struct {

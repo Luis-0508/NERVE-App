@@ -69,6 +69,11 @@ Core: lock enrollment, verify digest/expiry/single use ──▶ agent ID + cred
   device association; **Reject** removes it. A key with `automatic` approval enrolls
   active agents directly: anyone holding it can then add an agent until it is revoked,
   expires or runs out of uses.
+- **Rejection messages.** A refused deployment key whose secret is correct gets the reason
+  (revoked, expired, use limit reached with the limit, or a different Core key), so the
+  person rolling out sees what to fix. A wrong secret or unknown key ID gets the generic
+  rejection, so the key's state is never revealed without the secret. The audit log records
+  the reason in every case.
 - **Proof of possession.** The enroll request is signed with the private key whose public
   key it registers. A token alone cannot register someone else's key.
 - **Credential.** Each agent has its own Ed25519 key pair. The private key never leaves

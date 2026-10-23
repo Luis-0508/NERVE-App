@@ -81,13 +81,18 @@ func TestDeploymentKeyLifecycle(t *testing.T) {
 	if err != nil || !second.result.Pending || second.result.AgentID == first.result.AgentID {
 		t.Fatalf("second enrollment: %+v %v", second.result, err)
 	}
-	if _, err := enroll(t, repo, secret, "office-pc-3"); !errors.Is(err, agents.ErrEnrollmentRejected) {
+	if _, err := enroll(t, repo, secret, "office-pc-3"); !errors.Is(err, agents.ErrEnrollmentRejected) || err.Error() != "the deployment key has reached its use limit (2 of 2); create a new one or use another key" {
 		t.Fatalf("enrollment beyond the use limit: %v", err)
 	}
 	var reason string
 	if err := pool.QueryRow(ctx, `SELECT error_code FROM audit_log WHERE action = 'agent.enrollment.rejected' AND target_type = 'agent_deployment_key' AND target_id = $1`,
 		key.ID).Scan(&reason); err != nil || reason != "use_limit_reached" {
 		t.Fatalf("use limit audit: %q %v", reason, err)
+	}
+	// Without the secret, the key's state stays hidden behind the generic rejection.
+	forged := agentproto.FormatDeploymentKey(key.ID, base64.RawURLEncoding.EncodeToString(make([]byte, 32)), testsupport.CoreFingerprint())
+	if _, err := enroll(t, repo, forged, "attacker"); err != agents.ErrEnrollmentRejected {
+		t.Fatalf("wrong secret for an exhausted key: %v", err)
 	}
 	if exhausted, _ := repo.GetDeploymentKey(ctx, key.ID); exhausted.UsedCount != 2 || exhausted.State != "exhausted" || exhausted.LastUsedAt == nil {
 		t.Fatalf("exhausted key: %+v", exhausted)
@@ -134,7 +139,7 @@ func TestDeploymentKeyLifecycle(t *testing.T) {
 	if _, err := repo.RevokeDeploymentKey(ctx, automatic.ID, actor); !errors.Is(err, agents.ErrDeploymentKeyNotActive) {
 		t.Fatalf("second revocation: %v", err)
 	}
-	if _, err := enroll(t, repo, autoSecret, "lab-2"); !errors.Is(err, agents.ErrEnrollmentRejected) {
+	if _, err := enroll(t, repo, autoSecret, "lab-2"); !errors.Is(err, agents.ErrEnrollmentRejected) || !strings.Contains(err.Error(), "was revoked") {
 		t.Fatalf("revoked key: %v", err)
 	}
 	if _, err := authenticate(repo, signed(t, lab.result.CredentialID, lab.key, "/agent/identity", []byte("{}"), time.Now()), []byte("{}")); err != nil {
@@ -151,7 +156,7 @@ func TestDeploymentKeyLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	expiredKey := agentproto.FormatDeploymentKey(expiredID, base64.RawURLEncoding.EncodeToString(expiredSecret), testsupport.CoreFingerprint())
-	if _, err := enroll(t, repo, expiredKey, "too-late"); !errors.Is(err, agents.ErrEnrollmentRejected) {
+	if _, err := enroll(t, repo, expiredKey, "too-late"); !errors.Is(err, agents.ErrEnrollmentRejected) || !strings.Contains(err.Error(), "has expired") {
 		t.Fatalf("expired key: %v", err)
 	}
 

@@ -249,15 +249,16 @@ func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519
 		approval                 string
 		used, revoked, expired   bool
 		exhausted                bool
+		maxUses                  int
 	)
 	// Both rows are locked FOR UPDATE, so concurrent enrollments with one
 	// deployment key are serialized and can never exceed its use limit.
 	targetType := "agent_enrollment"
 	if parsed.Deployment {
 		targetType = "agent_deployment_key"
-		err = tx.QueryRow(ctx, `SELECT secret_hash, approval, created_by::text, revoked_at IS NOT NULL, expires_at <= now(), used_count >= max_uses
+		err = tx.QueryRow(ctx, `SELECT secret_hash, approval, created_by::text, revoked_at IS NOT NULL, expires_at <= now(), used_count >= max_uses, max_uses
 			FROM agent_deployment_keys WHERE id = $1::uuid FOR UPDATE`, parsed.ID).Scan(
-			&storedHash, &approval, &createdBy, &revoked, &expired, &exhausted)
+			&storedHash, &approval, &createdBy, &revoked, &expired, &exhausted, &maxUses)
 	} else {
 		err = tx.QueryRow(ctx, `SELECT secret_hash, COALESCE(display_name, ''), COALESCE(device_id::text, ''),
 			COALESCE(target_agent_id::text, ''), created_by::text, used_at IS NOT NULL, revoked_at IS NOT NULL, expires_at <= now()
@@ -290,6 +291,11 @@ func (r *Repository) Enroll(ctx context.Context, token string, publicKey ed25519
 	if reason != "" {
 		_ = tx.Rollback(ctx)
 		r.auditEnrollmentFailure(ctx, targetType, parsed.ID, reason, fingerprint, sourceAddress)
+		// Only a caller who knows the secret learns why a deployment key was refused;
+		// anyone else gets the generic rejection, as for enrollment tokens.
+		if parsed.Deployment && reason != "invalid_secret" {
+			return EnrollResult{}, deploymentKeyRejection(reason, maxUses)
+		}
 		return EnrollResult{}, ErrEnrollmentRejected
 	}
 	pending := parsed.Deployment && approval != ApprovalAutomatic
