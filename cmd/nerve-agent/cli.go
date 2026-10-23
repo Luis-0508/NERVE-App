@@ -26,7 +26,9 @@ const usage = `Usage:
   nerve-agent status          show the local identity and verify it with Core
   nerve-agent diagnose        check configuration, identity, network, TLS and Core
   nerve-agent service ...     install, uninstall, start, stop or query the service
-  nerve-agent version         print the agent version
+  nerve-agent version         print the agent version (also --version)
+  nerve-agent verify-release DIR
+                              verify a downloaded release against the pinned release key
 
 Environment (overrides config.json in the state directory):
   NERVE_AGENT_API_URL            Core API base URL, e.g. https://nerve.example/api/v1
@@ -54,6 +56,8 @@ func runCLI(args []string) int {
 	command := "run"
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		command, args = args[0], args[1:]
+	} else if len(args) > 0 && (args[0] == "--version" || args[0] == "-version") {
+		command, args = "version", args[1:]
 	}
 	switch command {
 	case "run":
@@ -69,6 +73,8 @@ func runCLI(args []string) int {
 	case "version":
 		fmt.Println(version)
 		return 0
+	case "verify-release":
+		return runVerifyRelease(args)
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return 0

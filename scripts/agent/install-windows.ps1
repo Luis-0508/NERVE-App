@@ -26,6 +26,11 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
+# A downloaded release names the binary nerve-agent_windows_amd64.exe.
+$releaseBinary = Join-Path $PSScriptRoot 'nerve-agent_windows_amd64.exe'
+if (-not $PSBoundParameters.ContainsKey('Binary') -and -not (Test-Path -LiteralPath $Binary -PathType Leaf) -and (Test-Path -LiteralPath $releaseBinary -PathType Leaf)) {
+    $Binary = $releaseBinary
+}
 if (-not (Test-Path -LiteralPath $Binary -PathType Leaf)) {
     throw "Agent binary not found: $Binary (use -Binary PATH)."
 }

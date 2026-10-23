@@ -1,0 +1,143 @@
+name: Release
+
+# A vMAJOR.MINOR.PATCH tag builds the agent release, signs its manifest with the
+# release key and opens a draft GitHub release. A manual run is a dry run: it
+# signs with a throwaway key and only uploads the files as a workflow artifact.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version for the dry run, for example v0.1.0-rc.1
+        required: true
+        default: v0.0.0-dryrun
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Resolve version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          version="$TAG"
+          [ "$EVENT" = workflow_dispatch ] && version="$INPUT_VERSION"
+          if ! printf '%s' "$version" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::$version is not a vMAJOR.MINOR.PATCH version"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+      - name: Test release tooling
+        run: go test ./internal/release/ ./cmd/nerve-agent/
+      - name: Build agent release files
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/release/build-agents.sh "$VERSION" dist
+      - name: Check that the build is reproducible
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          go clean -cache
+          scripts/release/build-agents.sh "$VERSION" "$RUNNER_TEMP/rebuild"
+          (cd dist && sha256sum nerve-agent_*) > "$RUNNER_TEMP/first.sha256"
+          (cd "$RUNNER_TEMP/rebuild" && sha256sum nerve-agent_*) > "$RUNNER_TEMP/second.sha256"
+          diff "$RUNNER_TEMP/first.sha256" "$RUNNER_TEMP/second.sha256"
+      - name: Generate SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/nerve-agent.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Write manifest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: go run ./cmd/nerve-release manifest -dir dist -version "$VERSION"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-unsigned
+          path: dist/
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    # The signing key exists only as a secret of this protected environment.
+    environment: release
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-unsigned
+          path: dist
+      - name: Sign manifest
+        env:
+          NERVE_RELEASE_SIGNING_KEY: ${{ secrets.NERVE_RELEASE_SIGNING_KEY }}
+        run: go run ./cmd/nerve-release sign -dir dist
+      # Fails unless the secret matches a key pinned in this commit, so agents built
+      # from it can verify the release.
+      - name: Verify against the pinned release keys
+        run: go run ./cmd/nerve-release verify -dir dist
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          scripts/release/changelog-section.sh "${VERSION#v}" > "$RUNNER_TEMP/notes.md"
+          gh release create "$VERSION" dist/* --draft --verify-tag --title "NERVE $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+
+  dry-run:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-unsigned
+          path: dist
+      - name: Sign with a throwaway key and verify
+        run: |
+          go run ./cmd/nerve-release keygen -out "$RUNNER_TEMP/dry-run.key" | tee "$RUNNER_TEMP/keygen.txt"
+          public=$(sed -n 's/^Public key (add to internal\/release\/keys.go): //p' "$RUNNER_TEMP/keygen.txt")
+          NERVE_RELEASE_SIGNING_KEY=$(cat "$RUNNER_TEMP/dry-run.key") go run ./cmd/nerve-release sign -dir dist
+          rm -f "$RUNNER_TEMP/dry-run.key"
+          go run ./cmd/nerve-release verify -dir dist -key "$public"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-dry-run
+          path: dist/
+          retention-days: 7
