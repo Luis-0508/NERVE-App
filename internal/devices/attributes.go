@@ -10,8 +10,11 @@ import (
 
 // Default confidence per source. Agent facts come from an authenticated,
 // enrolled endpoint describing itself; reverse DNS describes what the network
-// resolver says about an address and is often stale or generic.
+// resolver says about an address and is often stale or generic. An OUI vendor
+// names who was assigned the MAC block, which for virtual or replacement
+// network adapters is not the device's maker.
 const (
+	ConfidenceOUI        = 40
 	ConfidenceReverseDNS = 50
 	ConfidenceAgent      = 85
 )

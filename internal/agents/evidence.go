@@ -73,6 +73,9 @@ func syncAgentEvidence(ctx context.Context, tx pgx.Tx, agentID string) error {
 			return err
 		}
 	}
+	if _, err := devices.RecordVendor(ctx, tx, deviceID); err != nil {
+		return err
+	}
 	operatingSystem := strings.TrimSpace(osVersion)
 	if operatingSystem == "" {
 		operatingSystem = osName

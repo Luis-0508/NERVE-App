@@ -323,6 +323,9 @@ func (r *Repository) applyObservation(ctx context.Context, tx pgx.Tx, targetID, 
 			ON CONFLICT (identity_type, value, device_id) DO UPDATE SET last_seen_at = now(), confidence = GREATEST(device_identities.confidence, 90)`, deviceID, mac); err != nil {
 			return fmt.Errorf("record MAC identity: %w", err)
 		}
+		if _, err := devices.RecordVendor(ctx, tx, deviceID); err != nil {
+			return err
+		}
 	}
 
 	interfaceID := ""
