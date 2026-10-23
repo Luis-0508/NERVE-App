@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestNativeSensorEnvironment(t *testing.T) {
 	t.Setenv("NERVE_TRAFFIC_CAPTURE_MODE", "windows-native")
@@ -43,5 +46,24 @@ func TestTrafficEnvironment(t *testing.T) {
 	t.Setenv("NERVE_NTOPNG_TIMEOUT", "-1s")
 	if _, err := Load(); err == nil {
 		t.Fatal("negative timeout accepted")
+	}
+}
+
+func TestCommandResultRetention(t *testing.T) {
+	cfg, err := Load()
+	if err != nil || cfg.CommandResultRetention != 30*24*time.Hour {
+		t.Fatalf("default retention = %v (err %v), want 30 days", cfg.CommandResultRetention, err)
+	}
+	for value, want := range map[string]time.Duration{"7d": 7 * 24 * time.Hour, "36h": 36 * time.Hour, " 90d ": 90 * 24 * time.Hour} {
+		t.Setenv("NERVE_COMMAND_RESULT_RETENTION", value)
+		if cfg, err := Load(); err != nil || cfg.CommandResultRetention != want {
+			t.Errorf("%q: retention = %v (err %v), want %v", value, cfg.CommandResultRetention, err, want)
+		}
+	}
+	for _, value := range []string{"0", "30m", "-1d", "d", "forever", "4000d"} {
+		t.Setenv("NERVE_COMMAND_RESULT_RETENTION", value)
+		if _, err := Load(); err == nil {
+			t.Errorf("%q was accepted", value)
+		}
 	}
 }
