@@ -63,7 +63,10 @@ type IdentityReport struct {
 	Evidence   []EvidenceItem `json:"evidence"`
 	Agents     []AgentRef     `json:"agents"`
 	Facts      []Attribute    `json:"facts"`
-	Matches    []MatchCount   `json:"discoveryMatches"`
+	// Classification is what the rules suggest from the current evidence, with
+	// the reason; absent when no rule matches.
+	Classification *ClassificationSuggestion `json:"classification,omitempty"`
+	Matches        []MatchCount              `json:"discoveryMatches"`
 }
 
 // locallyAdministered reports MACs with the U/L bit set; phones and laptops
@@ -189,6 +192,11 @@ func Identity(ctx context.Context, db *pgxpool.Pool, deviceID string) (IdentityR
 
 	if report.Facts, err = ListAttributes(ctx, db, deviceID); err != nil {
 		return IdentityReport{}, err
+	}
+	if suggestion, ok, err := SuggestClassification(ctx, db, deviceID); err != nil {
+		return IdentityReport{}, err
+	} else if ok {
+		report.Classification = &suggestion
 	}
 	report.Strength, report.Summary = summarize(report.Evidence)
 	return report, nil

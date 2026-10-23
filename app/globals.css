@@ -475,6 +475,7 @@ table, time, .mono { font-variant-numeric: tabular-nums; }
 .identity-form .field span { font-size: 12px; font-weight: 600; }
 .identity-notes { height: 90px; padding-top: 8px; resize: vertical; }
 .identity-hint { margin: 0; font-size: 12px; }
+.classification-reason { display: block; margin-top: 2px; }
 .strength { font-weight: 600; }
 .strength[data-strength="strong"] { color: var(--success); }
 .strength[data-strength="moderate"] { color: var(--warning); }
