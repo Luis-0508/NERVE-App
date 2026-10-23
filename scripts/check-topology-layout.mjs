@@ -86,6 +86,24 @@ assert.equal(offlineTraffic.links.length,0);
 const dupes=buildTopology({devices:[device(7,{status:'offline',lastSeenAt:'2026-09-01T00:00:00Z'}),device(8,{primaryIpAddress:'192.168.1.7',lastSeenAt:'2026-09-02T00:00:00Z'})],flows:[flow('d','192.168.1.7','8.8.4.4')]});
 assert.deepEqual(dupes.links.map(l=>l.source),['device:d8'],'traffic attaches to the preferred duplicate');
 assert.equal(dupes.nodes.filter(n=>n.kind!=='remote').length,2,'both duplicates stay visible');
+// Secondary addresses: flows on any current address join the device, never an observed host.
+const multi=device(20,{primaryIpAddress:'192.168.1.20',ipAddresses:['192.168.1.20','10.0.9.20','fd00::20']});
+const secondary=buildTopology({devices:[multi],flows:[flow('s1','10.0.9.20','8.8.8.8'),flow('s2','fd00::20','8.8.4.4')]});
+assert.deepEqual(secondary.links.map(l=>l.source).sort(),['device:d20','device:d20'],'flows on secondary addresses attach to the device');
+assert.equal(secondary.nodes.some(n=>n.kind==='observed'),false,'no observed node for a secondary address');
+assert.equal(secondary.nodes.find(n=>n.id==='device:d20').ip,'192.168.1.20','the node keeps its primary address');
+// The traffic filter keeps a device whose only active address is a secondary one.
+const onlySecondary=buildTopology({devices:[multi,device(21)],flows:[flow('s3','10.0.9.20','8.8.8.8')],deviceFilter:'traffic'});
+assert.deepEqual(onlySecondary.nodes.filter(n=>n.kind==='device').map(n=>n.id),['device:d20'],'traffic filter matches secondary addresses');
+// The conflict rule applies per address: d22 wins the shared address, d23 keeps its own primary.
+const shared=buildTopology({devices:[
+ device(22,{primaryIpAddress:'192.168.1.22',ipAddresses:['192.168.1.22','10.0.0.99'],lastSeenAt:'2026-09-02T00:00:00Z'}),
+ device(23,{primaryIpAddress:'192.168.1.23',ipAddresses:['192.168.1.23','10.0.0.99'],status:'offline',lastSeenAt:'2026-09-03T00:00:00Z'}),
+],flows:[flow('p1','10.0.0.99','8.8.8.8'),flow('p2','192.168.1.23','8.8.4.4')]});
+assert.deepEqual(Object.fromEntries(shared.links.map(l=>[l.target,l.source])),{'remote:8.8.8.8':'device:d22','remote:8.8.4.4':'device:d23'},'conflicts resolve per address');
+// Devices from an older API without ipAddresses still match by primary address.
+const legacy=buildTopology({devices:[device(24)],flows:[flow('l','192.168.1.24','8.8.8.8')]});
+assert.deepEqual(legacy.links.map(l=>l.source),['device:d24']);
 // Many endpoints at one city stay bounded instead of forming a tower.
 const crowd=buildTopology({devices,site:berlin,flows:Array.from({length:120},(_,i)=>flow(`c${i}`,'192.168.1.4',`9.8.${i>>8}.${i&255}`,{remoteLatitude:50.11,remoteLongitude:8.68}))});
 const heights=crowd.nodes.filter(n=>n.kind==='remote').map(n=>Math.hypot(...n.position.map((v,i)=>v-crowd.globe.center[i]))/crowd.globe.radius);

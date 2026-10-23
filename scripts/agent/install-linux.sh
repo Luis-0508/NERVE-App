@@ -10,6 +10,13 @@
 set -eu
 
 binary="$(dirname "$0")/nerve-agent"
+# A downloaded release names the binary nerve-agent_linux_<arch>.
+if [ ! -f "$binary" ]; then
+	case "$(uname -m)" in
+	x86_64 | amd64) binary="$(dirname "$0")/nerve-agent_linux_amd64" ;;
+	aarch64 | arm64) binary="$(dirname "$0")/nerve-agent_linux_arm64" ;;
+	esac
+fi
 if [ "${1:-}" = "--binary" ]; then
 	binary="$2"
 	shift 2

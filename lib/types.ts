@@ -40,6 +40,8 @@ export type DeviceSummary = {
   tags: string[];
   hostname?: string;
   primaryIpAddress?: string;
+  /** Current addresses, primary first; bounded by the API. */
+  ipAddresses: string[];
   primaryMac?: string;
   vendor?: string;
   operatingSystem?: string;

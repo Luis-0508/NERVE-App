@@ -81,26 +81,35 @@ export function hash(value: string) {
 
 type Options = { devices: DeviceSummary[]; flows: TrafficFlow[]; deviceFilter?: "all" | "traffic" | "online"; site?: GeoPoint | null };
 
-// When several inventory devices report the same primary address, traffic belongs to the
-// online, most recently seen one; the others stay visible without traffic.
+// When several inventory devices report the same address, traffic to that address belongs to
+// the online, most recently seen one; the others stay visible without it. The rule applies per
+// address, so a device can win one of its addresses and lose another.
 function preferred(a: DeviceSummary, b: DeviceSummary) {
   return Number(a.status === "online") - Number(b.status === "online") || (Date.parse(a.lastSeenAt) || 0) - (Date.parse(b.lastSeenAt) || 0) || b.id.localeCompare(a.id);
+}
+
+// Current addresses only (the API omits ended leases), so an old lease never attracts traffic.
+function currentAddresses(device: DeviceSummary) {
+  return device.ipAddresses?.length ? device.ipAddresses : device.primaryIpAddress ? [device.primaryIpAddress] : [];
 }
 
 export function buildTopology({ devices, flows, deviceFilter = "all", site = null }: Options): Topology {
   const localByIP = new Map<string, TopologyNode>();
   const local: TopologyNode[] = [];
   const trafficIPs = new Set(flows.map(f => f.localIp));
-  const inventoryIPs = new Set(devices.map(d => d.primaryIpAddress).filter((ip): ip is string => !!ip));
+  const inventoryIPs = new Set(devices.flatMap(currentAddresses));
   for (const device of devices) {
+    const addresses = currentAddresses(device);
     if (deviceFilter === "online" && device.status !== "online") continue;
-    if (deviceFilter === "traffic" && !(device.primaryIpAddress && trafficIPs.has(device.primaryIpAddress))) continue;
+    if (deviceFilter === "traffic" && !addresses.some(ip => trafficIPs.has(ip))) continue;
     const node: TopologyNode = { id: `device:${device.id}`, kind: "device", role: roleFor(device.classification), label: device.name, ip: device.primaryIpAddress, status: device.status, device, position: [0, 0, 0], bytesPerSecond: 0, flowIds: [] };
     local.push(node);
-    const ip = device.primaryIpAddress, holder = ip ? localByIP.get(ip) : undefined;
-    if (ip && (!holder || preferred(device, holder.device!) > 0)) localByIP.set(ip, node);
+    for (const ip of addresses) {
+      const holder = localByIP.get(ip);
+      if (!holder || preferred(device, holder.device!) > 0) localByIP.set(ip, node);
+    }
   }
-  // Hosts seen in traffic without an inventory device at that primary address stay visible as
+  // Hosts seen in traffic without an inventory device at that address stay visible as
   // observed-only. Addresses of inventory devices hidden by the device filter are not relabelled.
   for (const ip of [...trafficIPs].sort()) {
     if (localByIP.has(ip) || inventoryIPs.has(ip)) continue;

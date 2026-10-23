@@ -17,7 +17,19 @@ const deviceColumns = `e.id::text, e.name, COALESCE(d.display_name, ''), COALESC
 			d.trust_state, ARRAY(SELECT tag FROM device_tags t WHERE t.device_id = d.entity_id ORDER BY tag),
 			COALESCE(d.hostname, ''), COALESCE(host(primary_ip.address), ''),
 			COALESCE(primary_mac.address, ''), COALESCE(d.manufacturer, ''),
-			COALESCE(d.operating_system, ''), e.first_seen_at, e.last_seen_at`
+			COALESCE(d.operating_system, ''), e.first_seen_at, e.last_seen_at,
+			ARRAY(SELECT host(current.address) FROM (
+				SELECT DISTINCT ON (ip.address) ip.address, ip.is_primary, ip.valid_from
+				FROM network_interfaces ni
+				JOIN interface_addresses ia ON ia.interface_id = ni.entity_id
+				JOIN ip_addresses ip ON ip.entity_id = ia.ip_address_id
+				WHERE ni.device_id = d.entity_id AND ip.valid_until IS NULL
+				ORDER BY ip.address, ip.is_primary DESC, ip.valid_from DESC
+			) current ORDER BY current.is_primary DESC, current.valid_from DESC, current.address LIMIT ` + maxListedAddresses + `)`
+
+// maxListedAddresses bounds the current addresses listed per device, so list
+// pages stay small; the identity evidence endpoint has every address.
+const maxListedAddresses = "16"
 
 // primaryJoins picks one current address and MAC for display. Identity does
 // not depend on them; the identity evidence endpoint has the full picture.
@@ -58,12 +70,15 @@ func scanSummary(row pgx.Row, item *DeviceSummary, extra ...any) error {
 	destinations := append([]any{&item.ID, &item.Name, &item.DisplayName, &item.DiscoveredName, &item.Status,
 		&item.Classification, &item.DiscoveredClassification, &item.ClassificationOverridden, &item.TrustState, &item.Tags,
 		&item.Hostname, &item.PrimaryIPAddress, &item.PrimaryMAC, &item.Vendor, &item.OperatingSystem,
-		&item.FirstSeenAt, &item.LastSeenAt}, extra...)
+		&item.FirstSeenAt, &item.LastSeenAt, &item.IPAddresses}, extra...)
 	if err := row.Scan(destinations...); err != nil {
 		return err
 	}
 	if item.Tags == nil {
 		item.Tags = []string{}
+	}
+	if item.IPAddresses == nil {
+		item.IPAddresses = []string{}
 	}
 	return nil
 }

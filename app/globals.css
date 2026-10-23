@@ -453,6 +453,8 @@ table, time, .mono { font-variant-numeric: tabular-nums; }
 .enroll-token .remote-json { margin-bottom: 8px; padding: 8px; }
 .enroll-commands { margin: 0 0 8px; padding-left: 18px; }
 .enroll-commands li { margin: 2px 0; overflow-wrap: anywhere; }
+.enroll-token .remote-json { white-space: pre-wrap; overflow-wrap: anywhere; }
+.enroll-copied { margin-left: 8px; }
 @media (max-width: 760px) {
   .agents-settings .settings-row { grid-template-columns: 1fr; gap: 12px; }
   .agent-actions { flex-wrap: wrap; }

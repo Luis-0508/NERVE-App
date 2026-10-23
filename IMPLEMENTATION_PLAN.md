@@ -29,8 +29,8 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
 ### Missing
 
 - Device identity follow-ups: vendor (OUI) lookup and automatic classification; more
-  evidence sources (DHCP, SNMP, LLDP, ARP history); the Traffic Map still correlates devices
-  by one primary address; `devices.approved_at` is superseded by trust state and unused.
+  evidence sources (DHCP, SNMP, LLDP, ARP history); `devices.approved_at` is superseded by
+  trust state and unused.
 - Discovery 2.0: multiple targets, scheduled scans (`subnets.discovery_interval_seconds`
   exists but nothing schedules), incremental progress, idempotent report ingestion.
 - Shared local secrets: the discovery worker still uses the shared `NERVE_DISCOVERY_AGENT_TOKEN`
@@ -45,8 +45,9 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
   updates. The
   unused `actions`/`action_runs` tables from migration 000001 are superseded by
   `remote_commands` and can be dropped in a later migration.
-- Operations: no releases, tags, changelog, licence file, backup/restore, retention policy,
-  diagnostics bundle or upgrade/rollback procedure.
+- Operations: release signing, versioning and the changelog exist (`docs/RELEASING.md`), but
+  no release key is pinned and no version is tagged yet. No licence file, backup/restore,
+  retention policy, diagnostics bundle or upgrade/rollback procedure.
 
 ## How delivery diverged from the original plan
 
@@ -92,7 +93,7 @@ remote-management foundation, then device identity.
    | 4 | RMM device page: overview, system, performance, processes, services, software, actions, command history, agent status, audit; loading/offline/denied/failed states | planned |
    | 5 | Bounded non-interactive remote commands (PowerShell, shell) with timeouts, cancellation, polled output and protected transcripts | planned |
    | 6 | File management in explicitly authorized roots: browse, upload, download, size limits, traversal protection, integrity checks | planned |
-   | 7 | Versioned, signed agent releases and authorized remote updates with verification and rollback | planned |
+   | 7 | Versioned, signed agent releases (remote updates with verification and rollback follow separately) | implemented |
    | 8 | Documentation and end-to-end verification on real Windows and Linux hosts | planned |
 
    Privileged commands stay blocked until PR 2 lands. Blocked until all of these exist: HTTPS

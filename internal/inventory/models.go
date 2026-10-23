@@ -47,6 +47,7 @@ type DeviceSummary struct {
 	Tags                     []string  `json:"tags"`
 	Hostname                 string    `json:"hostname,omitempty"`
 	PrimaryIPAddress         string    `json:"primaryIpAddress,omitempty"`
+	IPAddresses              []string  `json:"ipAddresses"` // current addresses, primary first, bounded
 	PrimaryMAC               string    `json:"primaryMac,omitempty"`
 	Vendor                   string    `json:"vendor,omitempty"`
 	OperatingSystem          string    `json:"operatingSystem,omitempty"`

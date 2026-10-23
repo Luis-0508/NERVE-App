@@ -315,3 +315,32 @@ func TestHeartbeatFallsBackForCoreWithoutRuntimeSupport(t *testing.T) {
 		t.Fatalf("fallback: rejected %d, accepted %d", rejected, accepted)
 	}
 }
+
+func TestInstallTokenPrefersFileOverEnvironment(t *testing.T) {
+	t.Setenv("NERVE_AGENT_ENROLLMENT_TOKEN", "  from-environment \n")
+	if token, err := installToken(""); err != nil || token != "from-environment" {
+		t.Fatalf("environment token = %q, %v", token, err)
+	}
+	file := filepath.Join(t.TempDir(), "token")
+	if err := os.WriteFile(file, []byte("from-file\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if token, err := installToken(file); err != nil || token != "from-file" {
+		t.Fatalf("file token = %q, %v", token, err)
+	}
+	if _, err := installToken(filepath.Join(t.TempDir(), "missing")); err == nil {
+		t.Fatal("a missing token file must be an error, not a fallback to the environment")
+	}
+	t.Setenv("NERVE_AGENT_ENROLLMENT_TOKEN", "")
+	if token, err := installToken(""); err != nil || token != "" {
+		t.Fatalf("no token = %q, %v", token, err)
+	}
+}
+
+func TestPrepareServiceStateEnrollsWithEnvironmentToken(t *testing.T) {
+	t.Setenv("NERVE_AGENT_ENROLLMENT_TOKEN", "not-a-valid-token")
+	_, err := prepareServiceState(installOptions{APIURL: "https://core.example/api/v1", StateDir: t.TempDir()})
+	if err == nil || !strings.HasPrefix(err.Error(), "enrollment:") {
+		t.Fatalf("install must try to enroll with the environment token, got %v", err)
+	}
+}
