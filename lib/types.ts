@@ -186,7 +186,7 @@ export type ManagementAgent = {
   lastSeenAt?: string;
   device?: { id: string; name: string };
   association: { status: AssociationStatus; evidence: AssociationEvidence[]; associatedAt?: string };
-  credential?: { id: string; fingerprint: string; createdAt: string };
+  credential?: { id: string; fingerprint: string; createdAt: string; rotations: number; lastRotatedAt?: string };
   deploymentKeyId?: string;
 };
 

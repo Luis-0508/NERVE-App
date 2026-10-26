@@ -160,11 +160,36 @@ That token grants nothing on either API above.
 | --- | --- |
 | **Approve** (`POST /agents/{id}/approve`) | Only for `pending` agents enrolled by a deployment key. Status becomes `active`, device association runs, and the approval is audited. |
 | **Revoke** (`POST /agents/{id}/revoke`) | Active credential revoked. Agent status becomes `revoked`. Its queued, claimed and running commands are cancelled in the same transaction. The agent receives `agent_credential_revoked` and pauses polling. |
-| **Re-enroll** | Create an enrollment with `agentId`, then run `nerve-agent enroll --force`. Same agent ID, new key. The old credential is revoked as `reenrolled`. Use it for key rotation, a reinstall or a lost identity file. |
+| **Rotate** (agent-initiated) | `nerve-agent rotate-key`, or automatically after `credentialMaxAgeDays`. Same agent ID, new key; the old credential is revoked as `rotated`. No operator token is needed. See [Key rotation](#key-rotation). |
+| **Re-enroll** | Create an enrollment with `agentId`, then run `nerve-agent enroll --force`. Same agent ID, new key. The old credential is revoked as `reenrolled`. Use it for a reinstall, a lost identity file or a revoked agent. |
 | **Remove** (`POST /agents/{id}/remove`) | Final. Credentials are revoked, the device association is cleared and the agent can never authenticate or be re-enrolled. The row is kept because audit records and command history reference it. |
 
-Automatic, agent-initiated key rotation is not implemented yet. Rotation is
-operator-driven through re-enrollment.
+### Key rotation
+
+An enrolled agent replaces its own Ed25519 key with
+`POST /api/v1/agent/credential/rotate`:
+
+1. The agent generates a new key and a credential UUID and saves them in
+   `identity.pending.json` before it contacts Core.
+2. The request is signed with the **current** key. Its body carries the new public key,
+   the proposed credential ID, a timestamp and a proof: the new key's signature over
+   agent ID, current credential ID, proposed credential ID, new public key and timestamp
+   (`NERVE-AGENT-ROTATE-V1`). Proofs outside the two-minute clock skew are refused.
+3. In one transaction Core revokes the current credential as `rotated`, stores the new one
+   under the proposed ID and audits `agent.credential.rotated` with the agent as actor.
+   The answer is Core-signed.
+4. Only after verifying that answer does the agent write `identity.json` and delete the
+   pending file.
+
+A crash or a lost answer leaves the pending file behind. On the next start (and then once
+a minute) the agent asks Core with `POST /agent/identity` which key it accepts: the
+pending one (Core committed: the agent promotes it) or the current one (Core never stored
+the new key: the agent discards it). While Core is unreachable the agent keeps both and
+starts no new rotation. Revoked and removed agents cannot rotate; `pending` agents can and
+stay pending. A public key or credential ID that is already registered is refused.
+
+Settings → Management agents shows each key's age; its tooltip shows how often the agent
+rotated and when it last did.
 
 ## Heartbeat, capabilities and device association
 
@@ -354,7 +379,7 @@ referenced by command ID.
   inventory data, and can block traffic. **Use HTTPS (a reverse proxy with a trusted
   certificate) for agents outside a trusted network.** Enforcing HTTPS for agents that may
   run privileged capabilities is a **blocker for privileged remote actions**.
-- No agent-initiated key rotation and no signed agent updates. The agent installs as a
+- No Core signing-key rotation and no signed agent updates. The agent installs as a
   Windows service or systemd unit with an unprivileged account (see
   [Agent setup](AGENT_SETUP.md#install-as-a-service)); there is no MSI package yet.
 - The discovery worker and the Windows traffic sensor still use their shared local

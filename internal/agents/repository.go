@@ -632,11 +632,14 @@ const agentColumns = `a.id::text, a.display_name, a.status,
 	COALESCE(a.device_id::text, ''), COALESCE(device_entity.name, ''), a.association_status, a.association_evidence,
 	a.associated_at, COALESCE(a.associated_by::text, ''),
 	COALESCE(credential.id::text, ''), COALESCE(credential.fingerprint, ''), credential.created_at,
-	COALESCE(a.run_mode, ''), a.process_started_at, a.host_boot_at, a.last_shutdown_at, COALESCE(a.deployment_key_id::text, '')`
+	COALESCE(a.run_mode, ''), a.process_started_at, a.host_boot_at, a.last_shutdown_at, COALESCE(a.deployment_key_id::text, ''),
+	rotation.count, rotation.last`
 
 const agentJoins = `FROM agents a
 	LEFT JOIN entities device_entity ON device_entity.id = a.device_id
-	LEFT JOIN agent_credentials credential ON credential.agent_id = a.id AND credential.revoked_at IS NULL`
+	LEFT JOIN agent_credentials credential ON credential.agent_id = a.id AND credential.revoked_at IS NULL
+	CROSS JOIN LATERAL (SELECT count(*)::int AS count, max(rotated.revoked_at) AS last FROM agent_credentials rotated
+		WHERE rotated.agent_id = a.id AND rotated.revocation_reason = 'rotated') rotation`
 
 func onlineWindow() string { return fmt.Sprintf("%d seconds", int64(OnlineWindow.Seconds())) }
 
@@ -647,13 +650,15 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		credentialID, fingerprint string
 		credentialCreated         *time.Time
 		evidence                  []byte
+		rotations                 int
+		lastRotated               *time.Time
 	)
 	err := row.Scan(&agent.ID, &agent.DisplayName, &agent.Status, &agent.Online, &agent.Hostname, &agent.OS, &agent.OSVersion,
 		&agent.Architecture, &agent.AgentVersion, &agent.Capabilities, &agent.MACAddresses, &agent.IPAddresses, &agent.LastIP,
 		&agent.LastError, &agent.FirstEnrolledAt, &agent.EnrolledAt, &agent.LastHeartbeatAt, &agent.LastSeenAt, &agent.RevokedAt,
 		&agent.RemovedAt, &deviceID, &deviceName, &agent.Association.Status, &evidence, &agent.Association.AssociatedAt,
 		&agent.Association.AssociatedBy, &credentialID, &fingerprint, &credentialCreated, &agent.RunMode,
-		&agent.ProcessStartedAt, &agent.HostBootAt, &agent.LastShutdownAt, &agent.DeploymentKeyID)
+		&agent.ProcessStartedAt, &agent.HostBootAt, &agent.LastShutdownAt, &agent.DeploymentKeyID, &rotations, &lastRotated)
 	if err != nil {
 		return Agent{}, err
 	}
@@ -662,7 +667,8 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		agent.Device = &DeviceRef{ID: deviceID, Name: deviceName}
 	}
 	if credentialID != "" && credentialCreated != nil {
-		agent.Credential = &Credential{ID: credentialID, Fingerprint: fingerprint, CreatedAt: *credentialCreated}
+		agent.Credential = &Credential{ID: credentialID, Fingerprint: fingerprint, CreatedAt: *credentialCreated,
+			Rotations: rotations, LastRotatedAt: lastRotated}
 	}
 	agent.Association.Evidence = []Evidence{}
 	if len(evidence) > 0 {
