@@ -11,6 +11,19 @@ function formatDate(value?: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
+function keyAge(createdAt: string) {
+  const days = Math.floor((Date.now() - new Date(createdAt).getTime()) / 86_400_000);
+  return days < 1 ? "new today" : days === 1 ? "1 day old" : `${days} days old`;
+}
+
+function keyTitle(agent: ManagementAgent) {
+  const credential = agent.credential;
+  if (!credential) return undefined;
+  const rotations = credential.rotations === 0 ? "Never rotated"
+    : `Rotated ${credential.rotations === 1 ? "once" : `${credential.rotations} times`}, last on ${formatDate(credential.lastRotatedAt)}`;
+  return [credential.fingerprint, `Key in use since ${formatDate(credential.createdAt)}`, rotations].join("\n");
+}
+
 function runtimeTitle(agent: ManagementAgent) {
   const parts = [];
   if (agent.processStartedAt) parts.push(`Agent started ${formatDate(agent.processStartedAt)}`);
@@ -117,7 +130,8 @@ export function AgentsSettings({ permissions }: { permissions: string[] }) {
                 {candidate && <span className="muted" title={candidate.signals.map((signal) => `${signal.type}: ${signal.value}`).join(", ")}> · candidate {candidate.deviceName}</span>}</td>
               <td title={runtimeTitle(agent)}><span className="mono">{agent.agentVersion ?? "—"}</span>{runMode && <span className="muted"> · {runMode}</span>}</td>
               <td>{formatDate(agent.lastSeenAt)}</td>
-              <td className="mono" title={agent.credential?.fingerprint}>{agent.credential ? agent.credential.fingerprint.slice(0, 12) : "—"}</td>
+              <td title={keyTitle(agent)}>{agent.credential ? <><span className="mono">{agent.credential.fingerprint.slice(0, 12)}</span>
+                <span className="muted"> · {keyAge(agent.credential.createdAt)}</span></> : "—"}</td>
               {canManage && pending && <td className="agent-actions">
                 <button className="button button-primary" type="button" disabled={busy} onClick={() => void act(() => api.approveAgent(agent.id))}>Approve</button>
                 <button className="button" type="button" disabled={busy}

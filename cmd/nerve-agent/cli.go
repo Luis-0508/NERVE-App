@@ -24,6 +24,7 @@ const usage = `Usage:
   nerve-agent [run]           run discovery and/or management (default)
   nerve-agent enroll          enroll this host with a one-time token
   nerve-agent status          show the local identity and verify it with Core
+  nerve-agent rotate-key      replace the agent key without re-enrolling
   nerve-agent diagnose        check configuration, identity, network, TLS and Core
   nerve-agent service ...     install, uninstall, start, stop or query the service
   nerve-agent version         print the agent version (also --version)
@@ -66,6 +67,8 @@ func runCLI(args []string) int {
 		return runEnroll(args)
 	case "status":
 		return runStatus(args)
+	case "rotate-key":
+		return runRotateKey(args)
 	case "diagnose":
 		return runDiagnose(args)
 	case "service":
@@ -180,8 +183,12 @@ func runStatus(args []string) int {
 		fmt.Fprintln(os.Stderr, "configuration:", err)
 		return 1
 	}
-	fmt.Printf("Agent:       %s\nCredential:  %s\nFingerprint: %s\nCore:        %s\nCore key:    %s (pinned)\nState dir:   %s\n",
-		id.AgentID, id.CredentialID, id.Fingerprint, config.APIURL, agentproto.CoreKeyID(id.coreKey), *stateDir)
+	fmt.Printf("Agent:       %s\nCredential:  %s\nFingerprint: %s\nKey age:     %s\nCore:        %s\nCore key:    %s (pinned)\nState dir:   %s\n",
+		id.AgentID, id.CredentialID, id.Fingerprint, formatKeyAge(id.credentialAge(time.Now())), config.APIURL,
+		agentproto.CoreKeyID(id.coreKey), *stateDir)
+	if _, err := os.Stat(filepath.Join(*stateDir, pendingRotationFileName)); err == nil {
+		fmt.Println("Rotation:    an interrupted key rotation is pending; the agent settles it when Core is reachable")
+	}
 	if state, err := controlService("status"); err == nil {
 		fmt.Printf("Service:     %s\n", state)
 	}
@@ -201,6 +208,45 @@ func runStatus(args []string) int {
 	if response.Status == "pending" {
 		fmt.Println("This agent waits for approval in NERVE (Settings → Management agents) and receives no commands until then.")
 	}
+	return 0
+}
+
+func runRotateKey(args []string) int {
+	flags := flag.NewFlagSet("rotate-key", flag.ContinueOnError)
+	stateDir := flags.String("state-dir", defaultStateDir(), "directory for the agent identity")
+	if err := flags.Parse(args); err != nil {
+		return 2
+	}
+	id, err := loadIdentity(*stateDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "not enrolled:", err)
+		return 1
+	}
+	config, err := resolveSettings(*stateDir, id)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "configuration:", err)
+		return 1
+	}
+	transport, err := newTransport(config.CAFile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "TLS configuration:", err)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	if id, err = resolvePendingRotation(ctx, *stateDir, config.APIURL, id, transport); err != nil {
+		fmt.Fprintln(os.Stderr, "an earlier key rotation could not be settled:", err)
+		return 1
+	}
+	previous := id.Fingerprint
+	next, err := rotateAndSettle(ctx, *stateDir, config.APIURL, id, transport)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "key rotation failed:", err)
+		return 1
+	}
+	fmt.Printf("Rotated the key of agent %s\nPrevious fingerprint: %s (revoked)\nNew fingerprint:      %s\nCredential:           %s\n",
+		next.AgentID, previous, next.Fingerprint, next.CredentialID)
+	fmt.Println("A running agent picks up the new key within", identityPollInterval.String()+".")
 	return 0
 }
 
@@ -337,6 +383,8 @@ func runManagement(ctx context.Context, options managementOptions, id *identity)
 		if apiURL == "" {
 			apiURL = id.APIURL
 		}
+		var settled bool
+		id, settled = settlePendingRotation(ctx, options, apiURL, id, options.logger)
 		m := &manager{client: newManagementClientWith(apiURL, id, options.transport), agentID: id.AgentID, logger: options.logger,
 			heartbeatInterval: 30 * time.Second, capabilities: capabilitiesWithout(options.settings.DisabledCapabilities),
 			facts: collectHostFacts, runtime: runtimeReporter(options.runMode, startedAt)}
@@ -344,6 +392,12 @@ func runManagement(ctx context.Context, options managementOptions, id *identity)
 			"version", version, "run_mode", options.runMode)
 		loopCtx, stopLoops := context.WithCancel(ctx)
 		go watchIdentity(loopCtx, options.stateDir, id.CredentialID, stopLoops, options.logger)
+		switch {
+		case !settled:
+			go retryPendingRotation(loopCtx, options, apiURL, id, options.logger)
+		case options.settings.CredentialMaxAge > 0:
+			go rotateWhenDue(loopCtx, options, apiURL, id, options.settings.CredentialMaxAge, stopLoops)
+		}
 		m.run(loopCtx)
 		stopLoops()
 		if ctx.Err() != nil {

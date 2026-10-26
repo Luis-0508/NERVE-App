@@ -46,6 +46,9 @@ var (
 	ErrNotPendingApproval     = errors.New("agent is not waiting for approval")
 	ErrAwaitingApproval       = errors.New("agent is waiting for approval")
 
+	ErrInvalidRotation   = errors.New("the new key's proof of possession is invalid or outside the accepted clock skew")
+	ErrCredentialIDInUse = errors.New("the proposed credential ID is already in use")
+
 	ErrAuthentication    = errors.New("agent authentication failed")
 	ErrCredentialRevoked = errors.New("agent credential was revoked")
 	ErrReplay            = errors.New("agent request was replayed")
@@ -91,6 +94,9 @@ type Credential struct {
 	ID          string    `json:"id"`
 	Fingerprint string    `json:"fingerprint"`
 	CreatedAt   time.Time `json:"createdAt"`
+	// Rotations counts earlier keys this agent replaced itself (K-10).
+	Rotations     int        `json:"rotations"`
+	LastRotatedAt *time.Time `json:"lastRotatedAt,omitempty"`
 }
 
 type Evidence struct {

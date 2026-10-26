@@ -430,6 +430,38 @@ func (s *Server) agentIdentity(w http.ResponseWriter, _ *http.Request, principal
 	writeJSON(w, http.StatusOK, agentproto.IdentityResponse{AgentID: principal.AgentID, CredentialID: principal.CredentialID, Status: principal.Status})
 }
 
+// agentRotateCredential replaces the calling credential with a new key that
+// the agent proves it holds. The request is authenticated with the old key.
+func (s *Server) agentRotateCredential(w http.ResponseWriter, r *http.Request, principal agents.Principal, body []byte) {
+	var input agentproto.RotateCredentialRequest
+	if err := decodeAgentBody(body, &input); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
+		return
+	}
+	result, err := s.agents.RotateCredential(r.Context(), principal, input, s.clientAddress(r))
+	switch {
+	case errors.Is(err, agents.ErrInvalidRotation):
+		writeError(w, http.StatusUnprocessableEntity, "invalid_rotation_proof", err.Error())
+		return
+	case errors.Is(err, agents.ErrKeyReuse):
+		writeError(w, http.StatusConflict, "public_key_reused", err.Error())
+		return
+	case errors.Is(err, agents.ErrCredentialIDInUse):
+		writeError(w, http.StatusConflict, "credential_id_in_use", err.Error())
+		return
+	case errors.Is(err, agents.ErrCredentialRevoked):
+		writeError(w, http.StatusUnauthorized, agentproto.CodeCredentialRevoked, "The agent credential was revoked. Re-enroll the agent.")
+		return
+	case err != nil:
+		s.logger.Error("agent credential rotation failed", "agent_id", principal.AgentID, "error", err)
+		writeError(w, http.StatusInternalServerError, "rotation_failed", "The agent credential could not be rotated.")
+		return
+	}
+	s.logger.Info("agent credential rotated", "agent_id", principal.AgentID, "credential_id", result.CredentialID, "fingerprint", result.Fingerprint)
+	writeJSON(w, http.StatusOK, agentproto.RotateCredentialResponse{CredentialID: result.CredentialID, Fingerprint: result.Fingerprint,
+		CreatedAt: result.CreatedAt})
+}
+
 func (s *Server) allowEnrollment(address string) bool {
 	return s.allowAttempt(s.enrollAttempts, address, 30)
 }

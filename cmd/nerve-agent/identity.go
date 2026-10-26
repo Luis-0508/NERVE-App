@@ -26,11 +26,23 @@ type identity struct {
 	PrivateKey   string    `json:"privateKey"`
 	CoreKey      string    `json:"coreKey"`
 	EnrolledAt   time.Time `json:"enrolledAt"`
+	// CredentialCreatedAt is when the current key was registered; identities
+	// written before key rotation existed fall back to EnrolledAt.
+	CredentialCreatedAt time.Time `json:"credentialCreatedAt,omitzero"`
 
 	key     ed25519.PrivateKey
 	coreKey ed25519.PublicKey
 	// Set only right after enrollment, for the operator-facing messages.
 	deploymentKey, pendingApproval bool
+}
+
+// credentialAge is how long the current key has been in use.
+func (id *identity) credentialAge(now time.Time) time.Duration {
+	created := id.CredentialCreatedAt
+	if created.IsZero() {
+		created = id.EnrolledAt
+	}
+	return now.Sub(created)
 }
 
 // tokenNotice tells the operator what happens to the token they just used.

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const (
@@ -29,6 +30,9 @@ type agentConfig struct {
 	CAFile               string   `json:"caFile,omitempty"`
 	DisabledCapabilities []string `json:"disabledCapabilities,omitempty"`
 	LogLevel             string   `json:"logLevel,omitempty"`
+	// CredentialMaxAgeDays makes a running agent rotate its key once the
+	// credential is older than this many days. 0 (the default) turns it off.
+	CredentialMaxAgeDays int `json:"credentialMaxAgeDays,omitempty"`
 }
 
 // settings are the effective values after applying environment overrides.
@@ -38,6 +42,7 @@ type settings struct {
 	CAFile               string
 	DisabledCapabilities []string
 	LogLevel             slog.Level
+	CredentialMaxAge     time.Duration
 }
 
 func loadConfig(dir string) (agentConfig, error) {
@@ -95,6 +100,10 @@ func resolveSettings(stateDir string, id *identity) (settings, error) {
 			return settings{}, fmt.Errorf("invalid log level %q", levelName)
 		}
 	}
+	if config.CredentialMaxAgeDays < 0 || config.CredentialMaxAgeDays > 3650 {
+		return settings{}, fmt.Errorf("credentialMaxAgeDays must be between 0 (off) and 3650")
+	}
+	result.CredentialMaxAge = time.Duration(config.CredentialMaxAgeDays) * 24 * time.Hour
 	if result.APIURL != "" {
 		if err := validateAPIURL(result.APIURL); err != nil {
 			return settings{}, err

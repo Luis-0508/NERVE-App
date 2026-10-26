@@ -145,6 +145,7 @@ override it (useful for foreground runs).
 | `caFile` | `NERVE_AGENT_CA_FILE` | Additional PEM CA trusted for Core's certificate (system roots stay trusted). |
 | `disabledCapabilities` | `NERVE_AGENT_DISABLED_CAPABILITIES` (comma-separated, added to the file's list) | Capabilities this host never advertises or runs. |
 | `logLevel` | `NERVE_AGENT_LOG_LEVEL` | `debug`, `info` (default), `warn` or `error`. |
+| `credentialMaxAgeDays` | — | Rotate the agent key automatically once it is older than this many days (checked hourly). `0` or absent turns it off. |
 
 Unknown keys are rejected. On Linux the agent refuses a configuration file that other
 accounts can modify. TLS certificate verification is always on (TLS 1.2 minimum) and
@@ -209,6 +210,11 @@ running specific capabilities on a host.
   `nerve-agent enroll --force --token-file …` as Administrator or root. A running service
   picks up the new key within 15 seconds; a foreground agent does too. The agent keeps its
   ID and history.
+- **Rotate the key**: `nerve-agent rotate-key` (as Administrator or root for an installed
+  service) replaces the key without an operator token; the old key is revoked as
+  `rotated`. A running service picks up the new key within 15 seconds. `nerve-agent status`
+  shows the key age and an interrupted rotation. See
+  [Key rotation](REMOTE_MANAGEMENT.md#key-rotation).
 - **Remove**: retires the agent permanently. To manage the host again, enroll it as a
   new agent.
 

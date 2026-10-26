@@ -192,6 +192,7 @@ func (s *Server) Handler() http.Handler {
 	// Agent-authenticated API: Ed25519-signed requests only, never browser sessions.
 	mux.HandleFunc("POST /api/v1/agent/enroll", s.coreSigned(s.agentEnroll))
 	mux.HandleFunc("POST /api/v1/agent/identity", s.agentEndpoint(4<<10, s.agentIdentity))
+	mux.HandleFunc("POST /api/v1/agent/credential/rotate", s.agentEndpoint(4<<10, s.agentRotateCredential))
 	mux.HandleFunc("POST /api/v1/agent/heartbeat", s.agentEndpoint(agentproto.MaxEnrollRequestBytes, s.agentHeartbeat))
 	mux.HandleFunc("POST /api/v1/agents/{agentID}/association", s.updateAgentAssociation)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/remote", s.deviceRemote)

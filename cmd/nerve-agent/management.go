@@ -157,8 +157,9 @@ func enrollWith(ctx context.Context, apiURL, token string, transport http.RoundT
 	if response.Fingerprint != agentproto.Fingerprint(public) {
 		return nil, errors.New("core acknowledged a different public key; enrollment aborted")
 	}
+	enrolledAt := time.Now().UTC()
 	return &identity{AgentID: response.AgentID, CredentialID: response.CredentialID, Fingerprint: response.Fingerprint,
-		APIURL: apiURL, EnrolledAt: time.Now().UTC(), key: private, coreKey: coreKey,
+		APIURL: apiURL, EnrolledAt: enrolledAt, CredentialCreatedAt: enrolledAt, key: private, coreKey: coreKey,
 		deploymentKey: parsed.Deployment, pendingApproval: response.PendingApproval}, nil
 }
 
