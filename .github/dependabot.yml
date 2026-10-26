@@ -7,7 +7,13 @@ updates:
       interval: cron
       cronjob: "0 6 * * *"
       timezone: Europe/Berlin
-    open-pull-requests-limit: 100
+    open-pull-requests-limit: 10
+    groups:
+      patch-updates:
+        patterns:
+          - "*"
+        update-types:
+          - patch
     commit-message:
       prefix: deps
 
@@ -17,7 +23,13 @@ updates:
       interval: cron
       cronjob: "10 6 * * *"
       timezone: Europe/Berlin
-    open-pull-requests-limit: 100
+    open-pull-requests-limit: 10
+    groups:
+      patch-updates:
+        patterns:
+          - "*"
+        update-types:
+          - patch
     commit-message:
       prefix: deps
     ignore:
@@ -32,7 +44,13 @@ updates:
       interval: cron
       cronjob: "20 6 * * *"
       timezone: Europe/Berlin
-    open-pull-requests-limit: 100
+    open-pull-requests-limit: 10
+    groups:
+      patch-updates:
+        patterns:
+          - "*"
+        update-types:
+          - patch
     commit-message:
       prefix: deps
 
@@ -42,6 +60,12 @@ updates:
       interval: cron
       cronjob: "30 6 * * *"
       timezone: Europe/Berlin
-    open-pull-requests-limit: 100
+    open-pull-requests-limit: 10
+    groups:
+      patch-updates:
+        patterns:
+          - "*"
+        update-types:
+          - patch
     commit-message:
       prefix: ci
