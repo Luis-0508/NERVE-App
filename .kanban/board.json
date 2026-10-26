@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "version": 153,
+  "version": 160,
   "next_ticket_seq": 24,
   "next_epic_seq": 4,
   "columns": [
@@ -59,35 +59,6 @@
         "K-1",
         "K-17",
         "K-18"
-      ],
-      "column": {
-        "id": "todo"
-      }
-    },
-    {
-      "id": "K-10",
-      "title": "Agent-initiated credential key rotation",
-      "epic": "EP-2",
-      "status": "ready",
-      "body": "## Goal\nAn enrolled agent replaces its Ed25519 credential key through a signed, audited exchange with Core, without an operator creating a re-enrollment. Same agent ID, new key; the old credential is revoked.\n\n## Current state (origin/master `f9c8b7f`)\n- `agent_credentials` (`migrations/000005_agent_identity.up.sql`): immutable key material, one active credential per agent (`agent_credentials_one_active_idx`), final revocation, `revocation_reason IN ('revoked','reenrolled','removed')`.\n- `agents.Repository.Authenticate` (`internal/agents/repository.go`) verifies signed headers, revocation, nonce replay and clock skew. Responses are Core-signed and verified against the pinned Core key (`cmd/nerve-agent/management.go`).\n- The only rotation path today is operator re-enrollment (`nerve-agent enroll --force`, `docs/REMOTE_MANAGEMENT.md`). The identity file is written by `saveIdentity` (`cmd/nerve-agent/identity.go`).\n\n## Changes\n1. **Migration `000011`** (or the next free number): allow `revocation_reason = 'rotated'`. Do not edit `000005`.\n2. **Endpoint** `POST /api/v1/agent/credential/rotate` behind `agentEndpoint`. The body carries the new public key and a proof-of-possession signature by the new key over agent ID, old credential ID, new public key and a timestamp. In one transaction Core inserts the new credential, revokes the old one as `rotated`, and writes an audit entry with `actor_agent_id`. It returns the new credential ID in a Core-signed response.\n3. **Agent.** `nerve-agent rotate-key` plus automatic rotation after a configurable maximum key age (default off in this ticket). Crash safety: write the new key to a pending file first. Switch `identity.json` only after the Core-signed response is verified. On start with a pending file, try the new credential, fall back to the old one, and discard the pending key if Core does not know it. A running agent picks up the new identity without a restart (the existing identity poll).\n4. **UI and docs.** The agent detail view shows the credential's age and the rotation history from the audit log. `REMOTE_MANAGEMENT.md` documents rotation and removes the \"not implemented\" note.\n\n## Out of scope\nCore signing-key rotation (separate ticket), key rotation for the discovery worker or sensor (K-9, K-14).\n\n## Acceptance criteria\n- [ ] Rotation succeeds only with a valid old-key signature and a valid new-key proof; replays, revoked agents and duplicate keys are refused (integration tests against PostgreSQL)\n- [ ] Old credential is revoked as `rotated`, the new one is the only active credential, and the change is audited\n- [ ] Agent unit tests for the pending-key crash cases (Core committed but agent did not, and the reverse)\n- [ ] Security review; `go test ./...`, `go vet` (Linux and `GOOS=windows`), integration tests and CI green; docs updated",
-      "labels": [
-        "agent",
-        "security"
-      ],
-      "depends_on": [
-        "K-22"
-      ],
-      "notes": [
-        {
-          "at": "2026-10-23T09:05:18.884212400Z",
-          "author": "claude",
-          "text": "Blocked on K-22 (PR #75, unmerged). K-22 adds migration 000011_agent_deployment_keys and changes cmd/nerve-agent/identity.go, management.go, internal/agents/repository.go and httpapi/agents.go, which are the same files and credential model this ticket changes. A K-10 branch off master would also add a 000011 migration, and git would merge the two without a conflict while breaking the migration order. Start this ticket after K-22 lands, and use the next free migration number."
-        },
-        {
-          "at": "2026-10-23T09:44:00.577042Z",
-          "author": "claude",
-          "text": "Correction to the blocking note: two migrations with the same number would not break the order, because the ledger is keyed by filename and independent migrations apply in either order. The dependency on K-22 still stands for the substantive reason: both change the credential model and the same agent and repository files (identity.go, management.go, agents/repository.go, httpapi/agents.go). Rotation must also account for K-22's pending_approval agents."
-        }
       ],
       "column": {
         "id": "todo"
@@ -567,6 +538,57 @@
         "id": "done",
         "branch": "k-22/deployment-keys",
         "completed_at": "2026-10-26T11:21:30.934891100Z"
+      }
+    },
+    {
+      "id": "K-10",
+      "title": "Agent-initiated credential key rotation",
+      "epic": "EP-2",
+      "status": "ready",
+      "body": "## Goal\nAn enrolled agent replaces its Ed25519 credential key through a signed, audited exchange with Core, without an operator creating a re-enrollment. Same agent ID, new key; the old credential is revoked.\n\n## Current state (origin/master `f9c8b7f`)\n- `agent_credentials` (`migrations/000005_agent_identity.up.sql`): immutable key material, one active credential per agent (`agent_credentials_one_active_idx`), final revocation, `revocation_reason IN ('revoked','reenrolled','removed')`.\n- `agents.Repository.Authenticate` (`internal/agents/repository.go`) verifies signed headers, revocation, nonce replay and clock skew. Responses are Core-signed and verified against the pinned Core key (`cmd/nerve-agent/management.go`).\n- The only rotation path today is operator re-enrollment (`nerve-agent enroll --force`, `docs/REMOTE_MANAGEMENT.md`). The identity file is written by `saveIdentity` (`cmd/nerve-agent/identity.go`).\n\n## Changes\n1. **Migration `000011`** (or the next free number): allow `revocation_reason = 'rotated'`. Do not edit `000005`.\n2. **Endpoint** `POST /api/v1/agent/credential/rotate` behind `agentEndpoint`. The body carries the new public key and a proof-of-possession signature by the new key over agent ID, old credential ID, new public key and a timestamp. In one transaction Core inserts the new credential, revokes the old one as `rotated`, and writes an audit entry with `actor_agent_id`. It returns the new credential ID in a Core-signed response.\n3. **Agent.** `nerve-agent rotate-key` plus automatic rotation after a configurable maximum key age (default off in this ticket). Crash safety: write the new key to a pending file first. Switch `identity.json` only after the Core-signed response is verified. On start with a pending file, try the new credential, fall back to the old one, and discard the pending key if Core does not know it. A running agent picks up the new identity without a restart (the existing identity poll).\n4. **UI and docs.** The agent detail view shows the credential's age and the rotation history from the audit log. `REMOTE_MANAGEMENT.md` documents rotation and removes the \"not implemented\" note.\n\n## Out of scope\nCore signing-key rotation (separate ticket), key rotation for the discovery worker or sensor (K-9, K-14).\n\n## Acceptance criteria\n- [ ] Rotation succeeds only with a valid old-key signature and a valid new-key proof; replays, revoked agents and duplicate keys are refused (integration tests against PostgreSQL)\n- [ ] Old credential is revoked as `rotated`, the new one is the only active credential, and the change is audited\n- [ ] Agent unit tests for the pending-key crash cases (Core committed but agent did not, and the reverse)\n- [ ] Security review; `go test ./...`, `go vet` (Linux and `GOOS=windows`), integration tests and CI green; docs updated",
+      "labels": [
+        "agent",
+        "security"
+      ],
+      "depends_on": [
+        "K-22"
+      ],
+      "notes": [
+        {
+          "at": "2026-10-23T09:05:18.884212400Z",
+          "author": "claude",
+          "text": "Blocked on K-22 (PR #75, unmerged). K-22 adds migration 000011_agent_deployment_keys and changes cmd/nerve-agent/identity.go, management.go, internal/agents/repository.go and httpapi/agents.go, which are the same files and credential model this ticket changes. A K-10 branch off master would also add a 000011 migration, and git would merge the two without a conflict while breaking the migration order. Start this ticket after K-22 lands, and use the next free migration number."
+        },
+        {
+          "at": "2026-10-23T09:44:00.577042Z",
+          "author": "claude",
+          "text": "Correction to the blocking note: two migrations with the same number would not break the order, because the ledger is keyed by filename and independent migrations apply in either order. The dependency on K-22 still stands for the substantive reason: both change the credential model and the same agent and repository files (identity.go, management.go, agents/repository.go, httpapi/agents.go). Rotation must also account for K-22's pending_approval agents."
+        },
+        {
+          "at": "2026-10-26T11:24:40.925515600Z",
+          "author": "claude",
+          "text": "Started on feat/K-10-credential-rotation (worktree ../NERVE-K-10). Approach: migration 000014 allows revocation_reason 'rotated'; the agent proposes the new credential UUID in a pending file, so after a crash it can probe the new credential via /agent/identity and fall back to the old one. This avoids needing Core's response to learn the new credential ID."
+        },
+        {
+          "at": "2026-10-26T11:50:20.447171600Z",
+          "author": "claude",
+          "text": "Implemented on feat/K-10-credential-rotation (worktree moved to .claude/worktrees/K-10). Draft PR https://github.com/Luis-0508/NERVE-App/pull/87. Codex was unavailable (its sandbox could not write the worktree and had no Docker). Local Go checks were not possible: no Go toolchain, and Docker Desktop crashes because it cannot remove its own AF_UNIX socket files. npm run typecheck passes. Go fmt/vet/unit/integration tests run in CI. Ticket stays in Doing until CI is green; then the PR leaves draft and the ticket moves to review. Deviation: the rotation count comes from agent_credentials (authoritative), not the audit log; the key age is shown in the agents table because there is no agent detail page."
+        },
+        {
+          "at": "2026-10-26T12:49:07.307285Z",
+          "author": "claude",
+          "text": "CI green on PR #87 (run 40318000407): gofmt, go vet (Linux, GOOS=windows, integration tag), unit tests and PostgreSQL integration tests including migration 000014. PR is still a draft: marking it ready was blocked by the permission check and is left to the maintainer."
+        },
+        {
+          "at": "2026-10-26T13:00:04.144365200Z",
+          "author": "kanban",
+          "text": "branch feat/K-10-credential-rotation squashed or rewritten into master"
+        }
+      ],
+      "column": {
+        "id": "done",
+        "branch": "feat/K-10-credential-rotation",
+        "completed_at": "2026-10-26T13:00:04.144364700Z"
       }
     },
     {

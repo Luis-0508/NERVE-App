@@ -4,11 +4,11 @@ Narrative snapshot of where NERVE stands. **The repository is authoritative:** i
 code, the task board or GitHub disagree with this file, trust them and correct this file.
 
 - Last updated: 2026-10-26
-- Verified against: `master` at `e0abdff`
+- Verified against: `master` at `d2ba04d`
 
 ## What exists
 
-- Go Core with PostgreSQL (checksummed migrations up to `000013`), static Next.js UI, Nginx
+- Go Core with PostgreSQL (checksummed migrations up to `000014`), static Next.js UI, Nginx
   proxy, Docker Compose; health/readiness endpoints and SSE.
 - Sign-in with first-admin bootstrap, roles mapped to permissions, immutable audit log.
 - Device inventory with server-side search and paging; device identity with operator-owned
@@ -24,7 +24,8 @@ code, the task board or GitHub disagree with this file, trust them and correct t
   responses, heartbeats, device association, five audited read-only commands; agent
   installation as a Windows service or systemd unit (K-1), a copyable PowerShell
   enrollment command (K-20), reusable deployment keys with operator approval of new agents
-  (K-22), and secret redaction plus configurable retention for command output (K-18).
+  (K-22), agent-initiated key rotation with crash-safe recovery (K-10), and secret
+  redaction plus configurable retention for command output (K-18).
 - Releases: `v0.1.0` published on 2026-10-23. A `v*` tag builds reproducible agent
   binaries, signs the manifest with the key pinned in `internal/release/keys.go` and opens a
   draft release (K-7, decision 0003, `docs/RELEASING.md`).
@@ -38,7 +39,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Active work
 
-- No ticket in Doing or Review and no open pull request.
+- No ticket in Doing or Review. PR #86 (this state update) is open.
 - Windows service installation (K-1) on a real elevated host is not verified yet.
 
 ## Blockers
@@ -50,15 +51,15 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Next priorities
 
-Board order is the priority. All open tickets are `ready`; with K-22 landed, K-9, K-10,
-K-15, K-17 and K-21 are unblocked.
+Board order is the priority. All open tickets are `ready`; K-9, K-15, K-17 and K-21 are
+unblocked.
 
 1. EP-1 Production RMM milestone: K-17 approval gate → K-2 privileged helper → K-3
    system-management commands → K-4 RMM device page; K-5 remote commands and K-6 file
    management after K-2; K-19 remote agent updates; K-8 documentation and real-host
    verification last.
-2. EP-2 Identity follow-ups: K-10 agent key rotation, K-9 enrolled identity for discovery,
-   K-15 Core signing key rotation, K-14 per-sensor identity.
+2. EP-2 Identity follow-ups: K-9 enrolled identity for discovery, K-15 Core signing key
+   rotation, K-14 per-sensor identity.
 3. EP-3 Agent deployment: K-21 verified downloads and one-line install → K-23 Windows MSI.
 
 Interactive sessions (MeshCentral), Discovery 2.0, local topology, Proxmox/Docker, change
