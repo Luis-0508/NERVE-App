@@ -38,7 +38,7 @@ var (
 	ErrUnknownCommand          = errors.New("this command type is not enabled")
 	ErrInvalidParameters       = errors.New("invalid command parameters")
 	ErrCapabilityNotAdvertised = errors.New("the agent does not advertise this capability")
-	ErrAgentUnavailable        = errors.New("the agent is revoked or removed")
+	ErrAgentUnavailable        = errors.New("the agent is awaiting approval, revoked or removed")
 	ErrQueueFull               = errors.New("the agent already has too many pending commands")
 	ErrNotFound                = errors.New("remote command not found")
 	ErrNotActive               = errors.New("remote command is no longer active")

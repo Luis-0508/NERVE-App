@@ -163,7 +163,7 @@ export type AssociationEvidence = { deviceId: string; deviceName?: string; stren
 export type ManagementAgent = {
   id: string;
   displayName: string;
-  status: "active" | "revoked" | "removed";
+  status: "pending" | "active" | "revoked" | "removed";
   online: boolean;
   connection?: AgentConnection;
   runMode?: string;
@@ -187,6 +187,21 @@ export type ManagementAgent = {
   device?: { id: string; name: string };
   association: { status: AssociationStatus; evidence: AssociationEvidence[]; associatedAt?: string };
   credential?: { id: string; fingerprint: string; createdAt: string };
+  deploymentKeyId?: string;
+};
+
+export type AgentDeploymentKey = {
+  id: string;
+  name: string;
+  approval: "manual" | "automatic";
+  maxUses: number;
+  usedCount: number;
+  createdByEmail?: string;
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
+  state: "active" | "exhausted" | "expired" | "revoked";
 };
 
 export type AgentEnrollment = {

@@ -115,6 +115,16 @@ func TestEnrollmentTokenFormat(t *testing.T) {
 			t.Fatalf("malformed token accepted: %q", token)
 		}
 	}
+	if parsed.Deployment {
+		t.Fatal("an enrollment token was parsed as a deployment key")
+	}
+	key, err := ParseEnrollmentToken(FormatDeploymentKey(id, secret, fingerprint))
+	if err != nil || !key.Deployment || key.ID != id || key.CoreFingerprint != fingerprint {
+		t.Fatalf("deployment key round trip failed: %+v %v", key, err)
+	}
+	if _, err := ParseEnrollmentToken("nerve-deploy-v2." + id + "." + secret + "." + fingerprint); err == nil {
+		t.Fatal("unknown deployment key version accepted")
+	}
 }
 
 func TestHostFactsValidation(t *testing.T) {

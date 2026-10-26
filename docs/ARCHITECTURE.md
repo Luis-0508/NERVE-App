@@ -36,7 +36,7 @@ flowchart LR
 | `internal/inventory`, `internal/devices` | Device read model and search; operator-owned identity, evidence, duplicates, merge and split |
 | `internal/discovery` | Discovery target, persistent scan jobs, report reconciliation (MAC first), match rules |
 | `internal/oui` | Offline MAC vendor lookup in the embedded IEEE registry (`scripts/generate-oui.mjs`, decision 0004) |
-| `internal/agents`, `internal/agentproto` | Enrollment tokens, per-agent Ed25519 identities, signed protocol, Core response signing, device association |
+| `internal/agents`, `internal/agentproto` | Enrollment tokens and reusable deployment keys (with operator approval of pending agents), per-agent Ed25519 identities, signed protocol, Core response signing, device association |
 | `internal/remote` | Provider-neutral remote management: providers, policies, audited command pipeline, result retention |
 | `internal/redact` | Secret redaction rules for command output, shared by the agent and Core |
 | `internal/release`, `cmd/nerve-release` | Signed release manifests: offline verification against pinned keys (used by `nerve-agent verify-release`), manifest writing and signing for the release workflow |

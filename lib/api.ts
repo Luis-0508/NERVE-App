@@ -1,4 +1,4 @@
-import type { AgentEnrollment, Device, DeviceDetail, DeviceFacets, DeviceList, DeviceMetadataUpdate, DeviceVocabulary, DuplicateCandidate, IdentityReport, TrustState, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ManagementAgent, RemoteCommand, RemoteEndpoint, ServiceStatus, Session, TrafficSnapshot } from "./types";
+import type { AgentDeploymentKey, AgentEnrollment,Device, DeviceDetail, DeviceFacets, DeviceList, DeviceMetadataUpdate, DeviceVocabulary, DuplicateCandidate, IdentityReport, TrustState, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ManagementAgent, RemoteCommand, RemoteEndpoint, ServiceStatus, Session, TrafficSnapshot } from "./types";
 
 import type { TrafficCapture } from "./types";
 
@@ -71,6 +71,11 @@ export const api = {
   createEnrollment: (input: { displayName?: string; deviceId?: string; agentId?: string; expiresInMinutes?: number }) =>
     request<{ enrollment: AgentEnrollment; token: string }>("/api/v1/agent-enrollments", { method: "POST", body: JSON.stringify(input) }),
   revokeEnrollment: (id: string) => request<AgentEnrollment>(`/api/v1/agent-enrollments/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }),
+  approveAgent: (id: string) => request<ManagementAgent>(`/api/v1/agents/${encodeURIComponent(id)}/approve`, { method: "POST", body: "{}" }),
+  deploymentKeys: () => request<{ items: AgentDeploymentKey[] }>("/api/v1/agent-deployment-keys"),
+  createDeploymentKey: (input: { name: string; approval: "manual" | "automatic"; maxUses: number; expiresInDays: number }) =>
+    request<{ deploymentKey: AgentDeploymentKey; key: string }>("/api/v1/agent-deployment-keys", { method: "POST", body: JSON.stringify(input) }),
+  revokeDeploymentKey: (id: string) => request<AgentDeploymentKey>(`/api/v1/agent-deployment-keys/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }),
   deviceRemote: (deviceId: string) => request<{ endpoints: RemoteEndpoint[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/remote`),
   deviceCommands: (deviceId: string) => request<{ items: RemoteCommand[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/commands`),
   createCommand: (agentId: string, type: string, parameters: Record<string, unknown> = {}) =>

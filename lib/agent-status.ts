@@ -5,6 +5,7 @@ export type AgentConnection = "online" | "offline" | "stopped" | "never_seen" | 
 export function agentConnectionState(status: string, connection: AgentConnection | undefined, online: boolean) {
   if (status === "removed") return { label: "Removed", dot: "stopped" };
   if (status === "revoked") return { label: "Revoked", dot: "warning" };
+  if (status === "pending") return { label: online ? "Awaiting approval · online" : "Awaiting approval", dot: "warning" };
   switch (connection ?? (online ? "online" : "offline")) {
     case "online": return { label: "Online", dot: "online" };
     case "stopped": return { label: "Stopped", dot: "stopped" };

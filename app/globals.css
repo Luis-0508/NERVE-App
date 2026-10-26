@@ -444,6 +444,7 @@ table, time, .mono { font-variant-numeric: tabular-nums; }
 .agents-settings { margin-top: 16px; }
 .agents-settings .settings-row > div:last-child { min-width: 0; }
 .agent-actions { display: flex; gap: 6px; }
+.agents-pending { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; font-size: 12px; }
 .enroll-form { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; }
 .enroll-form .field { margin-bottom: 0; min-width: 180px; }
 .enroll-form .field span { font-size: 12px; font-weight: 600; }

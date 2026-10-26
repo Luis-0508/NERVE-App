@@ -5,6 +5,7 @@ package agents
 
 import (
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -18,6 +19,14 @@ const (
 	DefaultEnrollmentTTL = time.Hour
 	MaxEnrollmentTTL     = 24 * time.Hour
 	MinEnrollmentTTL     = 5 * time.Minute
+
+	DefaultDeploymentKeyTTL = 7 * 24 * time.Hour
+	MaxDeploymentKeyTTL     = 90 * 24 * time.Hour
+	MinDeploymentKeyTTL     = time.Hour
+	MaxDeploymentKeyUses    = 10000
+
+	ApprovalManual    = "manual"
+	ApprovalAutomatic = "automatic"
 )
 
 var (
@@ -32,15 +41,45 @@ var (
 	ErrDeviceHasAgent      = errors.New("device is already associated with another live agent")
 	ErrCoreKeyMissing      = errors.New("NERVE_CORE_SIGNING_KEY is not configured; run setup.bat or set it in .env")
 
+	ErrDeploymentKeyNotFound  = errors.New("deployment key not found")
+	ErrDeploymentKeyNotActive = errors.New("deployment key is already revoked or expired")
+	ErrNotPendingApproval     = errors.New("agent is not waiting for approval")
+	ErrAwaitingApproval       = errors.New("agent is waiting for approval")
+
 	ErrAuthentication    = errors.New("agent authentication failed")
 	ErrCredentialRevoked = errors.New("agent credential was revoked")
 	ErrReplay            = errors.New("agent request was replayed")
 )
 
+// RejectionError explains why a deployment key was refused. It matches
+// ErrEnrollmentRejected with errors.Is.
+type RejectionError struct {
+	Reason  string
+	Message string
+}
+
+func (e *RejectionError) Error() string { return e.Message }
+
+func (e *RejectionError) Unwrap() error { return ErrEnrollmentRejected }
+
+func deploymentKeyRejection(reason string, maxUses int) error {
+	message := map[string]string{
+		"revoked":           "the deployment key was revoked; create a new one",
+		"use_limit_reached": fmt.Sprintf("the deployment key has reached its use limit (%d of %d); create a new one or use another key", maxUses, maxUses),
+		"expired":           "the deployment key has expired; create a new one",
+		"core_key_mismatch": "the deployment key was issued for a different NERVE Core signing key; create a new one",
+	}[reason]
+	if message == "" {
+		return ErrEnrollmentRejected
+	}
+	return &RejectionError{Reason: reason, Message: message}
+}
+
 // Principal is an authenticated agent request.
 type Principal struct {
 	AgentID      string
 	CredentialID string
+	Status       string // "active" or "pending"
 }
 
 type DeviceRef struct {
@@ -103,6 +142,7 @@ type Agent struct {
 	Device           *DeviceRef  `json:"device,omitempty"`
 	Association      Association `json:"association"`
 	Credential       *Credential `json:"credential,omitempty"`
+	DeploymentKeyID  string      `json:"deploymentKeyId,omitempty"`
 }
 
 type Enrollment struct {
@@ -118,6 +158,31 @@ type Enrollment struct {
 	UsedAt          *time.Time `json:"usedAt,omitempty"`
 	EnrolledAgentID string     `json:"enrolledAgentId,omitempty"`
 	RevokedAt       *time.Time `json:"revokedAt,omitempty"`
+}
+
+// DeploymentKey is a reusable, limited enrollment secret. The secret itself is
+// shown once at creation; only its digest is stored.
+type DeploymentKey struct {
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	Approval       string     `json:"approval"`
+	MaxUses        int        `json:"maxUses"`
+	UsedCount      int        `json:"usedCount"`
+	CreatedBy      string     `json:"createdBy"`
+	CreatedByEmail string     `json:"createdByEmail,omitempty"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	ExpiresAt      time.Time  `json:"expiresAt"`
+	LastUsedAt     *time.Time `json:"lastUsedAt,omitempty"`
+	RevokedAt      *time.Time `json:"revokedAt,omitempty"`
+	State          string     `json:"state"`
+}
+
+// CreateDeploymentKeyInput is validated by CreateDeploymentKey.
+type CreateDeploymentKeyInput struct {
+	Name     string
+	Approval string
+	MaxUses  int
+	TTL      time.Duration
 }
 
 // CreateEnrollmentInput is validated by CreateEnrollment.
@@ -147,7 +212,7 @@ const (
 // the agent reported a graceful shutdown; "offline" means it went silent.
 func connectionState(agent Agent) string {
 	switch {
-	case agent.Status != "active":
+	case agent.Status != "active" && agent.Status != "pending":
 		return ConnectionInactive
 	case agent.Online:
 		return ConnectionOnline
