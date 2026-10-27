@@ -10,8 +10,9 @@ Decision 0001 put planned work on a local claude-kanban board (`.kanban/board.js
 an ID-based git merge driver. In practice the same state was kept in three places (the
 board, GitHub pull requests and `PROJECT_STATE.md`), which needed regular "update board"
 pull requests and reconciliation at every session start. The board file grew to about
-80 KB, and reading it cost a large share of each Claude Code session's context. NERVE is a
-public project, but contributors could not see the planned work.
+80 KB, and reading it cost a large share of each Claude Code session's context. The planned
+work was also invisible outside Claude Code sessions, although NERVE is run as an
+open-source project.
 
 ## Decision
 

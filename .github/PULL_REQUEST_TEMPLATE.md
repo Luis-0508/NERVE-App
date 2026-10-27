@@ -1,6 +1,6 @@
 ## Summary
 
-<!-- What changed and why? Reference related issues (Closes #N) or tickets. -->
+<!-- What changed and why? Reference related issues (Closes #N). -->
 
 ## Validation
 
