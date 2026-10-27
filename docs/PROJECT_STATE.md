@@ -1,10 +1,10 @@
 # Project state
 
 Narrative snapshot of where NERVE stands. **The repository is authoritative:** if git, the
-code, the task board or GitHub disagree with this file, trust them and correct this file.
+code or GitHub issues disagree with this file, trust them and correct this file.
 
-- Last updated: 2026-10-26
-- Verified against: `master` at `d2ba04d`
+- Last updated: 2026-10-27
+- Verified against: `master` at `560dcd6`
 
 ## What exists
 
@@ -31,36 +31,37 @@ code, the task board or GitHub disagree with this file, trust them and correct t
   draft release (K-7, decision 0003, `docs/RELEASING.md`).
 - CI: Go tests, vet, PostgreSQL integration tests, API startup smoke test, frontend
   typecheck, map tests and build, image and agent artifact builds. Daily Dependabot.
-- Development workflow: local Kanban board, this project memory, SessionStart hook and
-  workflow tests (decision 0001).
+- Development workflow: planned work in GitHub issues and milestones (decision 0005), this
+  project memory, SessionStart hook and workflow tests (decision 0001).
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md) for the data model, risks and forward plan.
 
 ## Active work
 
-- No ticket in Doing or Review. PR #86 (this state update) is open.
+- #90 (K-9, enrolled identity for discovery) is in progress on
+  `feat/K-9-discovery-agent-identity`, not yet pushed.
 - Windows service installation (K-1) on a real elevated host is not verified yet.
 
 ## Blockers
 
-- None in code. Privileged remote commands stay blocked until K-17 (approval gate) and K-2
+- None in code. Privileged remote commands stay blocked until #99 (approval gate) and #91
   (privileged helper) land, by design.
-- K-14 (per-sensor identity) waits for the maintainer's choice between options 1–3 on the
-  ticket.
+- #97 (per-sensor identity) waits for the maintainer's choice between options 1–3 on the
+  issue (#97).
 
 ## Next priorities
 
-Board order is the priority. All open tickets are `ready`; K-9, K-15, K-17 and K-21 are
-unblocked.
+This order is the priority. Issues migrated from the board keep their K-n ID in the first
+line; #90, #98, #99 and #101 are unblocked.
 
-1. EP-1 Production RMM milestone: K-17 approval gate → K-2 privileged helper → K-3
-   system-management commands → K-4 RMM device page; K-5 remote commands and K-6 file
-   management after K-2; K-19 remote agent updates; K-8 documentation and real-host
+1. Production RMM milestone: #99 approval gate → #91 privileged helper → #92
+   system-management commands → #93 RMM device page; #94 remote commands and #95 file
+   management after #91; #100 remote agent updates; #96 documentation and real-host
    verification last.
-2. EP-2 Identity follow-ups: K-9 enrolled identity for discovery, K-15 Core signing key
-   rotation, K-14 per-sensor identity.
-3. EP-3 Agent deployment: K-21 verified downloads and one-line install → K-23 Windows MSI.
+2. Identity follow-ups: #90 enrolled identity for discovery, #98 Core signing key rotation,
+   #97 per-sensor identity.
+3. Agent deployment: #101 verified downloads and one-line install → #102 Windows MSI.
 
 Interactive sessions (MeshCentral), Discovery 2.0, local topology, Proxmox/Docker, change
 intelligence and operations stay in `IMPLEMENTATION_PLAN.md` until planned in detail.

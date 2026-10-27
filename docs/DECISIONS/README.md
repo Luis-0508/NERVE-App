@@ -13,10 +13,11 @@ the table.
 
 | # | Decision | Status |
 |---|---|---|
-| [0001](0001-local-kanban-board-and-project-memory.md) | Local Kanban board and project memory for development | Accepted |
+| [0001](0001-local-kanban-board-and-project-memory.md) | Local Kanban board and project memory for development | Superseded by 0005 |
 | [0002](0002-ui-design-system-and-plex-fonts.md) | UI design system with self-hosted IBM Plex | Accepted |
 | [0003](0003-release-signing.md) | Ed25519-signed release manifests | Accepted |
 | [0004](0004-ieee-oui-registry.md) | Embedded IEEE registry for MAC vendor lookup | Accepted |
+| [0005](0005-github-issues-for-planned-work.md) | GitHub issues for planned work | Accepted |
 
 ## Template
 

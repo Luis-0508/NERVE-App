@@ -79,7 +79,7 @@ history. Operators can cancel queued commands.
 | Go integration tests | `go test -tags=integration -count=1 -p 1 ./...` | Real PostgreSQL 17 with isolated schemas (`NERVE_TEST_DATABASE_URL`) |
 | Frontend | `npm run typecheck`, `npm run test:map`, `npm run build` | Types, map geometry and topology layout, static runtime check |
 | Images and artifacts | `docker build` per Dockerfile | API, web, agent (Windows, Linux) and sensor builds |
-| Workflow | `node --test "scripts/workflow/*.test.mjs"` | Development tooling only: session hook, board merge driver, Claude Code config |
+| Workflow | `node --test "scripts/workflow/*.test.mjs"` | Development tooling only: session hook and Claude Code config |
 
 CI (`.github/workflows/ci.yml`) runs the Go, frontend and image checks plus an API startup
 smoke test; `workflow-checks.yml` runs the workflow tests when workflow files change.
