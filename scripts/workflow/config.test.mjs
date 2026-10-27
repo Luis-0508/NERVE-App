@@ -68,9 +68,9 @@ test('workflow files contain no personal paths', () => {
 
 test('no Kanban board or merge driver remains; tasks live in GitHub issues', () => {
   assert.ok(!existsSync(join(ROOT, '.kanban')), 'tasks are tracked in GitHub issues, not a local board')
-  assert.doesNotMatch(read('.gitattributes'), /kanban/i)
+  if (existsSync(join(ROOT, '.gitattributes'))) assert.doesNotMatch(read('.gitattributes'), /kanban/i)
   for (const file of ['CLAUDE.md', 'docs/WORKFLOW.md', '.claude/hooks/session-context.mjs', '.claude/skills/init-project/SKILL.md']) {
     assert.doesNotMatch(read(file), /kanban_\w+|\/kanban:|board\.json/, `${file} still refers to the Kanban board`)
   }
-  assert.match(read('CONTRIBUTING.md'), /None of the tooling is required to contribute/)
+  assert.match(read('CONTRIBUTING.md'), /None\s+of\s+the\s+tooling\s+is\s+required\s+to\s+contribute/)
 })
