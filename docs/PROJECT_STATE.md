@@ -53,18 +53,20 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 ## Next priorities
 
 This order is the priority. Issues migrated from the board keep their K-n ID in the first
-line; #90, #98, #99 and #101 are unblocked.
+line; #90, #98, #99, #101 and #104 are unblocked.
 
-1. Production RMM milestone: #99 approval gate → #91 privileged helper → #92
-   system-management commands → #93 RMM device page; #94 remote commands and #95 file
-   management after #91; #100 remote agent updates; #96 documentation and real-host
-   verification last.
+1. Production RMM milestone (hybrid, decision 0006), two parallel tracks:
+   - native path: #99 approval gate → #91 privileged helper (fixed allowlist) → #92
+     system-management commands → #93 RMM device page;
+   - MeshCentral: #104 read-only provider → #105 encrypted integration credentials → #106
+     audited remote sessions;
+   then #100 remote agent updates; #96 documentation and real-host verification last.
 2. Identity follow-ups: #90 enrolled identity for discovery, #98 Core signing key rotation,
    #97 per-sensor identity.
 3. Agent deployment: #101 verified downloads and one-line install → #102 Windows MSI.
 
-Interactive sessions (MeshCentral), Discovery 2.0, local topology, Proxmox/Docker, change
-intelligence and operations stay in `IMPLEMENTATION_PLAN.md` until planned in detail.
+Discovery 2.0, local topology, Proxmox/Docker, change intelligence and operations stay in
+`IMPLEMENTATION_PLAN.md` until planned in detail.
 
 ## Known limitations
 

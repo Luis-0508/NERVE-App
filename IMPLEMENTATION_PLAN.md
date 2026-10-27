@@ -91,8 +91,8 @@ remote-management foundation, then device identity.
    | 2 | Security hardening and privileged execution architecture: HTTPS enforcement for privileged agents, per-command operator approval the agent can verify, device-level scopes, trusted-device policy check, separate privileged helper (Windows service as LocalSystem / root systemd unit) reachable only over a local authenticated channel; output redaction and transcript retention are implemented (K-18) | planned |
    | 3 | System-management commands on that foundation: service restart/stop, process termination, reboot/shutdown, log retrieval, detailed hardware/network inventory, each with permission, validation, confirmation and audit | planned |
    | 4 | RMM device page: overview, system, performance, processes, services, software, actions, command history, agent status, audit; loading/offline/denied/failed states | planned |
-   | 5 | Bounded non-interactive remote commands (PowerShell, shell) with timeouts, cancellation, polled output and protected transcripts | planned |
-   | 6 | File management in explicitly authorized roots: browse, upload, download, size limits, traversal protection, integrity checks | planned |
+   | 5 | Bounded non-interactive remote commands (PowerShell, shell) | dropped: MeshCentral terminal (decision 0006) |
+   | 6 | File management in explicitly authorized roots | dropped: MeshCentral file transfer (decision 0006) |
    | 7 | Versioned, signed agent releases (remote updates with verification and rollback follow separately) | implemented |
    | 8 | Documentation and end-to-end verification on real Windows and Linux hosts | planned |
 
@@ -104,9 +104,11 @@ remote-management foundation, then device identity.
    identity and evidence; per-device/group authorization scope and command policies;
    a privileged helper separate from the unprivileged agent; signed agent releases and
    updates. Transcript redaction, configurable retention and output access are implemented.
-4. **Interactive sessions.** A MeshCentral adapter behind `remote.Provider` (time-boxed
-   spike first: read-only node listing, operator-confirmed `meshcentral` identities, deep
-   links before embedding, audited handoff).
+4. **Interactive sessions (decision 0006), in parallel with the RMM milestone.** A
+   MeshCentral adapter behind `remote.Provider`: read-only node listing and
+   operator-confirmed `meshcentral` identities (#104), encrypted integration credentials
+   (#105), then per-operator accounts and audited short-lived handoff through deep links
+   before any embedding (#106).
 5. **Discovery 2.0.** Multiple targets, scheduled scans, idempotent incremental reports.
 6. **Local topology.** LLDP/CDP/SNMP and switch-port awareness, gateway/ARP-derived
    relationships, all with provenance and confidence, then a server-side graph projection
