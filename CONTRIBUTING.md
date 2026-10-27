@@ -37,8 +37,8 @@ Maintainers cut releases from `master`; see [docs/RELEASING.md](docs/RELEASING.m
 
 ## Optional tooling
 
-The maintainer's default workflow uses Claude Code with a local Kanban board (`CLAUDE.md`,
-`.claude/`, `.kanban/`) and the project memory in `docs/`.
-None of it is required to contribute: the board is plain JSON you can read, and these files
-do not affect building or testing the project. Please do not edit `.kanban/` in your pull
-requests. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how the pieces fit together.
+The maintainer works with Claude Code (`CLAUDE.md`, `.claude/`) and the project memory in
+`docs/`. Planned work is tracked in GitHub issues and milestones; pick an open issue or open
+one before larger changes. None of the tooling is required to contribute, and it does not
+affect building or testing the project. See [docs/WORKFLOW.md](docs/WORKFLOW.md) for how the
+pieces fit together.

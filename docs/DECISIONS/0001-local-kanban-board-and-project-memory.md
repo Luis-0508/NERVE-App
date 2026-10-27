@@ -1,6 +1,6 @@
 # 0001. Local Kanban board and project memory for development
 
-- Status: Accepted
+- Status: Superseded by [0005](0005-github-issues-for-planned-work.md) (Kanban board); project memory and hook still apply
 - Date: 2026-10-16
 
 ## Context
