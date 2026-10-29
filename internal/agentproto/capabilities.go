@@ -93,7 +93,18 @@ type HeartbeatRequest struct {
 	Capabilities []string      `json:"capabilities"`
 	LastError    string        `json:"lastError,omitempty"`
 	Runtime      *AgentRuntime `json:"runtime,omitempty"`
+	// Transport is how the agent reaches Core (TransportHTTPS or
+	// TransportHTTP). Agents before this field omit it.
+	Transport string `json:"transport,omitempty"`
 }
+
+// Transports reported in heartbeats. TransportHTTPS means an https API URL
+// with certificate verification, which the agent never disables. Core queues
+// privileged commands only for agents that last reported TransportHTTPS.
+const (
+	TransportHTTPS = "https"
+	TransportHTTP  = "http"
+)
 
 // Run modes reported by the agent.
 const (

@@ -94,6 +94,20 @@ func (m *manager) execute(ctx context.Context, command agentproto.Command) {
 		m.submit(ctx, command, failed(agentproto.CommandTimedOut, "deadline_passed", "The command deadline passed before execution started."))
 		return
 	}
+	// Anything beyond read-only needs HTTPS and Core's signed approval for
+	// exactly this command, checked here independently of Core's own gate.
+	if info, catalogued := agentproto.LookupCapability(command.Type); !catalogued || info.Risk != agentproto.RiskReadOnly {
+		if m.client.transport() != agentproto.TransportHTTPS {
+			logger.Error("refusing a privileged command over plain HTTP")
+			m.submit(ctx, command, failed(agentproto.CommandFailed, "insecure_transport", "Privileged commands need an HTTPS connection to Core."))
+			return
+		}
+		if err := agentproto.VerifyCommandApproval(m.client.coreKey, command, time.Now()); err != nil {
+			logger.Error("refusing a privileged command without a valid approval", "error", err)
+			m.submit(ctx, command, failed(agentproto.CommandFailed, "approval_rejected", err.Error()))
+			return
+		}
+	}
 	collect, known := m.collectorFor(command.Type)
 	if !known || !m.supported(command.Type) {
 		m.submit(ctx, command, failed(agentproto.CommandFailed, "unsupported_capability", "This agent does not support "+command.Type+"."))

@@ -232,7 +232,28 @@ export type RemoteEndpoint = {
   capabilities: RemoteCapability[];
 };
 
-export type RemoteCommandStatus = "queued" | "claimed" | "running" | "succeeded" | "failed" | "timed_out" | "cancelled" | "expired";
+export type RemoteCommandStatus = "awaiting_approval" | "queued" | "claimed" | "running" | "succeeded" | "failed" | "timed_out" | "cancelled" | "expired";
+
+export type RemoteCommandTarget = {
+  agentId: string;
+  agentName: string;
+  hostname?: string;
+  agentFingerprint?: string;
+  transport?: "http" | "https";
+  deviceId?: string;
+  deviceName?: string;
+  trustState?: string;
+  associationStatus: string;
+  associationEvidence: { deviceId: string; deviceName?: string; strength: string; signals: { type: string; value: string }[]; note?: string }[];
+};
+
+export type RemoteCommandApproval = {
+  approvedBy: string;
+  approvedByEmail?: string;
+  approvedAt: string;
+  expiresAt: string;
+  parametersDigest: string;
+};
 
 export type RemoteCommand = {
   id: string;
@@ -251,5 +272,8 @@ export type RemoteCommand = {
   failureCode?: string;
   failureReason?: string;
   resultPruned?: boolean;
+  risk?: string;
+  approval?: RemoteCommandApproval;
+  target?: RemoteCommandTarget;
   result?: { output?: unknown; outputTruncated: boolean; outputBytes: number; submittedAt: string; redactions?: Record<string, number>; outputWithheld?: boolean };
 };

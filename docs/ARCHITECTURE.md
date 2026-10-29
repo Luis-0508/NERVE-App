@@ -74,6 +74,20 @@ enrolled agent claims it over the signed agent API (`/api/v1/agent/commands/clai
 start and result, and the at-most-once pipeline stores the result for the device's command
 history. Operators can cancel queued commands.
 
+Privileged commands pass an approval gate (`internal/remote/approval.go`, migration
+`000016`). No privileged type is enabled yet; `remote.RegisterPolicy` is the seam the
+privileged helper's allowlist will use. A policy with `RequiresApproval` is accepted only when
+the agent's last signed heartbeat reported `https` transport, the agent is associated with a
+`trusted` device, and a `remote_scopes` row (role or user; device, device tag or all devices;
+command types or `*`) covers the requester. The command is stored as `awaiting_approval` and
+returned with its target identity and association evidence. `POST
+/api/v1/remote/commands/{id}/approve` re-checks every precondition for the approver, signs an
+approval envelope with the Core key (`agentproto.CommandApproval`: command, agent, device,
+type, parameter digest, expiry, at most 10 minutes) and queues the command. Claiming hands the
+envelope to the agent, which verifies it against its pinned Core key and refuses privileged
+work over plain HTTP. Database triggers keep privileged rows out of claimable states without
+an unexpired approval. Every refusal is audited with a stable error code.
+
 ## Testing
 
 | Layer | Command | Covers |
@@ -93,5 +107,6 @@ smoke test; `workflow-checks.yml` runs the workflow tests when workflow files ch
   in `role_permissions` through a new migration, audit entry, typed client in `lib/api.ts`.
 - New collector or integration: its own package (`internal/integrations/<name>`) added with
   its first real behaviour; credentials encrypted and server-side only.
-- New remote command: through `internal/remote` and the signed agent protocol; privileged
-  commands stay blocked until the prerequisites in the implementation plan exist.
+- New remote command: through `internal/remote` and the signed agent protocol; a privileged
+  type needs `RequiresApproval` (enforced by `remote.RegisterPolicy`) and stays disabled
+  until the privileged helper (#91) exists.

@@ -153,6 +153,38 @@ func (s *Server) cancelCommand(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, command)
 }
 
+// approveCommand is the second step for a command awaiting approval. The
+// approver needs the command type's permission and a matching remote scope;
+// the service re-checks every gate precondition before signing.
+func (s *Server) approveCommand(w http.ResponseWriter, r *http.Request) {
+	user, _, ok := s.requireSession(w, r)
+	if !ok {
+		return
+	}
+	commandID := r.PathValue("commandID")
+	if !isUUID(commandID) {
+		writeError(w, http.StatusBadRequest, "invalid_command_id", "Command ID must be a UUID.")
+		return
+	}
+	existing, err := s.commands.Get(r.Context(), commandID)
+	if s.writeCommandError(w, err) {
+		return
+	}
+	// A type whose policy was withdrawn still needs the strongest permission.
+	permission := authz.RemoteExecutePrivileged
+	if policy, ok := remote.PolicyFor(existing.Type); ok {
+		permission = policy.Permission
+	}
+	if !s.checkPermission(w, r, user, permission) {
+		return
+	}
+	command, err := s.commands.Approve(r.Context(), commandID, s.actor(r, user))
+	if s.writeCommandError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, command)
+}
+
 func (s *Server) writeCommandError(w http.ResponseWriter, err error) bool {
 	switch {
 	case err == nil:
@@ -171,6 +203,13 @@ func (s *Server) writeCommandError(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusConflict, "agent_unavailable", err.Error())
 	case errors.Is(err, remote.ErrDeviceBlocked):
 		writeError(w, http.StatusConflict, "device_blocked", err.Error())
+	case errors.Is(err, remote.ErrOutOfScope), errors.Is(err, remote.ErrSelfApproval):
+		writeError(w, http.StatusForbidden, remote.GateCode(err), err.Error())
+	case errors.Is(err, remote.ErrTransportNotHTTPS), errors.Is(err, remote.ErrDeviceNotTrusted), errors.Is(err, remote.ErrNotAwaitingApproval),
+		errors.Is(err, remote.ErrCommandExpired), errors.Is(err, remote.ErrTargetChanged):
+		writeError(w, http.StatusConflict, remote.GateCode(err), err.Error())
+	case errors.Is(err, remote.ErrApprovalUnavailable):
+		writeError(w, http.StatusServiceUnavailable, "approval_unavailable", err.Error())
 	case errors.Is(err, remote.ErrQueueFull):
 		writeError(w, http.StatusTooManyRequests, "command_queue_full", err.Error())
 	case errors.Is(err, remote.ErrNotActive):

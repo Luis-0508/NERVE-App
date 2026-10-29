@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -53,7 +54,8 @@ var (
 
 	// reservedFailureCodes are written only by Core, so their presence proves
 	// that no agent result exists for the command.
-	reservedFailureCodes = map[string]bool{"no_result": true, "expired": true, "cancelled": true, "agent_revoked": true, "agent_removed": true}
+	reservedFailureCodes = map[string]bool{"no_result": true, "expired": true, "cancelled": true, "agent_revoked": true, "agent_removed": true,
+		"approval_expired": true}
 )
 
 type Result struct {
@@ -97,6 +99,10 @@ type Command struct {
 	CancelledBy      string         `json:"cancelledBy,omitempty"`
 	Result           *Result        `json:"result,omitempty"`
 	ResultPruned     bool           `json:"resultPruned,omitempty"`
+	// Approval is set once an operator approved a privileged command.
+	Approval *Approval `json:"approval,omitempty"`
+	// Target is filled for commands awaiting approval (see TargetFor).
+	Target *Target `json:"target,omitempty"`
 }
 
 type CreateInput struct {
@@ -112,6 +118,7 @@ type Service struct {
 	db              *pgxpool.Pool
 	notifier        *notifier
 	resultRetention time.Duration
+	approvalKey     ed25519.PrivateKey
 }
 
 func NewService(db *pgxpool.Pool) *Service {
@@ -151,45 +158,42 @@ func (s *Service) Create(ctx context.Context, input CreateInput, actor agents.Ac
 		}
 	}
 
+	command, err := s.create(ctx, input, policy, parameters, timeout, expiry, actor)
+	if err != nil {
+		if policy.RequiresApproval {
+			s.auditRefusal(ctx, "remote.command.refused", "agent", input.AgentID, actor, err, map[string]any{"type": policy.Type})
+		}
+		return Command{}, err
+	}
+	if command.Status == "queued" {
+		s.notifier.notify(input.AgentID)
+	}
+	return command, nil
+}
+
+func (s *Service) create(ctx context.Context, input CreateInput, policy Policy, parameters map[string]any, timeout, expiry time.Duration, actor agents.Actor) (Command, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return Command{}, fmt.Errorf("begin command: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	var (
-		status, deviceID string
-		capabilities     []string
-	)
-	// FOR NO KEY UPDATE serializes with revocation (FOR UPDATE) and with other
-	// creates for the same agent, so the active-command limit below is exact.
-	err = tx.QueryRow(ctx, `SELECT status, capabilities, COALESCE(device_id::text, '') FROM agents WHERE id = $1::uuid FOR NO KEY UPDATE`, input.AgentID).Scan(&status, &capabilities, &deviceID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return Command{}, agents.ErrNotFound
-	}
+	// The agent lock (FOR NO KEY UPDATE) serializes with revocation and with
+	// other creates for the same agent, so the active-command limit below is
+	// exact. The device lock (FOR SHARE) serializes with trust changes: a
+	// device blocked concurrently cannot slip a command through.
+	target, err := lockGateTarget(ctx, tx, input.AgentID, input.Type)
 	if err != nil {
-		return Command{}, fmt.Errorf("lock command agent: %w", err)
+		return Command{}, err
 	}
-	if status != "active" {
-		return Command{}, ErrAgentUnavailable
-	}
-	if !contains(capabilities, input.Type) {
-		return Command{}, ErrCapabilityNotAdvertised
-	}
-	// Device trust is operator-owned. A blocked device gets no remote actions;
-	// future privileged policies will additionally require "trusted".
-	if deviceID != "" {
-		var trust string
-		// FOR SHARE serializes with SetTrust (FOR UPDATE): a device blocked
-		// concurrently cannot slip a command through with its old trust state.
-		if err := tx.QueryRow(ctx, `SELECT trust_state FROM devices WHERE entity_id = $1::uuid FOR SHARE`, deviceID).Scan(&trust); err != nil {
-			return Command{}, fmt.Errorf("read device trust: %w", err)
+	status := "queued"
+	if policy.RequiresApproval {
+		if err := checkGate(ctx, tx, target, policy.Type, actor); err != nil {
+			return Command{}, err
 		}
-		if trust == "blocked" {
-			return Command{}, ErrDeviceBlocked
-		}
+		status = "awaiting_approval"
 	}
 	var active int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM remote_commands WHERE agent_id = $1::uuid AND status IN ('queued', 'claimed', 'running')`, input.AgentID).Scan(&active); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM remote_commands WHERE agent_id = $1::uuid AND status IN ('awaiting_approval', 'queued', 'claimed', 'running')`, input.AgentID).Scan(&active); err != nil {
 		return Command{}, fmt.Errorf("count active commands: %w", err)
 	}
 	if active >= MaxActivePerAgent {
@@ -197,22 +201,22 @@ func (s *Service) Create(ctx context.Context, input CreateInput, actor agents.Ac
 	}
 	encoded, _ := json.Marshal(parameters)
 	var commandID string
-	err = tx.QueryRow(ctx, `INSERT INTO remote_commands (agent_id, device_id, command_type, risk, parameters, requested_by, expires_at, timeout_seconds, max_output_bytes)
-		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, $4, $5::jsonb, $6::uuid, now() + $7::interval, $8, $9) RETURNING id::text`,
-		input.AgentID, deviceID, policy.Type, string(policy.Risk), string(encoded), actor.UserID,
-		fmt.Sprintf("%d seconds", int64(expiry.Seconds())), int(timeout.Seconds()), policy.MaxOutputBytes).Scan(&commandID)
+	err = tx.QueryRow(ctx, `INSERT INTO remote_commands (agent_id, device_id, command_type, risk, parameters, requested_by, expires_at, timeout_seconds, max_output_bytes, status)
+		VALUES ($1::uuid, NULLIF($2, '')::uuid, $3, $4, $5::jsonb, $6::uuid, now() + $7::interval, $8, $9, $10) RETURNING id::text`,
+		input.AgentID, target.deviceID, policy.Type, string(policy.Risk), string(encoded), actor.UserID,
+		fmt.Sprintf("%d seconds", int64(expiry.Seconds())), int(timeout.Seconds()), policy.MaxOutputBytes, status).Scan(&commandID)
 	if err != nil {
 		return Command{}, fmt.Errorf("queue command: %w", err)
 	}
 	if err := audit.Write(ctx, tx, audit.Entry{ActorUserID: actor.UserID, Action: "remote.command.created", TargetType: "remote_command", TargetID: commandID,
-		SourceAddress: actor.SourceAddress, Parameters: map[string]any{"agentId": input.AgentID, "deviceId": deviceID, "type": policy.Type,
-			"risk": string(policy.Risk), "parameters": parameters, "timeoutSeconds": int(timeout.Seconds()), "expiresInSeconds": int(expiry.Seconds())}}); err != nil {
+		SourceAddress: actor.SourceAddress, Parameters: map[string]any{"agentId": input.AgentID, "deviceId": target.deviceID, "type": policy.Type,
+			"risk": string(policy.Risk), "parameters": parameters, "timeoutSeconds": int(timeout.Seconds()), "expiresInSeconds": int(expiry.Seconds()),
+			"status": status}}); err != nil {
 		return Command{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Command{}, fmt.Errorf("commit command: %w", err)
 	}
-	s.notifier.notify(input.AgentID)
 	return s.Get(ctx, commandID)
 }
 
@@ -269,16 +273,22 @@ func (s *Service) claimOnce(ctx context.Context, principal agents.Principal) (ag
 		parameters []byte
 		claimedAt  time.Time
 	)
+	var risk, deviceID string
+	// A command beyond read-only is claimable only while its approval is
+	// valid; the database guard enforces the same rule.
 	err = tx.QueryRow(ctx, `WITH next AS (
-			SELECT id FROM remote_commands
-			WHERE agent_id = $1::uuid AND status = 'queued' AND expires_at > now()
-			ORDER BY requested_at, id FOR UPDATE SKIP LOCKED LIMIT 1
+			SELECT c.id FROM remote_commands c
+			LEFT JOIN remote_command_approvals approval ON approval.command_id = c.id
+			WHERE c.agent_id = $1::uuid AND c.status = 'queued' AND c.expires_at > now()
+			  AND (c.risk = 'read_only' OR approval.expires_at > now())
+			ORDER BY c.requested_at, c.id FOR UPDATE OF c SKIP LOCKED LIMIT 1
 		)
 		UPDATE remote_commands command SET status = 'claimed', claimed_at = now(), claimed_by_credential = $2::uuid
 		FROM next WHERE command.id = next.id
 		RETURNING command.id::text, command.agent_id::text, command.command_type, command.parameters,
-			command.timeout_seconds, command.max_output_bytes, command.claimed_at`, principal.AgentID, principal.CredentialID).Scan(
-		&command.ID, &command.AgentID, &command.Type, &parameters, &command.TimeoutSeconds, &command.MaxOutputBytes, &claimedAt)
+			command.timeout_seconds, command.max_output_bytes, command.claimed_at, command.risk, COALESCE(command.device_id::text, '')`,
+		principal.AgentID, principal.CredentialID).Scan(
+		&command.ID, &command.AgentID, &command.Type, &parameters, &command.TimeoutSeconds, &command.MaxOutputBytes, &claimedAt, &risk, &deviceID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return agentproto.Command{}, ErrNoCommand
 	}
@@ -289,6 +299,16 @@ func (s *Service) claimOnce(ctx context.Context, principal agents.Principal) (ag
 		return agentproto.Command{}, fmt.Errorf("decode command parameters: %w", err)
 	}
 	command.Deadline = claimedAt.Add(time.Duration(command.TimeoutSeconds) * time.Second).UTC()
+	if risk != string(agentproto.RiskReadOnly) {
+		approval := agentproto.CommandApproval{CommandID: command.ID, AgentID: command.AgentID, DeviceID: deviceID, Type: command.Type}
+		if err := tx.QueryRow(ctx, `SELECT approved_by::text, approved_at, expires_at, parameters_digest, key_id, signature
+			FROM remote_command_approvals WHERE command_id = $1::uuid`, command.ID).Scan(&approval.ApprovedBy, &approval.ApprovedAt,
+			&approval.ExpiresAt, &approval.ParametersDigest, &approval.KeyID, &approval.Signature); err != nil {
+			return agentproto.Command{}, fmt.Errorf("read command approval: %w", err)
+		}
+		approval.ApprovedAt, approval.ExpiresAt = approval.ApprovedAt.UTC(), approval.ExpiresAt.UTC()
+		command.Approval = &approval
+	}
 	if err := audit.Write(ctx, tx, audit.Entry{ActorAgentID: principal.AgentID, Action: "remote.command.claimed", TargetType: "remote_command",
 		TargetID: command.ID, Parameters: map[string]any{"type": command.Type, "credentialId": principal.CredentialID}}); err != nil {
 		return agentproto.Command{}, err
@@ -509,7 +529,7 @@ func (s *Service) Cancel(ctx context.Context, commandID string, actor agents.Act
 	if err != nil {
 		return Command{}, fmt.Errorf("lock command cancel: %w", err)
 	}
-	if previous != "queued" && previous != "claimed" && previous != "running" {
+	if previous != "awaiting_approval" && previous != "queued" && previous != "claimed" && previous != "running" {
 		return Command{}, ErrNotActive
 	}
 	if _, err := tx.Exec(ctx, `UPDATE remote_commands SET status = 'cancelled', completed_at = now(), cancelled_by = $2::uuid,
@@ -531,7 +551,7 @@ func (s *Service) Cancel(ctx context.Context, commandID string, actor agents.Act
 func (s *Service) CancelForAgent(ctx context.Context, tx pgx.Tx, agentID string, actor agents.Actor, reason string) error {
 	rows, err := tx.Query(ctx, `UPDATE remote_commands SET status = 'cancelled', completed_at = now(), cancelled_by = $2::uuid,
 		failure_code = $3, failure_reason = 'The agent credential was revoked or the agent was removed.'
-		WHERE agent_id = $1::uuid AND status IN ('queued', 'claimed', 'running') RETURNING id::text`, agentID, actor.UserID, "agent_"+reason)
+		WHERE agent_id = $1::uuid AND status IN ('awaiting_approval', 'queued', 'claimed', 'running') RETURNING id::text`, agentID, actor.UserID, "agent_"+reason)
 	if err != nil {
 		return fmt.Errorf("cancel agent commands: %w", err)
 	}
@@ -565,7 +585,7 @@ func (s *Service) Sweep(ctx context.Context) error {
 		return fmt.Errorf("begin command sweep: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck
-	type change struct{ id, status string }
+	type change struct{ id, status, code string }
 	var changes []change
 	collect := func(query string, args ...any) error {
 		rows, err := tx.Query(ctx, query, args...)
@@ -575,7 +595,7 @@ func (s *Service) Sweep(ctx context.Context) error {
 		defer rows.Close()
 		for rows.Next() {
 			var item change
-			if err := rows.Scan(&item.id, &item.status); err != nil {
+			if err := rows.Scan(&item.id, &item.status, &item.code); err != nil {
 				return err
 			}
 			changes = append(changes, item)
@@ -585,22 +605,35 @@ func (s *Service) Sweep(ctx context.Context) error {
 	if err := collect(`UPDATE remote_commands SET status = 'expired', completed_at = now(), failure_code = 'expired',
 		failure_reason = 'The agent did not claim the command before it expired.'
 		WHERE id IN (SELECT id FROM remote_commands WHERE status = 'queued' AND expires_at <= now() FOR UPDATE SKIP LOCKED)
-		RETURNING id::text, status`); err != nil {
+		RETURNING id::text, status, failure_code`); err != nil {
 		return fmt.Errorf("expire commands: %w", err)
+	}
+	if err := collect(`UPDATE remote_commands SET status = 'expired', completed_at = now(), failure_code = 'expired',
+		failure_reason = 'The command was not approved before it expired.'
+		WHERE id IN (SELECT id FROM remote_commands WHERE status = 'awaiting_approval' AND expires_at <= now() FOR UPDATE SKIP LOCKED)
+		RETURNING id::text, status, failure_code`); err != nil {
+		return fmt.Errorf("expire unapproved commands: %w", err)
+	}
+	if err := collect(`UPDATE remote_commands SET status = 'expired', completed_at = now(), failure_code = 'approval_expired',
+		failure_reason = 'The agent did not claim the command before its approval expired.'
+		WHERE id IN (SELECT c.id FROM remote_commands c JOIN remote_command_approvals approval ON approval.command_id = c.id
+			WHERE c.status = 'queued' AND approval.expires_at <= now() FOR UPDATE OF c SKIP LOCKED)
+		RETURNING id::text, status, failure_code`); err != nil {
+		return fmt.Errorf("expire approvals: %w", err)
 	}
 	if err := collect(`UPDATE remote_commands SET status = 'timed_out', completed_at = now(), failure_code = 'no_result',
 		failure_reason = 'The agent did not report a result before the timeout.'
 		WHERE id IN (SELECT id FROM remote_commands WHERE status IN ('claimed', 'running')
 			AND claimed_at + make_interval(secs => timeout_seconds + $1) < now() FOR UPDATE SKIP LOCKED)
-		RETURNING id::text, status`, int(ResultGrace.Seconds())); err != nil {
+		RETURNING id::text, status, failure_code`, int(ResultGrace.Seconds())); err != nil {
 		return fmt.Errorf("time out commands: %w", err)
 	}
 	for _, item := range changes {
-		action := "remote.command.expired"
+		action, code := "remote.command.expired", item.code
 		if item.status == "timed_out" {
-			action = "remote.command.timed_out"
+			action, code = "remote.command.timed_out", item.status
 		}
-		if err := audit.Write(ctx, tx, audit.Entry{Action: action, TargetType: "remote_command", TargetID: item.id, Result: audit.ResultFailure, ErrorCode: item.status}); err != nil {
+		if err := audit.Write(ctx, tx, audit.Entry{Action: action, TargetType: "remote_command", TargetID: item.id, Result: audit.ResultFailure, ErrorCode: code}); err != nil {
 			return err
 		}
 	}
@@ -658,6 +691,26 @@ func (s *Service) Get(ctx context.Context, commandID string) (Command, error) {
 			Redactions: redactions}
 	} else if (command.Status == "succeeded" || command.Status == "failed" || command.Status == "timed_out") && !reservedFailureCodes[command.FailureCode] {
 		command.ResultPruned = true
+	}
+	if command.Risk != string(agentproto.RiskReadOnly) {
+		var approval Approval
+		err := s.db.QueryRow(ctx, `SELECT approval.approved_by::text, COALESCE(u.email, ''), approval.approved_at, approval.expires_at,
+			approval.parameters_digest FROM remote_command_approvals approval LEFT JOIN users u ON u.id = approval.approved_by
+			WHERE approval.command_id = $1::uuid`, commandID).Scan(&approval.ApprovedBy, &approval.ApprovedByEmail, &approval.ApprovedAt,
+			&approval.ExpiresAt, &approval.ParametersDigest)
+		switch {
+		case err == nil:
+			command.Approval = &approval
+		case !errors.Is(err, pgx.ErrNoRows):
+			return Command{}, fmt.Errorf("read command approval: %w", err)
+		}
+	}
+	if command.Status == "awaiting_approval" {
+		target, err := s.TargetFor(ctx, command.AgentID)
+		if err != nil {
+			return Command{}, err
+		}
+		command.Target = &target
 	}
 	return command, nil
 }
