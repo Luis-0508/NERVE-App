@@ -4,7 +4,7 @@ Narrative snapshot of where NERVE stands. **The repository is authoritative:** i
 code or GitHub issues disagree with this file, trust them and correct this file.
 
 - Last updated: 2026-10-29
-- Verified against: `master` at `11b67a4`
+- Verified against: `master` at `4779644`
 
 ## What exists
 
@@ -40,7 +40,11 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Active work
 
-- No open feature PR.
+- #110 (#99 approval gate, migration `000016`) and #111 (#104 read-only MeshCentral provider,
+  migration `000017`) are in review; neither UI was checked in a browser. They touch the same
+  remote panel, types and docs, so the second to merge needs a small rebase.
+- #104 was verified against a disposable MeshCentral 1.3.1 server, but not with a real
+  MeshAgent reporting network info.
 - Windows service installation (K-1) on a real elevated host is not verified yet.
 
 ## Blockers
@@ -53,7 +57,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 ## Next priorities
 
 This order is the priority. Issues migrated from the board keep their K-n ID in the first
-line; #98, #99, #101 and #104 are unblocked.
+line; #98 and #101 are unblocked; #91 waits for #110 and #105 for #111.
 
 1. Production RMM milestone (hybrid, decision 0006), two parallel tracks:
    - native path: #99 approval gate → #91 privileged helper (fixed allowlist) → #92
