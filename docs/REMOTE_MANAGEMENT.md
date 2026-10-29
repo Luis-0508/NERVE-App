@@ -12,15 +12,16 @@ and privileged commands are **not** implemented. Agent installation is described
 
 NERVE uses a **hybrid** model. NERVE owns device identity, inventory, agent enrollment and
 authentication, capabilities, telemetry, authorization, command requests and results,
-confirmations, audit and the operator UI. A remote-session product such as MeshCentral
-may later provide remote desktop, interactive terminal, file transfer and relay, as an
-**optional provider** behind a NERVE abstraction, never as the core model.
+confirmations, audit and the operator UI. MeshCentral provides remote desktop,
+interactive terminal, file transfer and relay as a **provider** behind a NERVE abstraction,
+never as the core model ([decision 0006](DECISIONS/0006-meshcentral-for-interactive-sessions.md)).
+NERVE's own privileged path is limited to a fixed allowlist of audited actions.
 
 ```text
 Browser ──session──▶ /api/v1/agents, /devices/{id}/remote, /remote/commands   (permissions)
                          │
                    internal/remote ── Provider registry ── NativeProvider (nerve-agent)
-                         │                              └─ (future) MeshCentral adapter
+                         │                              └─ MeshCentral adapter (planned, #104)
                    remote_commands ◀── claim/start/result ── /api/v1/agent/* ◀──Ed25519── nerve-agent
                          │
                      audit_log (immutable)
@@ -390,7 +391,11 @@ referenced by command ID.
 - One API instance is assumed for instant wake-up. With several instances, claims fall back
   to a 3-second re-check.
 
-## MeshCentral integration (future, optional provider)
+## MeshCentral integration (planned provider)
+
+Decided in [0006](DECISIONS/0006-meshcentral-for-interactive-sessions.md); delivered by
+#104 (read-only provider and confirmed identities), #105 (encrypted integration
+credentials) and #106 (per-operator accounts and audited session handoff).
 
 The `internal/remote.Provider` registry is the seam. A MeshCentral adapter
 (`internal/integrations/meshcentral`) would register as provider `meshcentral` and
@@ -487,8 +492,11 @@ with key rotation first.
 
 ## Security requirements still open before privileged commands
 
-`command.shell`, `command.powershell`, `script.run` and `system.reboot` stay disabled until
-all of these exist:
+Native privileged commands are limited to a fixed allowlist (service restart/stop, process
+termination, reboot/shutdown, log retrieval, agent update). `command.shell`,
+`command.powershell` and `script.run` are not built natively; interactive shell and files
+come from MeshCentral sessions (decision 0006). The allowlisted commands stay disabled
+until all of these exist:
 
 - HTTPS enforced for agents that may run privileged capabilities. Core-signed responses
   (implemented) give authenticity and integrity, not confidentiality.
