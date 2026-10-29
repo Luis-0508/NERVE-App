@@ -42,6 +42,8 @@ browser sessions. Permissions in parentheses are checked server-side.
 - `POST /api/v1/agents/{agentID}/association` — `confirm` a device, `dismiss` (no device) or `reevaluate` evidence (`agents.manage`)
 - `GET /api/v1/agent-enrollments`, `POST /api/v1/agent-enrollments`, `POST /api/v1/agent-enrollments/{enrollmentID}/revoke` — single-use enrollment tokens, shown once at creation (`agents.manage`)
 - `GET /api/v1/devices/{deviceID}/remote` — remote-management endpoints and capabilities for a device, across providers (`agents.view`)
+- `POST /api/v1/devices/{deviceID}/meshcentral/binding` — `confirm` or `unbind` a MeshCentral node (`{"action","nodeId"}`); confirming needs a matching MAC address (`agents.manage`)
+- `GET /api/v1/integrations/meshcentral` — MeshCentral sync status without credentials (`agents.view`); `POST .../sync` syncs now (`agents.manage`)
 - `GET /api/v1/devices/{deviceID}/commands`, `GET /api/v1/agents/{agentID}/commands` — command history without output (`remote.view`)
 - `POST /api/v1/agents/{agentID}/commands` — queue a read-only command (`remote.execute.read_only`); other command types are refused
 - `GET /api/v1/remote/commands/{commandID}` — command state and retained result (`remote.view`); `POST .../cancel` cancels an unfinished command

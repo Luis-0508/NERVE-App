@@ -228,8 +228,10 @@ export type RemoteEndpoint = {
   connection?: AgentConnection;
   version?: string;
   lastSeenAt?: string;
-  association: AssociationStatus;
+  // MeshCentral endpoints add "weak": hostname evidence only, not confirmable.
+  association: AssociationStatus | "weak";
   capabilities: RemoteCapability[];
+  evidence?: { type: string; value: string }[];
 };
 
 export type RemoteCommandStatus = "queued" | "claimed" | "running" | "succeeded" | "failed" | "timed_out" | "cancelled" | "expired";
@@ -253,3 +255,5 @@ export type RemoteCommand = {
   resultPruned?: boolean;
   result?: { output?: unknown; outputTruncated: boolean; outputBytes: number; submittedAt: string; redactions?: Record<string, number>; outputWithheld?: boolean };
 };
+
+export type MeshCentralStatus = { configured: boolean; lastAttemptAt?: string; lastSuccessAt?: string; lastError?: string; nodeCount: number };

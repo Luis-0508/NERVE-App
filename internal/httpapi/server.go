@@ -22,6 +22,7 @@ import (
 	"github.com/nerve-labs/nerve/internal/config"
 	"github.com/nerve-labs/nerve/internal/devices"
 	"github.com/nerve-labs/nerve/internal/discovery"
+	"github.com/nerve-labs/nerve/internal/integrations/meshcentral"
 	"github.com/nerve-labs/nerve/internal/integrations/ntopng"
 	"github.com/nerve-labs/nerve/internal/inventory"
 	"github.com/nerve-labs/nerve/internal/remote"
@@ -39,6 +40,7 @@ type Server struct {
 	identity       *devices.Service
 	commands       *remote.Service
 	remote         *remote.Registry
+	meshcentral    *meshcentral.Store
 	eventHub       *eventHub
 	cfg            config.Config
 	logger         *slog.Logger
@@ -136,7 +138,21 @@ func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, ve
 	}
 	server.commands = remote.NewService(db)
 	server.commands.SetResultRetention(cfg.CommandResultRetention)
-	server.remote = remote.NewRegistry(remote.NativeProvider{Agents: server.agents})
+	meshConfig := meshcentral.Config{URL: cfg.MeshCentralURL, Username: cfg.MeshCentralUsername, Password: cfg.MeshCentralPassword}
+	if scheme, _, _ := strings.Cut(cfg.MeshCentralURL, "://"); scheme == "http" || scheme == "ws" {
+		logger.Warn("NERVE_MESHCENTRAL_URL is not encrypted; the service-account password crosses the network in clear text")
+	}
+	if cfg.MeshCentralCAFile != "" {
+		pool, err := meshcentral.LoadRootCAs(cfg.MeshCentralCAFile)
+		if err != nil {
+			// Never fall back to the system trust store for a pinned CA.
+			logger.Error("invalid NERVE_MESHCENTRAL_CA_FILE; the MeshCentral provider is disabled", "error", err)
+			meshConfig.URL = ""
+		}
+		meshConfig.RootCAs = pool
+	}
+	server.meshcentral = meshcentral.NewStore(db, meshcentral.New(meshConfig))
+	server.remote = remote.NewRegistry(remote.NativeProvider{Agents: server.agents}, meshcentral.Provider{Store: server.meshcentral})
 	server.agentLifecycleHooks = append(server.agentLifecycleHooks, server.commands.CancelForAgent)
 	server.maintenanceTasks = append(server.maintenanceTasks, server.commands.Sweep)
 	return server
@@ -198,6 +214,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/agent/heartbeat", s.agentEndpoint(agentproto.MaxEnrollRequestBytes, s.agentHeartbeat))
 	mux.HandleFunc("POST /api/v1/agents/{agentID}/association", s.updateAgentAssociation)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/remote", s.deviceRemote)
+	mux.HandleFunc("POST /api/v1/devices/{deviceID}/meshcentral/binding", s.updateMeshCentralBinding)
+	mux.HandleFunc("GET /api/v1/integrations/meshcentral", s.meshCentralStatus)
+	mux.HandleFunc("POST /api/v1/integrations/meshcentral/sync", s.syncMeshCentral)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/commands", s.listDeviceCommands)
 	mux.HandleFunc("GET /api/v1/agents/{agentID}/commands", s.listAgentCommands)
 	mux.HandleFunc("POST /api/v1/agents/{agentID}/commands", s.createCommand)

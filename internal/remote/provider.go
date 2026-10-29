@@ -11,9 +11,9 @@ import (
 	"github.com/nerve-labs/nerve/internal/agents"
 )
 
-// ProviderNativeAgent is the NERVE management agent. A MeshCentral adapter
-// would register as "meshcentral" and map its node IDs to NERVE devices through
-// operator-confirmed device identities.
+// ProviderNativeAgent is the NERVE management agent. The MeshCentral adapter
+// (internal/integrations/meshcentral) registers as "meshcentral" and maps its
+// node IDs to NERVE devices through operator-confirmed device identities.
 const ProviderNativeAgent = "nerve-agent"
 
 // Capability is a provider-reported capability with NERVE catalogue metadata.
@@ -35,6 +35,15 @@ type Endpoint struct {
 	LastSeenAt   *time.Time   `json:"lastSeenAt,omitempty"`
 	Association  string       `json:"association"`
 	Capabilities []Capability `json:"capabilities"`
+	// Evidence lists the facts linking a candidate or bound endpoint to the
+	// device, for providers whose binding an operator confirms in place.
+	Evidence []EvidenceSignal `json:"evidence,omitempty"`
+}
+
+// EvidenceSignal is one observed fact, such as a matching MAC address.
+type EvidenceSignal struct {
+	Type  string `json:"type"`
+	Value string `json:"value"`
 }
 
 // Provider supplies remote-management endpoints. Interactive sessions

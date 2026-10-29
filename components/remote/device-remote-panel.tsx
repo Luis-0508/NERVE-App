@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { agentConnectionState } from "@/lib/agent-status";
 import { APIError, api } from "@/lib/api";
 import type { RemoteCommand, RemoteCommandStatus, RemoteEndpoint } from "@/lib/types";
+import { MeshCentralEndpoint } from "./meshcentral-endpoint";
 
 const activeStatuses: RemoteCommandStatus[] = ["queued", "claimed", "running"];
 const statusLabels: Record<RemoteCommandStatus, string> = {
@@ -84,11 +85,13 @@ export function DeviceRemotePanel({ deviceId, permissions }: { deviceId: string;
 
   if (!canView) return <Empty title="Not permitted" copy="Your role cannot view remote management." />;
   if (!endpoints) return error ? <div className="error-state"><h3>Remote management unavailable</h3><p>{error}</p></div> : <div className="detail-empty" />;
-  if (!endpoints.length) return <Empty title="No management agent" copy="No enrolled NERVE agent is associated with this device. Create an enrollment in Settings → Management agents, or confirm a candidate association there." />;
+  if (!endpoints.length) return <Empty title="No management agent" copy="No enrolled NERVE agent or MeshCentral node is associated with this device. Create an enrollment in Settings → Management agents, or confirm a candidate association there." />;
 
   return <div className="remote-panel">
     {error && <div className="form-error" role="alert">{error}</div>}
-    {endpoints.map((endpoint) => <section key={endpoint.endpointId} className="remote-endpoint">
+    {endpoints.map((endpoint) => endpoint.provider === "meshcentral"
+      ? <MeshCentralEndpoint key={endpoint.endpointId} deviceId={deviceId} endpoint={endpoint} canManage={permissions.includes("agents.manage")} onChanged={load} />
+      : <section key={endpoint.endpointId} className="remote-endpoint">
       <div className="detail-section-heading remote-heading"><h2>{endpoint.provider === "nerve-agent" ? "NERVE agent" : endpoint.provider} · {endpoint.displayName}</h2>
         <button className="button" type="button" onClick={() => void load()}><RefreshCw size={14} aria-hidden="true" />Refresh</button></div>
       <dl className="property-list">

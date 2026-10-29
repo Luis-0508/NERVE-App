@@ -1,4 +1,4 @@
-import type { AgentDeploymentKey, AgentEnrollment,Device, DeviceDetail, DeviceFacets, DeviceList, DeviceMetadataUpdate, DeviceVocabulary, DuplicateCandidate, IdentityReport, TrustState, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ManagementAgent, RemoteCommand, RemoteEndpoint, ServiceStatus, Session, TrafficSnapshot } from "./types";
+import type { AgentDeploymentKey, AgentEnrollment,Device, DeviceDetail, DeviceFacets, DeviceList, DeviceMetadataUpdate, DeviceVocabulary, DuplicateCandidate, IdentityReport, TrustState, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ManagementAgent, MeshCentralStatus, RemoteCommand, RemoteEndpoint, ServiceStatus, Session, TrafficSnapshot } from "./types";
 
 import type { TrafficCapture } from "./types";
 
@@ -82,4 +82,8 @@ export const api = {
     request<RemoteCommand>(`/api/v1/agents/${encodeURIComponent(agentId)}/commands`, { method: "POST", body: JSON.stringify({ type, parameters }) }),
   command: (id: string) => request<RemoteCommand>(`/api/v1/remote/commands/${encodeURIComponent(id)}`),
   cancelCommand: (id: string) => request<RemoteCommand>(`/api/v1/remote/commands/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
+  meshCentralStatus: () => request<MeshCentralStatus>("/api/v1/integrations/meshcentral"),
+  syncMeshCentral: () => request<MeshCentralStatus>("/api/v1/integrations/meshcentral/sync", { method: "POST", body: "{}" }),
+  updateMeshCentralBinding: (deviceId: string, action: "confirm" | "unbind", nodeId: string) =>
+    requestNoContent(`/api/v1/devices/${encodeURIComponent(deviceId)}/meshcentral/binding`, { method: "POST", body: JSON.stringify({ action, nodeId }) }),
 };
