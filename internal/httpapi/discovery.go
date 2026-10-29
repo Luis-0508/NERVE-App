@@ -115,7 +115,6 @@ func (s *Server) queueDiscoveryScan(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, scan)
 }
 
-
 // discoveryHandler serves one discovery worker route. decode reads the request
 // body with the limits of the path that authenticated the worker.
 type discoveryHandler func(w http.ResponseWriter, r *http.Request, worker discovery.Worker, decode func(any) error)
