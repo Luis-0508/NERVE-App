@@ -30,7 +30,7 @@ const (
 )
 
 const serviceUsage = `Usage:
-  nerve-agent service install   [--api-url URL] [--token-file FILE] [--ca-file FILE] [--state-dir DIR] [--no-start] [--force]
+  nerve-agent service install   [--api-url URL] [--token-file FILE] [--ca-file FILE] [--state-dir DIR] [--discovery] [--no-start] [--force]
   nerve-agent service uninstall [--purge]
   nerve-agent service start | stop | restart | status
 
@@ -38,7 +38,8 @@ install registers the agent as a Windows service (virtual account
 NT SERVICE\NERVEAgent) or a systemd unit (user nerve-agent), with automatic
 restart after crashes. It must run as Administrator or root. With --token-file
 or NERVE_AGENT_ENROLLMENT_TOKEN it also enrolls the host; --force replaces an
-existing identity (re-enrollment).
+existing identity (re-enrollment). --discovery enables the local network
+discovery worker, which then authenticates with the enrolled identity.
 uninstall removes the service; --purge also deletes the local identity. Revoke
 or remove the agent in NERVE as well, so its key can no longer be used.
 `
@@ -51,6 +52,7 @@ type installOptions struct {
 	StateDir  string
 	NoStart   bool
 	Force     bool
+	Discovery bool
 }
 
 func runService(args []string) int {
@@ -67,6 +69,7 @@ func runService(args []string) int {
 		flags.StringVar(&options.TokenFile, "token-file", "", "one-time enrollment token file (enrolls the host)")
 		flags.StringVar(&options.CAFile, "ca-file", "", "PEM file with an additional CA that issued Core's certificate")
 		flags.StringVar(&options.StateDir, "state-dir", machineStateDir(), "service state directory")
+		flags.BoolVar(&options.Discovery, "discovery", false, "run the local network discovery worker with the enrolled identity")
 		flags.BoolVar(&options.NoStart, "no-start", false, "do not start the service after installing")
 		flags.BoolVar(&options.Force, "force", false, "replace an existing identity with a re-enrollment token")
 		if err := flags.Parse(args); err != nil {
@@ -148,6 +151,9 @@ func prepareServiceState(options installOptions) (*identity, error) {
 			return nil, fmt.Errorf("copy CA file: %w", err)
 		}
 		config.CAFile = filepath.Join(options.StateDir, caFileName)
+	}
+	if options.Discovery {
+		config.Discovery = true
 	}
 	if err := saveConfig(options.StateDir, config); err != nil {
 		return nil, fmt.Errorf("write configuration: %w", err)

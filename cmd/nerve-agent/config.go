@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/nerve-labs/nerve/internal/agentproto"
 )
 
 const (
@@ -33,6 +35,9 @@ type agentConfig struct {
 	// CredentialMaxAgeDays makes a running agent rotate its key once the
 	// credential is older than this many days. 0 (the default) turns it off.
 	CredentialMaxAgeDays int `json:"credentialMaxAgeDays,omitempty"`
+	// Discovery runs the local network discovery worker with the enrolled
+	// identity and reports the discovery.scan capability.
+	Discovery bool `json:"discovery,omitempty"`
 }
 
 // settings are the effective values after applying environment overrides.
@@ -43,6 +48,7 @@ type settings struct {
 	DisabledCapabilities []string
 	LogLevel             slog.Level
 	CredentialMaxAge     time.Duration
+	Discovery            bool
 }
 
 func loadConfig(dir string) (agentConfig, error) {
@@ -79,7 +85,7 @@ func resolveSettings(stateDir string, id *identity) (settings, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return settings{}, err
 	}
-	result := settings{StateDir: stateDir, APIURL: config.APIURL, CAFile: config.CAFile, LogLevel: slog.LevelInfo}
+	result := settings{StateDir: stateDir, APIURL: config.APIURL, CAFile: config.CAFile, LogLevel: slog.LevelInfo, Discovery: config.Discovery}
 	if value := strings.TrimSpace(os.Getenv("NERVE_AGENT_API_URL")); value != "" {
 		result.APIURL = value
 	}
@@ -148,15 +154,20 @@ func newTransport(caFile string) (*http.Transport, error) {
 	return transport, nil
 }
 
-// capabilitiesWithout returns the host's capabilities minus disabled ones.
-func capabilitiesWithout(disabled []string) func() []string {
+// capabilitiesWithout returns the host's capabilities, plus discovery.scan
+// when the discovery worker runs, minus disabled ones.
+func capabilitiesWithout(disabled []string, discoveryEnabled bool) func() []string {
 	off := map[string]bool{}
 	for _, name := range disabled {
 		off[name] = true
 	}
 	return func() []string {
 		result := []string{}
-		for _, name := range supportedCapabilities() {
+		names := supportedCapabilities()
+		if discoveryEnabled {
+			names = append(names, agentproto.CapabilityDiscoveryScan)
+		}
+		for _, name := range names {
 			if !off[name] {
 				result = append(result, name)
 			}

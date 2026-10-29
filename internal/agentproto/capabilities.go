@@ -14,6 +14,9 @@ const (
 	CapabilityProcessList   = "process.list"
 	CapabilityServiceList   = "service.list"
 	CapabilitySoftwareList  = "software.list"
+	// CapabilityDiscoveryScan marks an agent whose discovery worker may claim
+	// and report local network scans. It is not a remote command type.
+	CapabilityDiscoveryScan = "discovery.scan"
 
 	// Reserved for later milestones. Core refuses to queue them today.
 	CapabilityCommandShell      = "command.shell"
@@ -49,6 +52,7 @@ var Catalogue = []CapabilityInfo{
 	{CapabilityProcessList, "Processes", RiskReadOnly, "Bounded list of running processes, without command lines"},
 	{CapabilityServiceList, "Services", RiskReadOnly, "Installed services and their state"},
 	{CapabilitySoftwareList, "Software", RiskReadOnly, "Installed software packages"},
+	{CapabilityDiscoveryScan, "Network discovery", RiskReadOnly, "ARP, ICMP and TCP probes of the administrator-configured subnet"},
 	{CapabilityCommandShell, "Shell command", RiskPrivileged, "Run a shell command (not enabled)"},
 	{CapabilityCommandPowerShell, "PowerShell command", RiskPrivileged, "Run a PowerShell command (not enabled)"},
 	{CapabilityScriptRun, "Run script", RiskPrivileged, "Run a catalogued script (not enabled)"},

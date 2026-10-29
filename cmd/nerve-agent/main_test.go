@@ -64,8 +64,8 @@ func TestHeartbeatsContinueDuringScanAndScansStaySerial(t *testing.T) {
 	var maximumActive atomic.Int32
 	var executeCount atomic.Int32
 	a := &agent{
-		apiURL: server.URL + "/api/v1", token: "test-token", id: "test-agent", hostname: "test-host",
-		client: &http.Client{Timeout: time.Second}, logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		send: legacyDiscoverySender(server.URL+"/api/v1", "test-token", "test-agent", &http.Client{Timeout: time.Second}), id: "test-agent",
+		hostname: "test-host", logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		heartbeatInterval: 20 * time.Millisecond, claimInterval: 5 * time.Millisecond,
 		executeFunc: func(ctx context.Context, _ discovery.Job) error {
 			executionNumber := executeCount.Add(1)

@@ -67,3 +67,19 @@ func TestCommandResultRetention(t *testing.T) {
 		}
 	}
 }
+
+func TestDiscoveryLegacyTokenDefaultsOn(t *testing.T) {
+	t.Setenv("NERVE_DISCOVERY_LEGACY_TOKEN", "")
+	cfg, err := Load()
+	if err != nil || !cfg.DiscoveryLegacyToken {
+		t.Fatal("the legacy discovery token must stay enabled by default in this release")
+	}
+	t.Setenv("NERVE_DISCOVERY_LEGACY_TOKEN", "false")
+	if cfg, err = Load(); err != nil || cfg.DiscoveryLegacyToken {
+		t.Fatal("NERVE_DISCOVERY_LEGACY_TOKEN=false did not disable the legacy path")
+	}
+	t.Setenv("NERVE_DISCOVERY_LEGACY_TOKEN", "maybe")
+	if _, err := Load(); err == nil {
+		t.Fatal("an invalid NERVE_DISCOVERY_LEGACY_TOKEN was accepted")
+	}
+}

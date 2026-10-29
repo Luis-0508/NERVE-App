@@ -21,9 +21,26 @@ var (
 	ErrScanActive  = errors.New("a discovery scan is already queued or running")
 	ErrInvalidCIDR = errors.New("subnet must be a canonical IPv4 or IPv6 CIDR containing at most 4096 addresses")
 	ErrInvalidJob  = errors.New("discovery job is not running for this agent")
+	// ErrWorkerConflict means the worker ID is held by a worker with a
+	// different identity (a legacy ID that matches an enrolled agent's row).
+	ErrWorkerConflict = errors.New("the discovery worker ID belongs to a different worker identity")
 )
 
 type Repository struct{ db *pgxpool.Pool }
+
+// Worker identifies the discovery worker behind a request. AgentID is set only
+// for a signed request from an enrolled agent; the worker's ID is then the
+// agent ID. Legacy shared-token workers have a self-asserted ID and no AgentID.
+type Worker struct {
+	ID      string
+	AgentID string
+}
+
+// EnrolledWorker is the discovery worker of an authenticated, enrolled agent.
+func EnrolledWorker(agentID string) Worker { return Worker{ID: agentID, AgentID: agentID} }
+
+// LegacyWorker is a worker on the deprecated shared-token path.
+func LegacyWorker(id string) Worker { return Worker{ID: id} }
 
 func NewRepository(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
 
@@ -93,13 +110,14 @@ func (r *Repository) State(ctx context.Context) (State, error) {
 	}
 
 	var agent AgentStatus
-	err = r.db.QueryRow(ctx, `SELECT id, hostname, platform, version, capabilities,
+	err = r.db.QueryRow(ctx, `SELECT id, COALESCE(agent_id::text, ''), hostname, platform, version, capabilities,
 		last_heartbeat_at, COALESCE(last_error, ''), last_heartbeat_at > now() - interval '30 seconds'
 		FROM discovery_agents ORDER BY last_heartbeat_at DESC LIMIT 1`).Scan(
-		&agent.ID, &agent.Hostname, &agent.Platform, &agent.Version, &agent.Capabilities,
+		&agent.ID, &agent.AgentID, &agent.Hostname, &agent.Platform, &agent.Version, &agent.Capabilities,
 		&agent.LastHeartbeatAt, &agent.LastError, &agent.Online,
 	)
 	if err == nil {
+		agent.LegacyToken = agent.AgentID == ""
 		state.Agent = &agent
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return State{}, fmt.Errorf("query discovery agent: %w", err)
@@ -161,15 +179,22 @@ func (r *Repository) Queue(ctx context.Context, targetID, userID, sourceAddress 
 	return scan, nil
 }
 
-func (r *Repository) Heartbeat(ctx context.Context, input AgentHeartbeat) error {
-	_, err := r.db.Exec(ctx, `INSERT INTO discovery_agents (id, hostname, platform, version, capabilities, last_error)
-		VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''))
+// Heartbeat records a worker's liveness under the worker's ID (input.ID is
+// ignored). It never updates a row that belongs to a different identity, so a
+// legacy worker cannot take over an enrolled agent's row or the reverse.
+func (r *Repository) Heartbeat(ctx context.Context, worker Worker, input AgentHeartbeat) error {
+	tag, err := r.db.Exec(ctx, `INSERT INTO discovery_agents (id, agent_id, hostname, platform, version, capabilities, last_error)
+		VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5, $6, NULLIF($7, ''))
 		ON CONFLICT (id) DO UPDATE SET hostname = EXCLUDED.hostname, platform = EXCLUDED.platform,
 		version = EXCLUDED.version, capabilities = EXCLUDED.capabilities,
-		last_heartbeat_at = now(), last_error = EXCLUDED.last_error, updated_at = now()`,
-		input.ID, input.Hostname, input.Platform, input.Version, input.Capabilities, input.LastError)
+		last_heartbeat_at = now(), last_error = EXCLUDED.last_error, updated_at = now()
+		WHERE discovery_agents.agent_id IS NOT DISTINCT FROM EXCLUDED.agent_id`,
+		worker.ID, worker.AgentID, input.Hostname, input.Platform, input.Version, input.Capabilities, input.LastError)
 	if err != nil {
 		return fmt.Errorf("record discovery agent heartbeat: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrWorkerConflict
 	}
 	return nil
 }
@@ -184,7 +209,10 @@ func (r *Repository) AgentReady(ctx context.Context) bool {
 	return ready
 }
 
-func (r *Repository) Claim(ctx context.Context, agentID string) (Job, error) {
+// Claim hands the oldest queued scan to the worker. Claims by enrolled agents
+// are audited with the agent as actor.
+func (r *Repository) Claim(ctx context.Context, worker Worker) (Job, error) {
+	agentID := worker.ID
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
 		return Job{}, fmt.Errorf("begin discovery claim: %w", err)
@@ -210,13 +238,20 @@ func (r *Repository) Claim(ctx context.Context, agentID string) (Job, error) {
 	if err != nil {
 		return Job{}, fmt.Errorf("claim discovery job: %w", err)
 	}
+	if worker.AgentID != "" {
+		if err := audit.Write(ctx, tx, audit.Entry{ActorAgentID: worker.AgentID, Action: "discovery.scan.claimed", TargetType: "discovery_scan",
+			TargetID: job.ID, Parameters: map[string]any{"cidr": job.CIDR}}); err != nil {
+			return Job{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Job{}, fmt.Errorf("commit discovery claim: %w", err)
 	}
 	return job, nil
 }
 
-func (r *Repository) Report(ctx context.Context, scanID, agentID string, report Report) error {
+func (r *Repository) Report(ctx context.Context, scanID string, worker Worker, report Report) error {
+	agentID := worker.ID
 	if len(report.Observations) > 4096 || len(report.Errors) > 1024 {
 		return errors.New("discovery report exceeds the supported batch size")
 	}
@@ -420,7 +455,10 @@ func (r *Repository) applyObservation(ctx context.Context, tx pgx.Tx, targetID, 
 	return nil
 }
 
-func (r *Repository) Complete(ctx context.Context, scanID, agentID string, completion Completion) error {
+// Complete finishes a running scan. Completions by enrolled agents are audited
+// with the agent as actor.
+func (r *Repository) Complete(ctx context.Context, scanID string, worker Worker, completion Completion) error {
+	agentID := worker.ID
 	if completion.Status != "succeeded" && completion.Status != "partial" && completion.Status != "failed" {
 		return errors.New("invalid discovery completion status")
 	}
@@ -473,6 +511,16 @@ func (r *Repository) Complete(ctx context.Context, scanID, agentID string, compl
 		'discovery', CASE WHEN $2 = 'failed' THEN 'Local network discovery failed.' ELSE 'Local network discovery completed.' END,
 		jsonb_build_object('scanId', $1::text, 'status', $2::text))`, scanID, completion.Status); err != nil {
 		return fmt.Errorf("record discovery completion event: %w", err)
+	}
+	if worker.AgentID != "" {
+		result := audit.ResultSuccess
+		if completion.Status == "failed" {
+			result = audit.ResultFailure
+		}
+		if err := audit.Write(ctx, tx, audit.Entry{ActorAgentID: worker.AgentID, Action: "discovery.scan.completed", TargetType: "discovery_scan",
+			TargetID: scanID, Result: result, Parameters: map[string]any{"status": completion.Status, "addressesTotal": completion.AddressesTotal}}); err != nil {
+			return err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("commit discovery completion: %w", err)

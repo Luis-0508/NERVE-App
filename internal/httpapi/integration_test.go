@@ -82,9 +82,10 @@ func TestAPIFlow(t *testing.T) {
 	const agentToken = "ci-discovery-agent-token"
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	server := httptest.NewServer(httpapi.New(pool, config.Config{
-		AllowedOrigin:       "http://localhost:3000",
-		SessionTTL:          24 * time.Hour,
-		DiscoveryAgentToken: agentToken,
+		AllowedOrigin:        "http://localhost:3000",
+		SessionTTL:           24 * time.Hour,
+		DiscoveryAgentToken:  agentToken,
+		DiscoveryLegacyToken: true,
 	}, logger, "ci").Handler())
 	defer server.Close()
 

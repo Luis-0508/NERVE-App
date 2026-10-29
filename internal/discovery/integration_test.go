@@ -81,7 +81,7 @@ func TestDiscoveryInventoryFlow(t *testing.T) {
 		t.Fatalf("save discovery target: %v", err)
 	}
 	const agentID = "integration-agent"
-	if err := discoveryRepository.Heartbeat(ctx, discovery.AgentHeartbeat{
+	if err := discoveryRepository.Heartbeat(ctx, discovery.LegacyWorker(agentID), discovery.AgentHeartbeat{
 		ID: agentID, Hostname: "integration-host", Platform: "test", Version: "test",
 		Capabilities: []string{"integration-report"},
 	}); err != nil {
@@ -125,17 +125,17 @@ func runSuccessfulScan(t *testing.T, ctx context.Context, repository *discovery.
 	if err != nil {
 		t.Fatalf("queue discovery scan: %v", err)
 	}
-	job, err := repository.Claim(ctx, agentID)
+	job, err := repository.Claim(ctx, discovery.LegacyWorker(agentID))
 	if err != nil {
 		t.Fatalf("claim discovery scan: %v", err)
 	}
 	if job.ID != scan.ID || job.CIDR != "192.168.178.0/24" {
 		t.Fatalf("unexpected claimed job: %+v", job)
 	}
-	if err := repository.Report(ctx, job.ID, agentID, discovery.Report{Observations: observations}); err != nil {
+	if err := repository.Report(ctx, job.ID, discovery.LegacyWorker(agentID), discovery.Report{Observations: observations}); err != nil {
 		t.Fatalf("report discovery observations: %v", err)
 	}
-	if err := repository.Complete(ctx, job.ID, agentID, discovery.Completion{Status: "succeeded", AddressesTotal: 254}); err != nil {
+	if err := repository.Complete(ctx, job.ID, discovery.LegacyWorker(agentID), discovery.Completion{Status: "succeeded", AddressesTotal: 254}); err != nil {
 		t.Fatalf("complete discovery scan: %v", err)
 	}
 }

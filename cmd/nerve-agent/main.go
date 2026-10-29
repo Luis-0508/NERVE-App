@@ -24,12 +24,15 @@ import (
 
 var version = "dev"
 
+// discoverySender posts one discovery request to a route under /api/v1 and
+// returns the HTTP status. A 204 response leaves destination untouched.
+type discoverySender func(ctx context.Context, path string, value, destination any) (int, error)
+
+// agent is the discovery worker.
 type agent struct {
-	apiURL            string
-	token             string
+	send              discoverySender
 	id                string
 	hostname          string
-	client            *http.Client
 	logger            *slog.Logger
 	heartbeatInterval time.Duration
 	claimInterval     time.Duration
@@ -47,14 +50,26 @@ func main() {
 	os.Exit(runCLI(os.Args[1:]))
 }
 
-// newDiscoveryAgent configures the legacy discovery worker, which still
-// authenticates with the shared local NERVE_DISCOVERY_AGENT_TOKEN.
+// newDiscoveryAgent configures the legacy discovery worker, which
+// authenticates with the deprecated shared NERVE_DISCOVERY_AGENT_TOKEN.
 func newDiscoveryAgent(apiURL, token string, logger *slog.Logger) *agent {
 	hostname, _ := os.Hostname()
+	id := hostname + "-" + runtime.GOOS
 	return &agent{
-		apiURL: apiURL, token: token, id: hostname + "-" + runtime.GOOS,
-		hostname: hostname, client: &http.Client{Timeout: 20 * time.Second}, logger: logger,
-		heartbeatInterval: 10 * time.Second, claimInterval: 2 * time.Second,
+		send: legacyDiscoverySender(apiURL, token, id, &http.Client{Timeout: 20 * time.Second}), id: id,
+		hostname: hostname, logger: logger, heartbeatInterval: 10 * time.Second, claimInterval: 2 * time.Second,
+	}
+}
+
+// newSignedDiscoveryAgent configures the discovery worker of an enrolled
+// agent. Requests are signed with the agent key and Core's answers are
+// verified against the pinned Core key, so Core attributes every scan to this
+// agent and a forged job is never run.
+func newSignedDiscoveryAgent(client *managementClient, logger *slog.Logger) *agent {
+	hostname, _ := os.Hostname()
+	return &agent{
+		send: client.post, id: hostname + "-" + runtime.GOOS,
+		hostname: hostname, logger: logger, heartbeatInterval: 10 * time.Second, claimInterval: 2 * time.Second,
 	}
 }
 
@@ -75,8 +90,21 @@ func (a *agent) run(ctx context.Context) error {
 		heartbeatWorker.Wait()
 	}()
 
+	failures := 0
 	for {
+		claimInterval := a.claimInterval
+		if claimInterval <= 0 {
+			claimInterval = 2 * time.Second
+		}
 		job, err := a.claim(ctx)
+		if err != nil && !errors.Is(err, discovery.ErrNoJob) {
+			// Back off while Core refuses the worker (for example an agent
+			// waiting for approval) instead of retrying every claim interval.
+			failures++
+			claimInterval = max(claimInterval, backoff(failures))
+		} else {
+			failures = 0
+		}
 		switch {
 		case err == nil:
 			execute := a.execute
@@ -91,13 +119,9 @@ func (a *agent) run(ctx context.Context) error {
 			}
 		case !errors.Is(err, discovery.ErrNoJob):
 			a.setError(err.Error())
-			a.logger.Warn("claim discovery job failed", "error", err)
+			a.logger.Warn("claim discovery job failed", "error", err, "retry_in", claimInterval.String())
 		}
 
-		claimInterval := a.claimInterval
-		if claimInterval <= 0 {
-			claimInterval = 2 * time.Second
-		}
 		timer := time.NewTimer(claimInterval)
 		select {
 		case <-ctx.Done():
@@ -198,35 +222,47 @@ func discoveryScanTimeout(cidr string) time.Duration {
 }
 
 func (a *agent) post(ctx context.Context, path string, value, destination any) error {
-	body, err := json.Marshal(value)
+	status, err := a.send(ctx, path, value, destination)
 	if err != nil {
 		return err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, a.apiURL+path, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Authorization", "Bearer "+a.token)
-	request.Header.Set("X-NERVE-Agent-ID", a.id)
-	request.Header.Set("Content-Type", "application/json")
-	response, err := a.client.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-	if response.StatusCode == http.StatusNoContent && strings.HasSuffix(path, "/claim") {
+	if status == http.StatusNoContent && strings.HasSuffix(path, "/claim") {
 		return discovery.ErrNoJob
 	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("API %s returned HTTP %d: %s", path, response.StatusCode, strings.TrimSpace(string(message)))
-	}
-	if destination != nil {
-		if err := json.NewDecoder(response.Body).Decode(destination); err != nil {
-			return fmt.Errorf("decode API response: %w", err)
-		}
-	}
 	return nil
+}
+
+// legacyDiscoverySender authenticates with the shared bearer token and a
+// self-asserted worker ID. Core's answers are not authenticated on this path.
+func legacyDiscoverySender(apiURL, token, workerID string, client *http.Client) discoverySender {
+	return func(ctx context.Context, path string, value, destination any) (int, error) {
+		body, err := json.Marshal(value)
+		if err != nil {
+			return 0, err
+		}
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL+path, bytes.NewReader(body))
+		if err != nil {
+			return 0, err
+		}
+		request.Header.Set("Authorization", "Bearer "+token)
+		request.Header.Set("X-NERVE-Agent-ID", workerID)
+		request.Header.Set("Content-Type", "application/json")
+		response, err := client.Do(request)
+		if err != nil {
+			return 0, err
+		}
+		defer response.Body.Close()
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+			return response.StatusCode, fmt.Errorf("API %s returned HTTP %d: %s", path, response.StatusCode, strings.TrimSpace(string(message)))
+		}
+		if destination != nil && response.StatusCode != http.StatusNoContent {
+			if err := json.NewDecoder(response.Body).Decode(destination); err != nil {
+				return response.StatusCode, fmt.Errorf("decode API response: %w", err)
+			}
+		}
+		return response.StatusCode, nil
+	}
 }
 
 func scan(ctx context.Context, cidr string, report func(discovery.Report) error) (int, int, int, error) {

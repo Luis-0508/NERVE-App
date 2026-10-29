@@ -33,9 +33,10 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
   trust state and unused.
 - Discovery 2.0: multiple targets, scheduled scans (`subnets.discovery_interval_seconds`
   exists but nothing schedules), incremental progress, idempotent report ingestion.
-- Shared local secrets: the discovery worker still uses the shared `NERVE_DISCOVERY_AGENT_TOKEN`
-  and the traffic sensor the shared `NERVE_SENSOR_TOKEN`. Both should move to enrolled agent
-  identities. Management agents already use per-agent keys.
+- Shared local secrets: the traffic sensor still uses the shared `NERVE_SENSOR_TOKEN` (K-14).
+  The discovery worker uses the enrolled agent identity when enabled; the shared
+  `NERVE_DISCOVERY_AGENT_TOKEN` stays accepted while `NERVE_DISCOVERY_LEGACY_TOKEN` is true
+  and is removed entirely in a later release.
 - Real local topology: no LLDP/CDP/SNMP, switch-port, gateway or device-to-device
   relationships are collected. The `relationships` table is unused by any collector.
 - Integrations: Proxmox and Docker (schema tables exist, no adapters).
@@ -79,8 +80,9 @@ remote-management foundation, then device identity.
 2. **Remote management foundation — implemented (October 2026).** Agent enrollment and
    identity, Core-signed responses, heartbeat, capabilities, device association, audited
    read-only command pipeline. See [Remote management](docs/REMOTE_MANAGEMENT.md).
-   Still open from this area: move the discovery worker and traffic sensor onto enrolled
-   identities; agent-initiated key rotation; Core key rotation without re-enrollment.
+   Since then: agent-initiated key rotation (K-10) and the discovery worker on the enrolled
+   identity (K-9). Still open: the traffic sensor on an enrolled identity (K-14), Core key
+   rotation without re-enrollment (K-15), and removing the legacy discovery token.
 3. **Production RMM milestone (in progress, October 2026).** Delivered as small PRs in
    dependency order. Each builds on `internal/remote`, the signed agent protocol, the
    command pipeline and device trust; none adds a second backend or execution path.
@@ -155,8 +157,9 @@ never as empty scaffolding.
   evidence and match rule for every observation and surfaces conflicts as duplicate
   candidates instead of merging. Remaining gap: devices seen only by IP (no MAC, no agent)
   can still be split across records when addresses change.
-- Shared agent secrets remain only for local discovery and the traffic sensor. Management
-  agents use per-agent keys; privileged actions additionally need HTTPS (see the forward plan).
+- Shared agent secrets remain for the traffic sensor and, until the legacy path is switched
+  off, for unenrolled discovery workers. Management agents and enrolled discovery workers use
+  per-agent keys; privileged actions additionally need HTTPS (see the forward plan).
 - Discovery report ingestion is still not idempotent; remote command results are.
 - Dense topology needs server-side projection and level of detail. The 3D view currently
   caps inventory at 1,000 devices and flows at 500 groups.
@@ -175,8 +178,8 @@ Raw ICMP, ARP/NDP, low-port probing, packet capture and flow listeners may need
 the Core container. Windows ETW capture runs as a dedicated service. Its ingest
 listener is published only on host loopback and never through Nginx.
 
-Discovery needs only the shared local token. Management agents hold only their own Ed25519
-key; Core holds `NERVE_CORE_SIGNING_KEY` (environment only, never stored in PostgreSQL). Proxmox tokens, Docker TLS/SSH material, SNMP
+Discovery runs with the enrolled agent's own key (the shared local token is deprecated).
+Management agents hold only their own Ed25519 key; Core holds `NERVE_CORE_SIGNING_KEY` (environment only, never stored in PostgreSQL). Proxmox tokens, Docker TLS/SSH material, SNMP
 communities, SSH/WinRM accounts, MeshCentral credentials and vendor API keys are
 introduced only with their adapters, encrypted at rest, and never sent to the browser.
 Observed MAC addresses are never sent to third parties for enrichment.

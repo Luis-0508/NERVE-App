@@ -134,7 +134,7 @@ export type DeviceVocabulary = { trustStates: TrustState[]; classifications: str
 export type DeviceMetadataUpdate = { displayName?: string | null; notes?: string | null; owner?: string | null; location?: string | null; classification?: string | null; tags?: string[] };
 
 export type DiscoveryTarget = { id: string; name: string; cidr: string; enabled: boolean; createdAt: string; updatedAt: string };
-export type DiscoveryAgent = { id: string; hostname: string; platform: string; version: string; capabilities: string[]; lastHeartbeatAt: string; lastError?: string; online: boolean };
+export type DiscoveryAgent = { id: string; agentId?: string; legacyToken: boolean; hostname: string; platform: string; version: string; capabilities: string[]; lastHeartbeatAt: string; lastError?: string; online: boolean };
 export type DiscoveryScanError = { address?: string; stage: string; message: string; occurredAt: string };
 export type DiscoveryScan = {
   id: string;

@@ -102,7 +102,7 @@ func TestStatusDegradesWithoutDatabase(t *testing.T) {
 
 func TestDiscoveryAgentRequiresConfiguredBearerToken(t *testing.T) {
 	t.Parallel()
-	server := New(nil, config.Config{AllowedOrigin: "http://localhost:3000", DiscoveryAgentToken: "local-secret"}, slog.New(slog.NewTextHandler(io.Discard, nil)), "test")
+	server := New(nil, config.Config{AllowedOrigin: "http://localhost:3000", DiscoveryAgentToken: "local-secret", DiscoveryLegacyToken: true}, slog.New(slog.NewTextHandler(io.Discard, nil)), "test")
 	for _, authorization := range []string{"", "Bearer wrong-secret"} {
 		request := httptest.NewRequest(http.MethodPost, "/api/v1/discovery/agent/heartbeat", strings.NewReader(`{"id":"test-agent"}`))
 		request.Header.Set("Authorization", authorization)
@@ -111,5 +111,50 @@ func TestDiscoveryAgentRequiresConfiguredBearerToken(t *testing.T) {
 		if response.Code != http.StatusUnauthorized {
 			t.Fatalf("expected status 401 for %q, got %d", authorization, response.Code)
 		}
+	}
+}
+
+func TestDiscoveryLegacyTokenCanBeDisabled(t *testing.T) {
+	t.Parallel()
+	server := New(nil, config.Config{AllowedOrigin: "http://localhost:3000", DiscoveryAgentToken: "local-secret"}, slog.New(slog.NewTextHandler(io.Discard, nil)), "test")
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/discovery/agent/jobs/claim", strings.NewReader(`{}`))
+	request.Header.Set("Authorization", "Bearer local-secret")
+	request.Header.Set("X-NERVE-Agent-ID", "host-linux")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized || !strings.Contains(response.Body.String(), "legacy_discovery_disabled") {
+		t.Fatalf("disabled legacy path: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestDiscoveryLegacyWorkerCannotUseAgentID(t *testing.T) {
+	t.Parallel()
+	server := New(nil, config.Config{AllowedOrigin: "http://localhost:3000", DiscoveryAgentToken: "local-secret", DiscoveryLegacyToken: true}, slog.New(slog.NewTextHandler(io.Discard, nil)), "test")
+	for _, route := range []string{"/api/v1/discovery/agent/jobs/claim", "/api/v1/discovery/agent/heartbeat"} {
+		request := httptest.NewRequest(http.MethodPost, route, strings.NewReader(`{}`))
+		request.Header.Set("Authorization", "Bearer local-secret")
+		// An enrolled agent's worker row is keyed by the agent UUID.
+		request.Header.Set("X-NERVE-Agent-ID", "3f2b8c1e-4d5a-4b6c-8d7e-9f0a1b2c3d4e")
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, request)
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("%s with a UUID worker ID = %d, want 400", route, response.Code)
+		}
+	}
+}
+
+func TestSignedDiscoveryRequestIsNeverDowngradedToToken(t *testing.T) {
+	t.Parallel()
+	// Without a Core signing key the signed path is unavailable; a valid bearer
+	// token on the same request must not open the legacy path instead.
+	server := New(nil, config.Config{AllowedOrigin: "http://localhost:3000", DiscoveryAgentToken: "local-secret", DiscoveryLegacyToken: true}, slog.New(slog.NewTextHandler(io.Discard, nil)), "test")
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/discovery/agent/jobs/claim", strings.NewReader(`{}`))
+	request.Header.Set("Authorization", "Bearer local-secret")
+	request.Header.Set("X-NERVE-Agent-ID", "host-linux")
+	request.Header.Set("X-NERVE-Signature", "forged")
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, request)
+	if response.Code == http.StatusNoContent || response.Code == http.StatusOK || response.Code == http.StatusInternalServerError {
+		t.Fatalf("signed request fell back to the token path: %d %s", response.Code, response.Body.String())
 	}
 }
