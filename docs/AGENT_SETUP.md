@@ -5,11 +5,15 @@
 - **Management agent**: enrolled per host with its own Ed25519 identity. It reports
   heartbeats, its run state and capabilities, and runs read-only remote-management
   commands. See [Remote management](REMOTE_MANAGEMENT.md).
-- **Discovery worker** (legacy): scans the configured subnet using the shared local
-  `NERVE_DISCOVERY_AGENT_TOKEN`. On Windows, `start.bat` runs it automatically.
+- **Discovery worker**: scans the administrator-configured subnet. On an enrolled agent
+  with `"discovery": true` in `config.json` it authenticates with the agent's own identity
+  (signed requests, Core-signed answers) and reports the `discovery.scan` capability.
+  Without enrollment it falls back to the deprecated shared `NERVE_DISCOVERY_AGENT_TOKEN`;
+  on Windows, `start.bat` runs it that way automatically.
 
 The process runs whichever roles are configured: management when an identity exists,
-discovery when the discovery token is set. It exits if neither is configured.
+discovery when `"discovery": true` is set on an enrolled agent or the legacy token is set.
+It exits if neither is configured. See [Discovery with the enrolled identity](#discovery-with-the-enrolled-identity).
 
 For permanent operation, install the management agent as a **service** (Windows service or
 systemd unit). The agent only makes outbound HTTP(S) connections to Core; managed devices
@@ -189,6 +193,33 @@ to stdout. Enroll first with `nerve-agent enroll --api-url … --token-file …`
 `start.bat` already runs the agent for discovery. If that account has enrolled once
 (identity in its `%LOCALAPPDATA%`), the same process also runs management.
 
+## Discovery with the enrolled identity
+
+The discovery worker reuses the management identity, so every scan is attributed to one
+revocable agent and a copied `.env` token no longer lets anyone report devices.
+
+1. Enroll the host as a management agent (see above).
+2. Enable the worker: pass `--discovery` to `nerve-agent service install`, or, on an
+   existing installation, set `"discovery": true` in `config.json` in the state directory
+   and restart the agent (`nerve-agent service restart`).
+3. Check Settings → Management agents: the agent lists the `discovery.scan` capability, and
+   the Devices page no longer shows the shared-token warning.
+4. Once no worker uses the shared token any more, set `NERVE_DISCOVERY_LEGACY_TOKEN=false`
+   in Core's `.env` and restart Core. Shared-token requests are then refused.
+
+Notes:
+
+- An agent enrolled with a manual-approval deployment key cannot run discovery until an
+  operator approves it. Revoking or removing the agent stops its discovery worker as well.
+- When both are set, the enrolled identity wins and `NERVE_DISCOVERY_AGENT_TOKEN` is ignored
+  with a warning. An enrolled agent without `"discovery": true` keeps using the token, with a
+  deprecation warning, so existing installs keep working after an upgrade.
+- The worker probes with the service account's rights (ICMP, the neighbour cache and TCP
+  connects); it needs no extra privileges beyond the legacy worker.
+- `start.bat`, `setup.ps1` and `scripts/manage-discovery-agent.ps1` still start the legacy
+  worker with the shared token. To move that host over, enroll it and enable discovery as
+  above, then stop the legacy worker (`scripts/manage-discovery-agent.ps1`).
+
 ## Capabilities
 
 | Capability | Windows | Linux |
@@ -198,6 +229,7 @@ to stdout. Enroll first with `nerve-agent enroll --api-url … --token-file …`
 | `process.list` (pid, parent, name, threads, memory, user on Linux; no command lines) | ✓ | ✓ |
 | `service.list` | Service Control Manager | systemd only |
 | `software.list` | Uninstall registry keys (machine and user) | dpkg or rpm |
+| `discovery.scan` (only with `"discovery": true`; not a remote command) | ✓ | ✓ |
 
 Use `disabledCapabilities` (or `NERVE_AGENT_DISABLED_CAPABILITIES`) to stop advertising and
 running specific capabilities on a host.

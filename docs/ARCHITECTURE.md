@@ -23,7 +23,7 @@ Windows ETW traffic sensor (`native/windows-sensor`).
 ```mermaid
 flowchart LR
   ui["Next.js static UI"] -->|"/api/v1, SSE via Nginx"| core["Go Core (internal/httpapi)"]
-  agent["nerve-agent (Windows/Linux host)"] -->|"discovery jobs (shared token), signed agent API"| core
+  agent["nerve-agent (Windows/Linux host)"] -->|"signed agent API and discovery jobs (legacy shared token)"| core
   sensor["Windows ETW sensor"] -->|"HMAC reports, host loopback only"| core
   core --> ntop["ntopng REST (optional)"]
   core --> db[("PostgreSQL")]
@@ -58,7 +58,10 @@ Boundaries that must hold:
 Discovery: an administrator saves the target subnet (`POST /api/v1/discovery/target`) and
 queues a scan (`POST /api/v1/discovery/scans`); the database allows one active scan. The
 native agent claims the job (`.../discovery/agent/jobs/claim`), probes the network, posts
-reports and completes the job. `internal/discovery` reconciles each report into devices,
+reports and completes the job. An enrolled agent signs these requests with its own key and
+must report `discovery.scan`; its `discovery_agents` row is keyed by the agent ID and
+linked through `discovery_agents.agent_id`. The deprecated shared-token path
+(`NERVE_DISCOVERY_LEGACY_TOKEN`) uses a self-asserted worker ID and leaves `agent_id` empty. `internal/discovery` reconciles each report into devices,
 interfaces and addresses (MAC first, then subnet and IP, using the explicit match rules),
 records identity evidence and the MAC vendor (`internal/oui`, as a low-confidence sourced
 fact), re-runs the classification rules (`internal/devices/classify.go`) when vendor or OS

@@ -24,6 +24,7 @@ type Config struct {
 	CommandResultRetention time.Duration
 	LogLevel               slog.Level
 	DiscoveryAgentToken    string
+	DiscoveryLegacyToken   bool // accept the deprecated shared discovery token (K-9)
 	CoreSigningKey         string
 	NtopngURL              string
 	NtopngUsername         string
@@ -48,6 +49,7 @@ func Load() (Config, error) {
 		CommandResultRetention: 30 * 24 * time.Hour,
 		LogLevel:               slog.LevelInfo,
 		DiscoveryAgentToken:    os.Getenv("NERVE_DISCOVERY_AGENT_TOKEN"),
+		DiscoveryLegacyToken:   true,
 		CoreSigningKey:         os.Getenv("NERVE_CORE_SIGNING_KEY"),
 		NtopngURL:              os.Getenv("NERVE_NTOPNG_URL"),
 		NtopngUsername:         os.Getenv("NERVE_NTOPNG_USERNAME"),
@@ -62,6 +64,13 @@ func Load() (Config, error) {
 		CityDatabase:           envOr("NERVE_CITY_DATABASE", "/app/data/dbip-city-lite.mmdb"),
 	}
 
+	if value := os.Getenv("NERVE_DISCOVERY_LEGACY_TOKEN"); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return Config{}, fmt.Errorf("parse NERVE_DISCOVERY_LEGACY_TOKEN: %w", err)
+		}
+		cfg.DiscoveryLegacyToken = parsed
+	}
 	if value := os.Getenv("NERVE_COOKIE_SECURE"); value != "" {
 		parsed, err := strconv.ParseBool(value)
 		if err != nil {

@@ -79,7 +79,7 @@ func TestDiscoveryHardeningInvariants(t *testing.T) {
 		t.Fatalf("save discovery target: %v", err)
 	}
 	const agentID = "hardening-agent"
-	if err := repository.Heartbeat(ctx, discovery.AgentHeartbeat{
+	if err := repository.Heartbeat(ctx, discovery.LegacyWorker(agentID), discovery.AgentHeartbeat{
 		ID: agentID, Hostname: "hardening-host", Platform: "test", Version: "test",
 		Capabilities: []string{"integration-report"},
 	}); err != nil {
@@ -121,11 +121,11 @@ func TestDiscoveryHardeningInvariants(t *testing.T) {
 		t.Fatalf("concurrent queue results: succeeded=%d rejected=%d, want 1/%d", succeeded, rejected, contenders-1)
 	}
 
-	job, err := repository.Claim(ctx, agentID)
+	job, err := repository.Claim(ctx, discovery.LegacyWorker(agentID))
 	if err != nil {
 		t.Fatalf("claim concurrency-test scan: %v", err)
 	}
-	if err := repository.Complete(ctx, job.ID, agentID, discovery.Completion{Status: "failed", ErrorMessage: "intentional integration cleanup"}); err != nil {
+	if err := repository.Complete(ctx, job.ID, discovery.LegacyWorker(agentID), discovery.Completion{Status: "failed", ErrorMessage: "intentional integration cleanup"}); err != nil {
 		t.Fatalf("complete concurrency-test scan: %v", err)
 	}
 
@@ -161,17 +161,17 @@ func runHardeningScan(t *testing.T, ctx context.Context, repository *discovery.R
 	if err != nil {
 		t.Fatalf("queue discovery scan: %v", err)
 	}
-	job, err := repository.Claim(ctx, agentID)
+	job, err := repository.Claim(ctx, discovery.LegacyWorker(agentID))
 	if err != nil {
 		t.Fatalf("claim discovery scan: %v", err)
 	}
 	if job.ID != scan.ID {
 		t.Fatalf("claimed scan %s, want %s", job.ID, scan.ID)
 	}
-	if err := repository.Report(ctx, job.ID, agentID, discovery.Report{Observations: observations}); err != nil {
+	if err := repository.Report(ctx, job.ID, discovery.LegacyWorker(agentID), discovery.Report{Observations: observations}); err != nil {
 		t.Fatalf("report discovery observations: %v", err)
 	}
-	if err := repository.Complete(ctx, job.ID, agentID, discovery.Completion{Status: "succeeded", AddressesTotal: 254}); err != nil {
+	if err := repository.Complete(ctx, job.ID, discovery.LegacyWorker(agentID), discovery.Completion{Status: "succeeded", AddressesTotal: 254}); err != nil {
 		t.Fatalf("complete discovery scan: %v", err)
 	}
 }

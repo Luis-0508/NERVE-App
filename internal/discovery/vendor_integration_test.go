@@ -32,7 +32,7 @@ func TestDiscoveredDeviceGainsVendorFromOUI(t *testing.T) {
 		t.Fatalf("save discovery target: %v", err)
 	}
 	const agentID = "vendor-agent"
-	if err := repository.Heartbeat(ctx, discovery.AgentHeartbeat{ID: agentID, Hostname: "vendor-host", Platform: "test", Version: "test", Capabilities: []string{"integration-report"}}); err != nil {
+	if err := repository.Heartbeat(ctx, discovery.LegacyWorker(agentID), discovery.AgentHeartbeat{ID: agentID, Hostname: "vendor-host", Platform: "test", Version: "test", Capabilities: []string{"integration-report"}}); err != nil {
 		t.Fatalf("register discovery agent: %v", err)
 	}
 	observation := discovery.Observation{Address: "192.168.178.60", MAC: "00:15:5d:12:34:56", Reachable: true, Method: "integration-test"}

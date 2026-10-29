@@ -27,17 +27,17 @@ func scan(t *testing.T, pool *pgxpool.Pool, userID string, observations ...disco
 	if _, err := repo.Queue(ctx, target.ID, userID, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.Heartbeat(ctx, discovery.AgentHeartbeat{ID: "test-agent", Hostname: "test", Platform: "test", Version: "test", Capabilities: []string{"icmp"}}); err != nil {
+	if err := repo.Heartbeat(ctx, discovery.LegacyWorker("test-agent"), discovery.AgentHeartbeat{ID: "test-agent", Hostname: "test", Platform: "test", Version: "test", Capabilities: []string{"icmp"}}); err != nil {
 		t.Fatal(err)
 	}
-	job, err := repo.Claim(ctx, "test-agent")
+	job, err := repo.Claim(ctx, discovery.LegacyWorker("test-agent"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.Report(ctx, job.ID, "test-agent", discovery.Report{Observations: observations}); err != nil {
+	if err := repo.Report(ctx, job.ID, discovery.LegacyWorker("test-agent"), discovery.Report{Observations: observations}); err != nil {
 		t.Fatal(err)
 	}
-	if err := repo.Complete(ctx, job.ID, "test-agent", discovery.Completion{AddressesTotal: 254, Status: "succeeded"}); err != nil {
+	if err := repo.Complete(ctx, job.ID, discovery.LegacyWorker("test-agent"), discovery.Completion{AddressesTotal: 254, Status: "succeeded"}); err != nil {
 		t.Fatal(err)
 	}
 }

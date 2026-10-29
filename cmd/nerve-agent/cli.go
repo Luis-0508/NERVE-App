@@ -37,7 +37,8 @@ Environment (overrides config.json in the state directory):
   NERVE_AGENT_CA_FILE            additional PEM CA for Core's TLS certificate
   NERVE_AGENT_LOG_LEVEL          debug, info, warn or error
   NERVE_AGENT_ENROLLMENT_TOKEN   one-time token; enrolls automatically on first run
-  NERVE_DISCOVERY_AGENT_TOKEN    shared local discovery token (legacy discovery worker)
+  NERVE_DISCOVERY_AGENT_TOKEN    deprecated shared discovery token; enrolled agents use
+                                 "discovery": true in config.json instead
 `
 
 // identityPollInterval is how often a running agent checks whether its
@@ -309,9 +310,23 @@ func runAgent(ctx context.Context, options runOptions) int {
 	if discoveryToken == "change-me" {
 		discoveryToken = ""
 	}
-	if id == nil && discoveryToken == "" {
-		logger.Error("nothing to run: enroll this agent for management or set NERVE_DISCOVERY_AGENT_TOKEN for discovery", "state_dir", options.stateDir)
+	switch {
+	case id == nil && discoveryToken == "":
+		if config.Discovery {
+			logger.Error("discovery is enabled but this agent is not enrolled; enroll it first", "state_dir", options.stateDir)
+		} else {
+			logger.Error("nothing to run: enroll this agent for management or set NERVE_DISCOVERY_AGENT_TOKEN for discovery", "state_dir", options.stateDir)
+		}
 		return 1
+	case id != nil && config.Discovery:
+		// The enrolled identity replaces the shared token (runManagement starts
+		// the signed discovery worker).
+		if discoveryToken != "" {
+			logger.Warn("NERVE_DISCOVERY_AGENT_TOKEN is ignored: discovery uses the enrolled agent identity; remove the token from this host")
+			discoveryToken = ""
+		}
+	case discoveryToken != "":
+		logger.Warn("the discovery worker uses the deprecated shared NERVE_DISCOVERY_AGENT_TOKEN; enroll this agent and set \"discovery\": true in config.json")
 	}
 
 	var workers sync.WaitGroup
@@ -385,13 +400,22 @@ func runManagement(ctx context.Context, options managementOptions, id *identity)
 		}
 		var settled bool
 		id, settled = settlePendingRotation(ctx, options, apiURL, id, options.logger)
-		m := &manager{client: newManagementClientWith(apiURL, id, options.transport), agentID: id.AgentID, logger: options.logger,
-			heartbeatInterval: 30 * time.Second, capabilities: capabilitiesWithout(options.settings.DisabledCapabilities),
+		client := newManagementClientWith(apiURL, id, options.transport)
+		m := &manager{client: client, agentID: id.AgentID, logger: options.logger,
+			heartbeatInterval: 30 * time.Second, capabilities: capabilitiesWithout(options.settings.DisabledCapabilities, options.settings.Discovery),
 			facts: collectHostFacts, runtime: runtimeReporter(options.runMode, startedAt)}
 		options.logger.Info("NERVE management agent started", "agent_id", id.AgentID, "fingerprint", id.Fingerprint, "api", apiURL,
 			"version", version, "run_mode", options.runMode)
 		loopCtx, stopLoops := context.WithCancel(ctx)
 		go watchIdentity(loopCtx, options.stateDir, id.CredentialID, stopLoops, options.logger)
+		var discoveryWorker sync.WaitGroup
+		if options.settings.Discovery {
+			// The worker shares this iteration's credential, so it restarts with
+			// the new key after a rotation or re-enrollment.
+			discoveryAgent := newSignedDiscoveryAgent(client, options.logger)
+			options.logger.Info("NERVE discovery worker started", "agent_id", id.AgentID, "api", apiURL, "version", version)
+			discoveryWorker.Go(func() { _ = discoveryAgent.run(loopCtx) })
+		}
 		switch {
 		case !settled:
 			go retryPendingRotation(loopCtx, options, apiURL, id, options.logger)
@@ -400,6 +424,7 @@ func runManagement(ctx context.Context, options managementOptions, id *identity)
 		}
 		m.run(loopCtx)
 		stopLoops()
+		discoveryWorker.Wait()
 		if ctx.Err() != nil {
 			m.reportStopping()
 			return

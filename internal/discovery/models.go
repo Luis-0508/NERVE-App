@@ -12,7 +12,11 @@ type Target struct {
 }
 
 type AgentStatus struct {
-	ID              string    `json:"id"`
+	ID string `json:"id"`
+	// AgentID is the enrolled management agent behind the worker. It is empty
+	// for a worker on the deprecated shared-token path (LegacyToken).
+	AgentID         string    `json:"agentId,omitempty"`
+	LegacyToken     bool      `json:"legacyToken"`
 	Hostname        string    `json:"hostname"`
 	Platform        string    `json:"platform"`
 	Version         string    `json:"version"`

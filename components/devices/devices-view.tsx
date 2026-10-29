@@ -245,6 +245,7 @@ function DiscoveryPanel({ onCompleted }: { onCompleted: () => void | Promise<voi
     </div>
     <div className="discovery-status">
       <span><i className="status-dot" data-status={state?.agent?.online ? "online" : "offline"} />Agent {state?.agent?.online ? `online · ${state.agent.hostname}` : "offline"}</span>
+      {state?.agent?.legacyToken && <span title="Enroll this host as a management agent and enable discovery in its configuration, then turn off NERVE_DISCOVERY_LEGACY_TOKEN.">Worker uses the deprecated shared token · enroll it</span>}
       {scanActive && state?.scan ? <span><strong>Live scan</strong> · {found} found so far{scanTotal !== undefined ? ` · ${scanTotal} addresses` : ""}{state.scan.startedAt ? ` · ${formatElapsed(state.scan.startedAt)}` : ""}</span>
       : state?.scan ? <span>Last scan: <strong>{state.scan.status}</strong> · {state.scan.addressesReachable}/{state.scan.addressesTotal || scanTotal || "…"} reachable · {state.scan.errorCount} errors</span>
       : <span>No scan has run yet.</span>}

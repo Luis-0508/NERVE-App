@@ -152,8 +152,13 @@ NERVE-CORE-SIG-V1
 | Rejects | Agent signatures (no cookie means 401) | Any request with `Origin` or `Sec-Fetch-Site`, and session cookies (ignored, so 401) |
 | Authorization | Explicit permission per route | Scoped to the authenticated agent's own rows |
 
-The legacy discovery worker still uses the shared local `NERVE_DISCOVERY_AGENT_TOKEN`.
-That token grants nothing on either API above.
+The discovery routes (`/api/v1/discovery/agent/*`) accept the agent API's signed requests
+from an enrolled, approved agent that reports `discovery.scan`; the worker identity comes
+from the signature, never from a header. While `NERVE_DISCOVERY_LEGACY_TOKEN` is true (the
+default in this release) they also accept the deprecated shared `NERVE_DISCOVERY_AGENT_TOKEN`
+with a self-asserted worker ID, which can never be an agent UUID. A request carrying
+signature headers is never downgraded to the token path. The token grants nothing on either
+API above.
 
 ### Lifecycle
 
@@ -364,7 +369,8 @@ actions:
   - `remote.command.cancelled`, `remote.command.expired`, `remote.command.timed_out`
   - `remote.command.result_rejected`
 - `discovery.target.saved`, `discovery.scan.requested`, `discovery.scan.cancelled` (this
-  closes the earlier discovery audit gap)
+  closes the earlier discovery audit gap); `discovery.scan.claimed` and
+  `discovery.scan.completed` (actor: agent, signed workers only)
 - `authz.denied`
 
 Audit parameters hold only identifiers, types, sizes, digests and outcomes. They never
@@ -383,8 +389,9 @@ referenced by command ID.
 - No Core signing-key rotation and no signed agent updates. The agent installs as a
   Windows service or systemd unit with an unprivileged account (see
   [Agent setup](AGENT_SETUP.md#install-as-a-service)); there is no MSI package yet.
-- The discovery worker and the Windows traffic sensor still use their shared local
-  secrets. They should move to enrolled identities (see the plan).
+- The Windows traffic sensor still uses its shared local secret. The discovery worker can
+  use the enrolled identity; the shared discovery token stays accepted until an operator sets
+  `NERVE_DISCOVERY_LEGACY_TOKEN=false`, and is removed in a later release.
 - Cancelling a running command only discards its result. Read-only collectors have no
   side effects, and the agent is not interrupted. A command interrupted by an agent
   shutdown is reported as failed with `agent_stopped`.

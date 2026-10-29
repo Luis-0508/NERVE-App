@@ -3,8 +3,8 @@
 Narrative snapshot of where NERVE stands. **The repository is authoritative:** if git, the
 code or GitHub issues disagree with this file, trust them and correct this file.
 
-- Last updated: 2026-10-27
-- Verified against: `master` at `560dcd6`
+- Last updated: 2026-10-29
+- Verified against: `master` at `b83426c`
 
 ## What exists
 
@@ -39,8 +39,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Active work
 
-- #90 (K-9, enrolled identity for discovery) is in progress on
-  `feat/K-9-discovery-agent-identity`, not yet pushed.
+- #90 (K-9, enrolled identity for discovery) is in review on
+  `feat/K-9-discovery-agent-identity` (migration `000015`); Go tests run only in CI.
 - Windows service installation (K-1) on a real elevated host is not verified yet.
 
 ## Blockers

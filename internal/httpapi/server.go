@@ -49,6 +49,8 @@ type Server struct {
 	loginMu        sync.Mutex
 	loginAttempts  map[string]*rateWindow
 	enrollAttempts map[string]*rateWindow
+	// legacyDiscoveryWarning logs the shared-token deprecation once per process.
+	legacyDiscoveryWarning sync.Once
 
 	// agentLifecycleHooks run inside the revoke/remove transaction.
 	agentLifecycleHooks []agents.LifecycleHook
@@ -172,10 +174,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/discovery", s.discoveryState)
 	mux.HandleFunc("POST /api/v1/discovery/target", s.saveDiscoveryTarget)
 	mux.HandleFunc("POST /api/v1/discovery/scans", s.queueDiscoveryScan)
-	mux.HandleFunc("POST /api/v1/discovery/agent/heartbeat", s.discoveryAgentHeartbeat)
-	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/claim", s.discoveryAgentClaim)
-	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/{scanID}/report", s.discoveryAgentReport)
-	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/{scanID}/complete", s.discoveryAgentComplete)
+	mux.HandleFunc("POST /api/v1/discovery/agent/heartbeat", s.discoveryAgentRoute(16<<10, s.discoveryAgentHeartbeat))
+	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/claim", s.discoveryAgentRoute(4<<10, s.discoveryAgentClaim))
+	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/{scanID}/report", s.discoveryAgentRoute(maxAgentRequestBytes, s.discoveryAgentReport))
+	mux.HandleFunc("POST /api/v1/discovery/agent/jobs/{scanID}/complete", s.discoveryAgentRoute(16<<10, s.discoveryAgentComplete))
 	mux.HandleFunc("GET /api/v1/stream", s.stream)
 	mux.HandleFunc("GET /api/v1/audit", s.auditLog)
 	mux.HandleFunc("GET /api/v1/agents", s.listAgents)

@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -61,10 +62,20 @@ func TestResolveSettingsPrecedence(t *testing.T) {
 
 func TestCapabilitiesWithoutDisabled(t *testing.T) {
 	t.Setenv("NERVE_AGENT_DISABLED_CAPABILITIES", "")
-	for _, name := range capabilitiesWithout([]string{agentproto.CapabilitySystemInfo})() {
+	for _, name := range capabilitiesWithout([]string{agentproto.CapabilitySystemInfo}, false)() {
 		if name == agentproto.CapabilitySystemInfo {
 			t.Fatal("disabled capability advertised")
 		}
+	}
+}
+
+func TestDiscoveryCapabilityOnlyWhenEnabled(t *testing.T) {
+	t.Setenv("NERVE_AGENT_DISABLED_CAPABILITIES", "")
+	if slices.Contains(capabilitiesWithout(nil, false)(), agentproto.CapabilityDiscoveryScan) {
+		t.Fatal("discovery.scan advertised without the discovery worker")
+	}
+	if !slices.Contains(capabilitiesWithout(nil, true)(), agentproto.CapabilityDiscoveryScan) {
+		t.Fatal("discovery.scan not advertised with the discovery worker enabled")
 	}
 }
 
