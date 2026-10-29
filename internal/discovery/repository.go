@@ -183,6 +183,9 @@ func (r *Repository) Queue(ctx context.Context, targetID, userID, sourceAddress 
 // ignored). It never updates a row that belongs to a different identity, so a
 // legacy worker cannot take over an enrolled agent's row or the reverse.
 func (r *Repository) Heartbeat(ctx context.Context, worker Worker, input AgentHeartbeat) error {
+	if input.Capabilities == nil {
+		input.Capabilities = []string{} // the column is NOT NULL
+	}
 	tag, err := r.db.Exec(ctx, `INSERT INTO discovery_agents (id, agent_id, hostname, platform, version, capabilities, last_error)
 		VALUES ($1, NULLIF($2, '')::uuid, $3, $4, $5, $6, NULLIF($7, ''))
 		ON CONFLICT (id) DO UPDATE SET hostname = EXCLUDED.hostname, platform = EXCLUDED.platform,
