@@ -4,18 +4,19 @@ Narrative snapshot of where NERVE stands. **The repository is authoritative:** i
 code or GitHub issues disagree with this file, trust them and correct this file.
 
 - Last updated: 2026-10-29
-- Verified against: `master` at `b83426c`
+- Verified against: `master` at `11b67a4`
 
 ## What exists
 
-- Go Core with PostgreSQL (checksummed migrations up to `000014`), static Next.js UI, Nginx
+- Go Core with PostgreSQL (checksummed migrations up to `000015`), static Next.js UI, Nginx
   proxy, Docker Compose; health/readiness endpoints and SSE.
 - Sign-in with first-admin bootstrap, roles mapped to permissions, immutable audit log.
 - Device inventory with server-side search and paging; device identity with operator-owned
   metadata and trust state, evidence, duplicate candidates, merge and split; offline IEEE
   OUI vendor lookup (K-11) and rule-based classification suggestions as sourced facts (K-16).
 - Local discovery of one administrator-configured subnet through the native Go agent
-  (Windows/Linux); MAC-first reconciliation and online/offline tracking.
+  (Windows/Linux); MAC-first reconciliation and online/offline tracking. Enrolled agents
+  run the worker with their signed identity (#90); the shared token is deprecated.
 - Live traffic from the Windows ETW sensor or ntopng; geographic and 3D Traffic Map, with
   flows matched to devices by any current address (K-12).
 - Neutral dark UI design system (`DESIGN.md`, decision 0002), top-bar shell and an
@@ -39,8 +40,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Active work
 
-- #90 (K-9, enrolled identity for discovery) is in review on
-  `feat/K-9-discovery-agent-identity` (migration `000015`); Go tests run only in CI.
+- No open feature PR.
 - Windows service installation (K-1) on a real elevated host is not verified yet.
 
 ## Blockers
@@ -53,7 +53,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 ## Next priorities
 
 This order is the priority. Issues migrated from the board keep their K-n ID in the first
-line; #90, #98, #99, #101 and #104 are unblocked.
+line; #98, #99, #101 and #104 are unblocked.
 
 1. Production RMM milestone (hybrid, decision 0006), two parallel tracks:
    - native path: #99 approval gate → #91 privileged helper (fixed allowlist) → #92
@@ -61,8 +61,7 @@ line; #90, #98, #99, #101 and #104 are unblocked.
    - MeshCentral: #104 read-only provider → #105 encrypted integration credentials → #106
      audited remote sessions;
    then #100 remote agent updates; #96 documentation and real-host verification last.
-2. Identity follow-ups: #90 enrolled identity for discovery, #98 Core signing key rotation,
-   #97 per-sensor identity.
+2. Identity follow-ups: #98 Core signing key rotation, #97 per-sensor identity.
 3. Agent deployment: #101 verified downloads and one-line install → #102 Windows MSI.
 
 Discovery 2.0, local topology, Proxmox/Docker, change intelligence and operations stay in
@@ -70,8 +69,9 @@ Discovery 2.0, local topology, Proxmox/Docker, change intelligence and operation
 
 ## Known limitations
 
-- Discovery and the traffic sensor still use shared tokens; discovery report ingestion is
-  not idempotent.
+- The traffic sensor still uses a shared token, and unenrolled discovery workers may still
+  use the deprecated one (`NERVE_DISCOVERY_LEGACY_TOKEN`); discovery report ingestion is not
+  idempotent.
 - No observed local topology; the 3D view uses derived /24 plates.
 - No licence file, backup/restore, or retention policy beyond command output yet.
 - Releases cover the agent only; Core, UI and sensor are still built from source with
