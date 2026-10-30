@@ -81,6 +81,7 @@ export const api = {
   createCommand: (agentId: string, type: string, parameters: Record<string, unknown> = {}) =>
     request<RemoteCommand>(`/api/v1/agents/${encodeURIComponent(agentId)}/commands`, { method: "POST", body: JSON.stringify({ type, parameters }) }),
   command: (id: string) => request<RemoteCommand>(`/api/v1/remote/commands/${encodeURIComponent(id)}`),
+  approveCommand: (id: string) => request<RemoteCommand>(`/api/v1/remote/commands/${encodeURIComponent(id)}/approve`, { method: "POST", body: "{}" }),
   cancelCommand: (id: string) => request<RemoteCommand>(`/api/v1/remote/commands/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" }),
   meshCentralStatus: () => request<MeshCentralStatus>("/api/v1/integrations/meshcentral"),
   syncMeshCentral: () => request<MeshCentralStatus>("/api/v1/integrations/meshcentral/sync", { method: "POST", body: "{}" }),

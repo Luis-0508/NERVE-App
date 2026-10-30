@@ -110,7 +110,7 @@ func TestExecuteRefusesUnsafeCommands(t *testing.T) {
 	future := time.Now().Add(5 * time.Second)
 	// Addressed to another agent: nothing happens.
 	m.execute(context.Background(), agentproto.Command{ID: "x1", AgentID: "agent-2", Type: "system.info", Deadline: future})
-	// Unsupported capability: reported as failed without running anything.
+	// Privileged type over plain HTTP: reported as failed without running anything.
 	m.execute(context.Background(), agentproto.Command{ID: "x2", AgentID: "agent-1", Type: "command.shell", Deadline: future})
 	// Expired before start: reported as timed out.
 	m.execute(context.Background(), agentproto.Command{ID: "x3", AgentID: "agent-1", Type: "system.info", Deadline: time.Now().Add(-time.Second)})
@@ -119,11 +119,11 @@ func TestExecuteRefusesUnsafeCommands(t *testing.T) {
 	if got := routes(*calls); got != "/agent/commands/x2/result,/agent/commands/x3/result,/agent/commands/x4/start" {
 		t.Fatalf("unexpected calls: %s", got)
 	}
-	var unsupported, expired agentproto.CommandResult
-	_ = json.Unmarshal((*calls)[0].body, &unsupported)
+	var refused, expired agentproto.CommandResult
+	_ = json.Unmarshal((*calls)[0].body, &refused)
 	_ = json.Unmarshal((*calls)[1].body, &expired)
-	if unsupported.FailureCode != "unsupported_capability" || expired.Status != agentproto.CommandTimedOut {
-		t.Fatalf("unexpected failure results: %+v %+v", unsupported, expired)
+	if refused.FailureCode != "insecure_transport" || expired.Status != agentproto.CommandTimedOut {
+		t.Fatalf("unexpected failure results: %+v %+v", refused, expired)
 	}
 }
 

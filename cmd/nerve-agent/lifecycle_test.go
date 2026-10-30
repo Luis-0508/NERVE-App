@@ -298,7 +298,7 @@ func TestHeartbeatFallsBackForCoreWithoutRuntimeSupport(t *testing.T) {
 	public, private, _ := ed25519.GenerateKey(nil)
 	var accepted, rejected int
 	server := fakeCore(t, &public, func(route string, body []byte) (int, any) {
-		// Mimic an older Core: strict decoding without the runtime field.
+		// Mimic an older Core: strict decoding without the runtime and transport fields.
 		var request struct {
 			Host         agentproto.HostFacts `json:"host"`
 			Capabilities []string             `json:"capabilities"`
@@ -322,7 +322,8 @@ func TestHeartbeatFallsBackForCoreWithoutRuntimeSupport(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if rejected != 1 || accepted != 2 {
+	// One rejection per unknown field, then both heartbeats are accepted.
+	if rejected != 2 || accepted != 2 {
 		t.Fatalf("fallback: rejected %d, accepted %d", rejected, accepted)
 	}
 }

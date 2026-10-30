@@ -129,14 +129,15 @@ func NewWithTraffic(db *pgxpool.Pool, cfg config.Config, logger *slog.Logger, ve
 		loginAttempts:  make(map[string]*rateWindow),
 		enrollAttempts: make(map[string]*rateWindow),
 	}
+	server.commands = remote.NewService(db)
 	if cfg.CoreSigningKey != "" {
 		if key, err := agentproto.ParseCoreSigningKey(cfg.CoreSigningKey); err == nil {
 			server.agents.SetCoreSigningKey(key)
+			server.commands.SetApprovalKey(key)
 		} else {
 			logger.Error("invalid NERVE_CORE_SIGNING_KEY; the agent API is disabled")
 		}
 	}
-	server.commands = remote.NewService(db)
 	server.commands.SetResultRetention(cfg.CommandResultRetention)
 	meshConfig := meshcentral.Config{URL: cfg.MeshCentralURL, Username: cfg.MeshCentralUsername, Password: cfg.MeshCentralPassword}
 	if scheme, _, _ := strings.Cut(cfg.MeshCentralURL, "://"); scheme == "http" || scheme == "ws" {
@@ -222,6 +223,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/agents/{agentID}/commands", s.createCommand)
 	mux.HandleFunc("GET /api/v1/remote/commands/{commandID}", s.commandDetail)
 	mux.HandleFunc("POST /api/v1/remote/commands/{commandID}/cancel", s.cancelCommand)
+	mux.HandleFunc("POST /api/v1/remote/commands/{commandID}/approve", s.approveCommand)
 	mux.HandleFunc("POST /api/v1/agent/commands/claim", s.agentEndpoint(4<<10, s.agentClaimCommand))
 	mux.HandleFunc("POST /api/v1/agent/commands/{commandID}/start", s.agentEndpoint(4<<10, s.agentStartCommand))
 	mux.HandleFunc("POST /api/v1/agent/commands/{commandID}/result", s.agentEndpoint(agentproto.MaxResultRequestBytes, s.agentSubmitResult))

@@ -30,6 +30,9 @@ func (m *manager) reportStopping() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	request := agentproto.HeartbeatRequest{Host: m.facts(), Capabilities: m.capabilities(), LastError: m.currentError(), Runtime: m.runtime(true)}
+	if !m.legacyTransport.Load() {
+		request.Transport = m.client.transport()
+	}
 	var response agentproto.HeartbeatResponse
 	if _, err := m.client.post(ctx, "/agent/heartbeat", request, &response); err != nil {
 		m.logger.Warn("final heartbeat not delivered", "error", err)

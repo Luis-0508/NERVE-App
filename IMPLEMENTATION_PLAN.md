@@ -98,14 +98,13 @@ remote-management foundation, then device identity.
    | 7 | Versioned, signed agent releases (remote updates with verification and rollback follow separately) | implemented |
    | 8 | Documentation and end-to-end verification on real Windows and Linux hosts | planned |
 
-   Privileged commands stay blocked until PR 2 lands. Blocked until all of these exist: HTTPS
-   enforced for agents that may run privileged capabilities (Core-signed responses give
-   authenticity, not confidentiality); the target device in the operator-owned
-   `trusted` state (the trust model exists; the policy check comes with the first privileged
-   command); explicit operator confirmation showing target
-   identity and evidence; per-device/group authorization scope and command policies;
-   a privileged helper separate from the unprivileged agent; signed agent releases and
-   updates. Transcript redaction, configurable retention and output access are implemented.
+   Privileged commands stay blocked until PR 2 lands. The approval gate (#99) is
+   implemented: HTTPS transport reported in signed heartbeats, the `trusted` device check,
+   `remote_scopes`, two-step operator approval showing target identity and evidence, and a
+   Core-signed approval the agent verifies. Still missing before any privileged type is
+   enabled: the privileged helper separate from the unprivileged agent (#91), which verifies
+   the approval again, and signed agent updates. Transcript redaction, configurable
+   retention and output access are implemented.
 4. **Interactive sessions (decision 0006), in parallel with the RMM milestone.** A
    MeshCentral adapter behind `remote.Provider`: read-only node listing and
    operator-confirmed `meshcentral` identities (#104), encrypted integration credentials

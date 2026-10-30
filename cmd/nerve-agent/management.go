@@ -57,7 +57,28 @@ func newManagementClient(apiURL string, id *identity) *managementClient {
 // such as a private CA.
 func newManagementClientWith(apiURL string, id *identity, transport http.RoundTripper) *managementClient {
 	return &managementClient{apiURL: strings.TrimRight(apiURL, "/"), credentialID: id.CredentialID, key: id.key, coreKey: id.coreKey,
-		http: &http.Client{Timeout: 70 * time.Second, Transport: transport}, now: time.Now}
+		http: &http.Client{Timeout: 70 * time.Second, Transport: transport, CheckRedirect: refuseDowngrade}, now: time.Now}
+}
+
+// refuseDowngrade stops a redirect from an https Core URL to plain HTTP, so
+// the reported transport always describes the connection actually used.
+func refuseDowngrade(request *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	if via[0].URL.Scheme == "https" && request.URL.Scheme != "https" {
+		return errors.New("refusing a redirect from HTTPS to HTTP")
+	}
+	return nil
+}
+
+// transport is what heartbeats report: https only for an https API URL. The
+// agent never disables certificate verification, so https means verified TLS.
+func (c *managementClient) transport() string {
+	if strings.HasPrefix(strings.ToLower(c.apiURL), "https://") {
+		return agentproto.TransportHTTPS
+	}
+	return agentproto.TransportHTTP
 }
 
 // post sends a signed JSON request to a route under /api/v1 (for example
@@ -181,6 +202,8 @@ type manager struct {
 	executed  map[string]time.Time
 	// legacyCore is set when Core rejects the runtime field (older releases).
 	legacyCore atomic.Bool
+	// legacyTransport is set when Core rejects the transport field.
+	legacyTransport atomic.Bool
 }
 
 func (m *manager) setError(value string) {
@@ -201,13 +224,25 @@ func (m *manager) heartbeat(ctx context.Context) error {
 	if m.runtime != nil && !m.legacyCore.Load() {
 		request.Runtime = m.runtime(false)
 	}
+	if !m.legacyTransport.Load() {
+		request.Transport = m.client.transport()
+	}
 	var response agentproto.HeartbeatResponse
 	_, err := m.client.post(ctx, "/agent/heartbeat", request, &response)
-	if request.Runtime != nil && rejectsRuntime(err) {
-		// Core releases before runtime reporting reject unknown fields.
-		m.logger.Info("Core does not accept runtime reports; heartbeats continue without them")
-		m.legacyCore.Store(true)
-		request.Runtime = nil
+	// Core releases before a field reject the first unknown one; drop it and
+	// retry until none is left.
+	for {
+		if request.Transport != "" && rejectsField(err, "transport") {
+			m.logger.Info("Core does not accept transport reports; heartbeats continue without them")
+			m.legacyTransport.Store(true)
+			request.Transport = ""
+		} else if request.Runtime != nil && rejectsField(err, "runtime") {
+			m.logger.Info("Core does not accept runtime reports; heartbeats continue without them")
+			m.legacyCore.Store(true)
+			request.Runtime = nil
+		} else {
+			break
+		}
 		_, err = m.client.post(ctx, "/agent/heartbeat", request, &response)
 	}
 	if err == nil {
@@ -285,9 +320,9 @@ func sleepContext(ctx context.Context, duration time.Duration) bool {
 	}
 }
 
-// rejectsRuntime recognizes an older Core refusing the unknown "runtime" field.
-func rejectsRuntime(err error) bool {
+// rejectsField recognizes an older Core refusing an unknown heartbeat field.
+func rejectsField(err error, field string) bool {
 	var apiErr *apiError
 	return errors.As(err, &apiErr) && apiErr.Status == http.StatusBadRequest && apiErr.Code == "invalid_request" &&
-		strings.Contains(apiErr.Message, `"runtime"`)
+		strings.Contains(apiErr.Message, `"`+field+`"`)
 }
