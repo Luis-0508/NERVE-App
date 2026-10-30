@@ -83,3 +83,20 @@ func TestDiscoveryLegacyTokenDefaultsOn(t *testing.T) {
 		t.Fatal("an invalid NERVE_DISCOVERY_LEGACY_TOKEN was accepted")
 	}
 }
+
+func TestMeshCentralEnvironment(t *testing.T) {
+	t.Setenv("NERVE_MESHCENTRAL_URL", "https://mesh.example.invalid")
+	if _, err := Load(); err == nil {
+		t.Fatal("a MeshCentral URL without a service account was accepted")
+	}
+	t.Setenv("NERVE_MESHCENTRAL_USERNAME", "nerve-svc")
+	t.Setenv("NERVE_MESHCENTRAL_PASSWORD", "example-only")
+	cfg, err := Load()
+	if err != nil || cfg.MeshCentralUsername != "nerve-svc" || cfg.MeshCentralSyncInterval != 5*time.Minute {
+		t.Fatalf("MeshCentral configuration not loaded: %v", err)
+	}
+	t.Setenv("NERVE_MESHCENTRAL_SYNC_INTERVAL", "10s")
+	if _, err := Load(); err == nil {
+		t.Fatal("a sync interval below 30s was accepted")
+	}
+}

@@ -41,6 +41,7 @@ flowchart LR
 | `internal/redact` | Secret redaction rules for command output, shared by the agent and Core |
 | `internal/release`, `cmd/nerve-release` | Signed release manifests: offline verification against pinned keys (used by `nerve-agent verify-release`), manifest writing and signing for the release workflow |
 | `internal/traffic`, `internal/integrations/ntopng` | Normalized live-traffic snapshot, sensor ingest, ntopng adapter |
+| `internal/integrations/meshcentral` | Read-only MeshCentral provider: `/control.ashx` client, node sync, operator-confirmed node bindings (`device_identities` type `meshcentral`) |
 | `internal/platform`, `internal/config` | Database pool, migrations, configuration from the environment |
 
 Boundaries that must hold:
@@ -87,6 +88,14 @@ type, parameter digest, expiry, at most 10 minutes) and queues the command. Clai
 envelope to the agent, which verifies it against its pinned Core key and refuses privileged
 work over plain HTTP. Database triggers keep privileged rows out of claimable states without
 an unexpired approval. Every refusal is audited with a stable error code.
+
+MeshCentral (#104): when `NERVE_MESHCENTRAL_URL` and a service account are set, Core lists
+nodes over `/control.ashx` every `NERVE_MESHCENTRAL_SYNC_INTERVAL` into
+`meshcentral_nodes`. The provider shows bound nodes and unbound nodes whose MAC or hostname
+matches a device on `GET /devices/{id}/remote`. An operator binding writes a `meshcentral`
+device identity, so merge and split carry it; it needs a matching MAC and is never
+automatic. A reinstalled MeshAgent has a new node ID and does not inherit the binding. The
+service-account password stays in Core; the browser sees only node facts and sync status.
 
 ## Testing
 

@@ -3,6 +3,7 @@ module github.com/nerve-labs/nerve
 go 1.26.0
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/oschwald/maxminddb-golang/v2 v2.8.0
 	github.com/pashagolub/pgxmock/v4 v4.9.0

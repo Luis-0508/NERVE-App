@@ -21,7 +21,7 @@ NERVE's own privileged path is limited to a fixed allowlist of audited actions.
 Browser ──session──▶ /api/v1/agents, /devices/{id}/remote, /remote/commands   (permissions)
                          │
                    internal/remote ── Provider registry ── NativeProvider (nerve-agent)
-                         │                              └─ MeshCentral adapter (planned, #104)
+                         │                              └─ MeshCentralProvider (read-only, #104)
                    remote_commands ◀── claim/start/result ── /api/v1/agent/* ◀──Ed25519── nerve-agent
                          │
                      audit_log (immutable)
@@ -398,17 +398,17 @@ referenced by command ID.
 - One API instance is assumed for instant wake-up. With several instances, claims fall back
   to a 3-second re-check.
 
-## MeshCentral integration (planned provider)
+## MeshCentral integration
 
 Decided in [0006](DECISIONS/0006-meshcentral-for-interactive-sessions.md); delivered by
-#104 (read-only provider and confirmed identities), #105 (encrypted integration
-credentials) and #106 (per-operator accounts and audited session handoff).
+#104 (read-only provider and confirmed identities, implemented), #105 (encrypted
+integration credentials) and #106 (per-operator accounts and audited session handoff).
 
-The `internal/remote.Provider` registry is the seam. A MeshCentral adapter
-(`internal/integrations/meshcentral`) would register as provider `meshcentral` and
-report the same catalogue capabilities (`remote.desktop`, `remote.terminal`,
-`file.transfer`). `GET /api/v1/devices/{id}/remote` and the UI would show them next to
-the native agent without knowing which provider serves them. Interactive sessions get
+The `internal/remote.Provider` registry is the seam. The adapter
+(`internal/integrations/meshcentral`) registers as provider `meshcentral` and reports the
+catalogue capabilities `remote.desktop`, `remote.terminal` and `file.transfer`, all
+non-executable until #106. `GET /api/v1/devices/{id}/remote` and the device page show
+them next to the native agent without knowing which provider serves them. Interactive sessions get
 their own optional provider interface (for example `OpenSession(device, kind, operator)`
 returning a short-lived handoff), so providers without sessions need no stubs.
 Replacing MeshCentral later means replacing that adapter.
@@ -417,20 +417,45 @@ Replacing MeshCentral later means replacing that adapter.
 
 ```text
 NERVE device ◀─ device_identities(agent)        ─ NERVE agent (enrolled, Ed25519)
-NERVE device ◀─ device_identities(meshcentral)* ─ MeshCentral node "node/<domain>/<id>"
+NERVE device ◀─ device_identities(meshcentral)  ─ MeshCentral node "node/<domain>/<id>"
 ```
 
-\* `identity_type` needs a `meshcentral` value (new migration). The MeshCentral node ID is
-`node/<domain>/<id>` (`node//…` only for the default domain). The `<id>` is derived from
-the MeshAgent's public key (a SHA-384 hash), so a **reinstall that generates a new agent
-key produces a new node ID**. The mapping must be confirmed by an operator, matched on
-MAC address and hostname evidence, and re-confirmed after a reinstall. Never auto-bind
-on weak evidence.
+The MeshCentral node ID is `node/<domain>/<id>` (`node//…` for the default domain). The
+`<id>` is derived from the MeshAgent's public key (a SHA-384 hash), so a **reinstall that
+generates a new agent key produces a new node ID**.
+
+### Read-only provider (#104)
+
+- **Sync.** Core logs in with a dedicated service account (`x-meshauth` header) and, every
+  `NERVE_MESHCENTRAL_SYNC_INTERVAL` (default 5 minutes), sends `nodes`, then
+  `getnetworkinfo` and `lastconnect` per node. Results land in `meshcentral_nodes`; nodes
+  no longer listed are marked absent, never deleted. A failed sync keeps the last listing
+  and records a sentinel error (`GET /api/v1/integrations/meshcentral`) that never holds
+  credentials or the URL login key. `getsysinfo` is not used yet.
+- **Candidates.** A present, unbound node whose MAC address matches the device
+  (`device_identities` type `mac` or a network interface) is a `candidate`. A hostname-only
+  match (agent-reported `rname`, or a display name that could be a hostname) is `weak`.
+- **Binding.** Only an operator with `agents.manage` binds a node
+  (`POST /api/v1/devices/{id}/meshcentral/binding`), and only with a matching MAC; weak
+  evidence, absent nodes and nodes bound elsewhere are refused and audited
+  (`meshcentral.binding.confirmed`, result `denied`). A binding is a `meshcentral` device
+  identity, so merge and split move it. Nothing binds automatically.
+- **Reinstall.** The new node ID shows up as a new candidate; the old binding stays,
+  reported `absent`, until an operator removes it (`unbind`).
+- **Trust.** TLS uses the system trust store or `NERVE_MESHCENTRAL_CA_FILE` (for example
+  MeshCentral's `root-cert-public.crt`), never an insecure skip. Plain `http://`/`ws://`
+  is accepted only for a hop the operator controls; prefer HTTPS.
+- **Service account.** Give it read access to the device groups NERVE should see, not the
+  full administrator mask. Two-factor login is not supported for it. The password is
+  configuration until #105 stores it encrypted.
 
 ### Verified facts and corrections to the earlier proposal
 
-These were checked against MeshCentral `master` source in October 2026. Re-verify them
-before implementing.
+These were checked against MeshCentral `master` source in October 2026. The control-channel
+facts used by #104 were re-verified against MeshCentral 1.3.1 (`meshctrl.js`,
+`meshuser.js`) and a disposable 1.3.1 server: `nodes` replies carry the `responseid`;
+`getnetworkinfo` and `lastconnect` replies carry only the action and `nodeid`; a failed
+login arrives as `{"action":"close","cause":"noauth"}`.
 
 - **Control channel.** Clients use the authenticated WebSocket `/control.ashx` (prefixed
   for path-based domains). The earlier text listed *meshctrl CLI* commands. The WebSocket

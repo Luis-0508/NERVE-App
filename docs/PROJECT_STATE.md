@@ -4,11 +4,11 @@ Narrative snapshot of where NERVE stands. **The repository is authoritative:** i
 code or GitHub issues disagree with this file, trust them and correct this file.
 
 - Last updated: 2026-10-29
-- Verified against: `master` at `11b67a4`
+- Verified against: `master` at `41360b5`
 
 ## What exists
 
-- Go Core with PostgreSQL (checksummed migrations up to `000015`), static Next.js UI, Nginx
+- Go Core with PostgreSQL (checksummed migrations up to `000016`), static Next.js UI, Nginx
   proxy, Docker Compose; health/readiness endpoints and SSE.
 - Sign-in with first-admin bootstrap, roles mapped to permissions, immutable audit log.
 - Device inventory with server-side search and paging; device identity with operator-owned
@@ -40,24 +40,26 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Active work
 
-- #99 (approval gate for privileged commands, migration `000016`) is in review on
-  `feat/99-privileged-approval-gate`. The approval dialog was not checked in a browser.
+- #111 (#104 read-only MeshCentral provider, migration `000017`) is in review; its UI was not
+  checked in a browser. It was verified against a disposable MeshCentral 1.3.1 server, but
+  not with a real MeshAgent reporting network info.
+- The #99 approval dialog (merged in #110) was not checked in a browser.
 - Windows service installation (K-1) on a real elevated host is not verified yet.
 
 ## Blockers
 
-- None in code. Privileged remote commands stay blocked until #99 (approval gate) and #91
-  (privileged helper) land, by design.
+- None in code. Privileged remote commands stay blocked until #91 (privileged helper) lands,
+  by design.
 - #97 (per-sensor identity) waits for the maintainer's choice between options 1–3 on the
   issue (#97).
 
 ## Next priorities
 
 This order is the priority. Issues migrated from the board keep their K-n ID in the first
-line; #98, #99, #101 and #104 are unblocked.
+line; #91, #98 and #101 are unblocked; #105 waits for #111.
 
 1. Production RMM milestone (hybrid, decision 0006), two parallel tracks:
-   - native path: #99 approval gate → #91 privileged helper (fixed allowlist) → #92
+   - native path: #99 approval gate (done, #110) → #91 privileged helper (fixed allowlist) → #92
      system-management commands → #93 RMM device page;
    - MeshCentral: #104 read-only provider → #105 encrypted integration credentials → #106
      audited remote sessions;

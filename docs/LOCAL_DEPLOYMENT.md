@@ -45,3 +45,20 @@ On Windows with Docker Desktop, discovery intentionally runs as a native host pr
 For a later Linux server or VM, build `Dockerfile.agent` with `TARGETOS=linux` and run the resulting `nerve-agent` directly on that host with `NERVE_AGENT_API_URL` and `NERVE_DISCOVERY_AGENT_TOKEN` set. This keeps discovery in the target network namespace without granting raw-socket or Docker-socket privileges to the Core container.
 
 If a browser tab remains blank after rebuilding an older checkout, reload it without cache (`Ctrl+F5`). The production build includes `npm run test:runtime`, which verifies that the exported application shell, referenced static assets, and Nginx content-security policy are compatible with the Next.js bootstrap runtime.
+
+## Optional MeshCentral
+
+NERVE can list MeshCentral nodes read-only and bind them to devices after an operator confirms matching MAC evidence ([remote management](REMOTE_MANAGEMENT.md#meshcentral-integration)). Sessions are not available from NERVE yet.
+
+The bundled service is opt-in and runs on its own origin, so NERVE keeps `frame-ancestors 'none'`:
+
+```text
+docker compose --profile meshcentral up -d meshcentral
+```
+
+1. Set `NERVE_MESHCENTRAL_HOSTNAME` to the name endpoints and browsers use (it goes into MeshCentral's certificate) and `NERVE_MESHCENTRAL_PORT` to the published HTTPS port (default `8443`). New-account sign-up is disabled. Create an account while the server is stopped: `docker compose stop meshcentral`, then `docker compose run --rm --entrypoint sh meshcentral -c "cd /opt/meshcentral && node meshcentral/meshcentral.js --createaccount <name> --pass <password>"`, then start it again. The first account becomes the site administrator; use it only to create the service account and device groups.
+2. Create a dedicated NERVE service account with access only to the device groups NERVE should list. Do not use an administrator account and do not enable a second factor on it.
+3. Set `NERVE_MESHCENTRAL_URL`, `NERVE_MESHCENTRAL_USERNAME` and `NERVE_MESHCENTRAL_PASSWORD` in `.env`. The URL must be reachable from the API container and match the certificate name, for example `https://mesh.lan:8443`. For MeshCentral's self-signed certificate, copy `root-cert-public.crt` from the `meshcentral-data` volume into a file the API container can read and set `NERVE_MESHCENTRAL_CA_FILE` to it.
+4. Recreate the API (`docker compose up -d --force-recreate api`). The device page lists matching nodes after the first sync; **Sync** runs one at once.
+
+Behind a TLS-terminating reverse proxy, set `NERVE_MESHCENTRAL_TLS_OFFLOAD=true` and `NERVE_MESHCENTRAL_REVERSE_PROXY` (with `NERVE_MESHCENTRAL_REVERSE_PROXY_TLS_PORT`) so MeshCentral derives the agent certificate hash from the proxy (`certUrl`). The service-account password is plain configuration until encrypted integration credentials (#105) exist; keep `.env` private.
