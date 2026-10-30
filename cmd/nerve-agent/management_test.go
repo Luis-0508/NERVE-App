@@ -54,7 +54,12 @@ var testCorePublic, testCoreKey, _ = ed25519.GenerateKey(nil)
 // fakeCore verifies agent signatures and signs its responses exactly as Core does.
 func fakeCore(t *testing.T, public *ed25519.PublicKey, handler func(route string, body []byte) (int, any)) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return httptest.NewServer(fakeCoreHandler(public, handler))
+}
+
+// fakeCoreHandler verifies agent signatures and signs answers like Core.
+func fakeCoreHandler(public *ed25519.PublicKey, handler func(route string, body []byte) (int, any)) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		headers, err := agentproto.ParseHeaders(r.Header)
 		route := agentproto.Route(r.URL.Path, r.URL.RawQuery)
@@ -78,7 +83,7 @@ func fakeCore(t *testing.T, public *ed25519.PublicKey, handler func(route string
 		agentproto.SignCoreResponse(w.Header(), testCoreKey, r.Header.Get(agentproto.HeaderSignature), status, encoded)
 		w.WriteHeader(status)
 		_, _ = w.Write(encoded)
-	}))
+	})
 }
 
 func TestEnrollSignsWithNewKeyAndChecksFingerprint(t *testing.T) {

@@ -40,7 +40,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Active work
 
-- No open feature PR.
+- #99 (approval gate for privileged commands, migration `000016`) is in review on
+  `feat/99-privileged-approval-gate`. The approval dialog was not checked in a browser.
 - Windows service installation (K-1) on a real elevated host is not verified yet.
 
 ## Blockers

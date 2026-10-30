@@ -23,6 +23,11 @@ func (r *Repository) Heartbeat(ctx context.Context, principal Principal, request
 	if len(request.Capabilities) > agentproto.MaxCapabilities {
 		return fmt.Errorf("%w: too many capabilities", ErrInvalidInput)
 	}
+	switch request.Transport {
+	case "", agentproto.TransportHTTPS, agentproto.TransportHTTP:
+	default:
+		return fmt.Errorf("%w: unknown transport", ErrInvalidInput)
+	}
 	facts := normalizeFacts(request.Host)
 	capabilities := agentproto.FilterCapabilities(request.Capabilities)
 	var (
@@ -63,9 +68,12 @@ func (r *Repository) Heartbeat(ctx context.Context, principal Principal, request
 		run_mode = CASE WHEN $4 THEN $5 ELSE run_mode END,
 		process_started_at = CASE WHEN $4 THEN $6 ELSE process_started_at END,
 		host_boot_at = CASE WHEN $4 THEN $7 ELSE host_boot_at END,
-		last_shutdown_at = CASE WHEN $8 THEN now() ELSE last_shutdown_at END
+		last_shutdown_at = CASE WHEN $8 THEN now() ELSE last_shutdown_at END,
+		-- Every heartbeat replaces the transport, so an agent that stops
+		-- reporting https loses privileged commands at once.
+		transport = NULLIF($9, ''), transport_reported_at = CASE WHEN $9 <> '' THEN now() END
 		WHERE id = $1::uuid`, principal.AgentID, capabilities,
-		truncate(request.LastError, agentproto.MaxLastErrorLength), reportRuntime, runMode, startedAt, hostBootAt, stopping); err != nil {
+		truncate(request.LastError, agentproto.MaxLastErrorLength), reportRuntime, runMode, startedAt, hostBootAt, stopping, request.Transport); err != nil {
 		return fmt.Errorf("record heartbeat: %w", err)
 	}
 	factsChanged := factsDigest(facts) != previousDigest

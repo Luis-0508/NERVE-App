@@ -38,6 +38,8 @@ type Command struct {
 	TimeoutSeconds int            `json:"timeoutSeconds"`
 	MaxOutputBytes int            `json:"maxOutputBytes"`
 	Deadline       time.Time      `json:"deadline"`
+	// Approval is set for privileged commands; see VerifyCommandApproval.
+	Approval *CommandApproval `json:"approval,omitempty"`
 }
 
 // CommandResult is submitted once per command. Resubmitting an identical
