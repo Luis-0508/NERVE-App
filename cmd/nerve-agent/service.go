@@ -114,22 +114,23 @@ func runService(args []string) int {
 
 // prepareServiceState writes the configuration and, with a token, enrolls the
 // host. It runs after the service account exists, so the state directory can
-// grant it access.
-func prepareServiceState(options installOptions) (*identity, error) {
+// grant it access. The bool reports whether this call enrolled the host; only
+// then was the identity not read from the agent-writable state directory.
+func prepareServiceState(options installOptions) (*identity, bool, error) {
 	token, err := installToken(options.TokenFile)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	existing, err := loadIdentity(options.StateDir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		if token == "" || !options.Force {
-			return nil, fmt.Errorf("existing identity in %s is unusable (%v); re-enroll with --token-file and --force", options.StateDir, err)
+			return nil, false, fmt.Errorf("existing identity in %s is unusable (%v); re-enroll with --token-file and --force", options.StateDir, err)
 		}
 		existing = nil
 	}
 	config, err := loadConfig(options.StateDir)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, err
+		return nil, false, err
 	}
 	if options.APIURL != "" {
 		config.APIURL = strings.TrimRight(strings.TrimSpace(options.APIURL), "/")
@@ -138,23 +139,23 @@ func prepareServiceState(options installOptions) (*identity, error) {
 		config.APIURL = existing.APIURL
 	}
 	if config.APIURL == "" {
-		return nil, errors.New("--api-url is required for a new installation")
+		return nil, false, errors.New("--api-url is required for a new installation")
 	}
 	if err := validateAPIURL(config.APIURL); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if options.CAFile != "" {
 		// The service account cannot read the administrator's copy (a user
 		// profile, or /root and /home under ProtectHome), so keep a private copy.
 		if _, err := newTransport(options.CAFile); err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		pem, err := os.ReadFile(options.CAFile)
 		if err != nil {
-			return nil, fmt.Errorf("read CA file: %w", err)
+			return nil, false, fmt.Errorf("read CA file: %w", err)
 		}
 		if err := writePrivateFile(options.StateDir, caFileName, pem); err != nil {
-			return nil, fmt.Errorf("copy CA file: %w", err)
+			return nil, false, fmt.Errorf("copy CA file: %w", err)
 		}
 		config.CAFile = filepath.Join(options.StateDir, caFileName)
 	}
@@ -162,37 +163,37 @@ func prepareServiceState(options installOptions) (*identity, error) {
 		config.Discovery = true
 	}
 	if err := saveConfig(options.StateDir, config); err != nil {
-		return nil, fmt.Errorf("write configuration: %w", err)
+		return nil, false, fmt.Errorf("write configuration: %w", err)
 	}
 	if strings.HasPrefix(config.APIURL, "http://") {
 		fmt.Println("Warning: the Core URL uses plain HTTP. Requests are authenticated in both directions, but results and host facts are readable on the network. Use HTTPS outside a trusted network.")
 	}
 	if token == "" {
-		return existing, nil
+		return existing, false, nil
 	}
 	if existing != nil && !options.Force {
 		fmt.Printf("Already enrolled as agent %s; the token was not used. Use --force with a re-enrollment token to replace the key.\n", existing.AgentID)
-		return existing, nil
+		return existing, false, nil
 	}
 	transport, err := newTransport(config.CAFile)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	id, err := enrollWith(ctx, config.APIURL, token, transport)
 	if err != nil {
-		return nil, fmt.Errorf("enrollment: %w", err)
+		return nil, false, fmt.Errorf("enrollment: %w", err)
 	}
 	if err := saveIdentity(options.StateDir, id); err != nil {
-		return nil, fmt.Errorf("enrolled as %s, but the identity could not be saved (revoke it in NERVE): %w", id.AgentID, err)
+		return nil, false, fmt.Errorf("enrolled as %s, but the identity could not be saved (revoke it in NERVE): %w", id.AgentID, err)
 	}
 	fmt.Printf("Enrolled as agent %s\nKey fingerprint (compare in NERVE): %s\n", id.AgentID, id.Fingerprint)
 	fmt.Println(id.tokenNotice())
 	if notice := id.approvalNotice(); notice != "" {
 		fmt.Println(notice)
 	}
-	return id, nil
+	return id, true, nil
 }
 
 // installToken returns the enrollment token from the token file, else from

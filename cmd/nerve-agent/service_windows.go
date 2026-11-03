@@ -201,7 +201,7 @@ func installService(options installOptions) error {
 	if err := restrictDir(options.StateDir, sid); err != nil {
 		return fmt.Errorf("restrict %s: %w", options.StateDir, err)
 	}
-	id, err := prepareServiceState(options)
+	id, _, err := prepareServiceState(options)
 	if err != nil {
 		return err
 	}

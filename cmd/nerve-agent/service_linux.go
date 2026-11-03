@@ -206,9 +206,10 @@ func installService(options installOptions) error {
 	}
 	// A reinstall keeps an installed helper and re-pins it to the identity.
 	withHelper := options.WithHelper || helperInstalled()
-	before, beforeErr := loadIdentity(options.StateDir)
-	if withHelper && beforeErr != nil && options.TokenFile == "" && os.Getenv("NERVE_AGENT_ENROLLMENT_TOKEN") == "" {
-		return fmt.Errorf("the privileged helper needs an enrolled agent; add --token-file: %w", beforeErr)
+	if withHelper && options.TokenFile == "" && os.Getenv("NERVE_AGENT_ENROLLMENT_TOKEN") == "" {
+		if _, err := loadIdentity(options.StateDir); err != nil {
+			return fmt.Errorf("the privileged helper needs an enrolled agent; add --token-file: %w", err)
+		}
 	}
 	account, err := ensureServiceUser()
 	if err != nil {
@@ -225,14 +226,14 @@ func installService(options installOptions) error {
 	if err := os.Chmod(options.StateDir, 0o700); err != nil {
 		return err
 	}
-	id, err := prepareServiceState(options)
+	id, enrolledNow, err := prepareServiceState(options)
 	if err != nil {
 		return err
 	}
 	if withHelper {
 		// Only an enrollment made by this root process may change what the
-		// helper trusts; the existing identity file is writable by the agent.
-		enrolledNow := id != nil && (before == nil || before.CredentialID != id.CredentialID)
+		// helper trusts; the existing identity file is writable by the agent,
+		// so it is never compared or re-read to decide that.
 		if err := installHelper(executable, id, enrolledNow, options.NoStart); err != nil {
 			return fmt.Errorf("privileged helper: %w", err)
 		}
