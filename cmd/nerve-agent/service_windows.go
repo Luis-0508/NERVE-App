@@ -114,9 +114,6 @@ func requireAdministrator() error {
 }
 
 func installService(options installOptions) error {
-	if options.WithHelper {
-		return errors.New("the privileged helper is not available on Windows yet")
-	}
 	if err := requireAdministrator(); err != nil {
 		return err
 	}
@@ -127,6 +124,29 @@ func installService(options installOptions) error {
 	executable, err = filepath.Abs(executable)
 	if err != nil {
 		return err
+	}
+	// The helper runs this binary as SYSTEM, so it must live where only
+	// administrators can replace it. A reinstall keeps an installed helper.
+	withHelper := options.WithHelper || helperInstalled()
+	if withHelper {
+		programFiles, err := filepath.EvalSymlinks(os.Getenv("ProgramFiles"))
+		if err != nil || programFiles == "" {
+			return errors.New("cannot resolve ProgramFiles for the privileged helper")
+		}
+		resolved, err := filepath.EvalSymlinks(executable)
+		if err != nil {
+			return err
+		}
+		relative, err := filepath.Rel(programFiles, resolved)
+		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
+			return errors.New("the privileged helper executable must be under ProgramFiles")
+		}
+		executable = resolved
+		if options.TokenFile == "" && os.Getenv("NERVE_AGENT_ENROLLMENT_TOKEN") == "" {
+			if _, err := loadIdentity(machineStateDir()); err != nil {
+				return fmt.Errorf("the privileged helper needs an enrolled agent; add --token-file: %w", err)
+			}
+		}
 	}
 	if programFiles := os.Getenv("ProgramFiles"); programFiles != "" && !strings.HasPrefix(strings.ToLower(executable), strings.ToLower(programFiles)+`\`) {
 		fmt.Printf("Warning: %s is outside %s. A service binary must not be writable by non-administrators; the installer script copies it to %s\\NERVE\\Agent.\n", executable, programFiles, programFiles)
@@ -201,9 +221,14 @@ func installService(options installOptions) error {
 	if err := restrictDir(options.StateDir, sid); err != nil {
 		return fmt.Errorf("restrict %s: %w", options.StateDir, err)
 	}
-	id, _, err := prepareServiceState(options)
+	id, enrolledNow, err := prepareServiceState(options)
 	if err != nil {
 		return err
+	}
+	if withHelper {
+		if err := installHelper(executable, id, enrolledNow, options.NoStart); err != nil {
+			return err
+		}
 	}
 	if id == nil {
 		fmt.Println("The service is installed but not enrolled. Enroll with: nerve-agent service install --token-file <file>, then it starts automatically.")
@@ -230,6 +255,9 @@ func commandLine(executable string, args []string) string {
 
 func uninstallService(stateDir string, purge bool) error {
 	if err := requireAdministrator(); err != nil {
+		return err
+	}
+	if err := uninstallHelper(purge); err != nil {
 		return err
 	}
 	manager, err := mgr.Connect()
