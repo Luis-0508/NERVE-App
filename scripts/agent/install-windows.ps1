@@ -9,6 +9,10 @@ Installs or upgrades the NERVE agent as a Windows service.
 .EXAMPLE
 .\install-windows.ps1    # upgrade: keeps configuration and identity
 
+.EXAMPLE
+.\install-windows.ps1 -ApiUrl https://nerve.example/api/v1 -TokenFile .\token -WithHelper
+# also installs the privileged helper service NERVEAgentHelper (LocalSystem)
+
 .NOTES
 The binary is copied to "%ProgramFiles%\NERVE\Agent" (writable only by
 administrators). The service runs as the virtual account NT SERVICE\NERVEAgent,
@@ -22,6 +26,7 @@ param(
     [string]$CaFile,
     [switch]$Force,
     [switch]$NoStart,
+    [switch]$WithHelper,
     [string]$Binary = (Join-Path $PSScriptRoot 'nerve-agent.exe')
 )
 $ErrorActionPreference = 'Stop'
@@ -41,6 +46,14 @@ $target = Join-Path $env:ProgramFiles 'NERVE\Agent'
 $installed = Join-Path $target 'nerve-agent.exe'
 New-Item -ItemType Directory -Force -Path $target | Out-Null
 
+# Both services use the same binary and must stop before an upgrade.
+$helperService = Get-Service -Name 'NERVEAgentHelper' -ErrorAction SilentlyContinue
+if ($helperService -and $helperService.Status -ne 'Stopped') {
+    Write-Host 'Stopping the running NERVE privileged helper service...'
+    Stop-Service -Name 'NERVEAgentHelper'
+    $helperService.WaitForStatus('Stopped', [TimeSpan]::FromSeconds(30))
+}
+
 # A running service locks its binary: stop it gracefully before replacing it.
 $service = Get-Service -Name 'NERVEAgent' -ErrorAction SilentlyContinue
 if ($service -and $service.Status -ne 'Stopped') {
@@ -59,5 +72,6 @@ if ($TokenFile) { $arguments += @('--token-file', (Resolve-Path -LiteralPath $To
 if ($CaFile) { $arguments += @('--ca-file', (Resolve-Path -LiteralPath $CaFile).Path) }
 if ($Force) { $arguments += '--force' }
 if ($NoStart) { $arguments += '--no-start' }
+if ($WithHelper) { $arguments += '--with-helper' }
 & $installed @arguments
 if ($LASTEXITCODE -ne 0) { throw "nerve-agent service install failed with exit code $LASTEXITCODE." }

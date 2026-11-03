@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !windows
 
 package main
 
@@ -9,8 +9,7 @@ import (
 	"os"
 )
 
-// The privileged helper is Linux-only for now; the Windows named-pipe channel
-// follows separately (decision 0007).
+// Other platforms do not yet provide a privileged helper channel.
 
 func helperSupported() bool { return false }
 

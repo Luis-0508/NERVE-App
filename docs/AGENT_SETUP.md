@@ -90,7 +90,7 @@ the agent and keeps its identity and configuration.
 The service runs with minimal rights on purpose. The read-only collectors work without
 administrative rights; some details (for example the memory use of other users'
 processes) may be missing. Privileged actions use a separate, explicitly controlled
-helper, never a privileged main agent (see [Privileged helper](#privileged-helper-linux)).
+helper, never a privileged main agent (see [Privileged helper](#privileged-helper)).
 
 The installers wrap `nerve-agent service …`, which you can also call directly:
 
@@ -220,35 +220,41 @@ Notes:
   worker with the shared token. To move that host over, enroll it and enable discovery as
   above, then stop the legacy worker (`scripts/manage-discovery-agent.ps1`).
 
-## Privileged helper (Linux)
+## Privileged helper
 
-`sudo nerve-agent service install --with-helper` (or `install-linux.sh --with-helper`)
-also installs `nerve-agent-helper.service`, which runs approved privileged commands as root
-(decision 0007). The default installation has no helper, and privileged commands then fail
-with `helper_unavailable`. Windows support follows separately; `--with-helper` is refused
-there.
+`service install --with-helper` (or `install-linux.sh --with-helper`,
+`install-windows.ps1 -WithHelper`) also installs a helper service that runs approved
+privileged commands with administrator rights: `nerve-agent-helper.service` as root on
+Linux, `NERVEAgentHelper` as LocalSystem on Windows (decisions 0007 and 0008). The default
+installation has no helper, and privileged commands then fail with `helper_unavailable`.
 
 - **Trust anchor.** The installer writes the agent ID and the pinned Core key to
-  `/var/lib/nerve-agent-helper/helper.json` (root only). The helper accepts approvals only
+  `helper.json` in `/var/lib/nerve-agent-helper` (root only) or
+  `%ProgramData%\NERVE\helper` (SYSTEM and Administrators only). The helper accepts approvals only
   for that agent and signed by that key. When it pins the key of an existing identity, the
   installer prints the key ID: compare it with NERVE.
 - **Re-enrollment.** After `enroll --force`, the helper still serves the old identity and
   the agent stops advertising privileged capabilities. Run
   `service install --with-helper --token-file <file> --force` to re-enroll and re-pin in one
   step; a reinstall without a new enrollment refuses to change the pin.
-- **Channel.** `/run/nerve-agent-helper/helper.sock`, owned by `root:nerve-agent`, mode
-  `0660`. The helper accepts only the `nerve-agent` user (and root), and the agent only a
-  helper running as root.
-- **Isolation.** No network (`PrivateNetwork=true`, Unix sockets only), empty capability
-  bounding set, `NoNewPrivileges`, `ProtectSystem=strict`. It never contacts Core.
+- **Channel.** Linux: `/run/nerve-agent-helper/helper.sock`, owned by `root:nerve-agent`,
+  mode `0660`; the helper accepts only the `nerve-agent` user (and root), and the agent only
+  a helper running as root. Windows: the pipe `\\.\pipe\NERVEAgentHelper`, owned by SYSTEM;
+  the helper accepts only `NT SERVICE\NERVEAgent` (and SYSTEM), and the agent only a pipe
+  owned by SYSTEM.
+- **Isolation.** The helper never contacts Core. On Linux it has no network at all
+  (`PrivateNetwork=true`, Unix sockets only), an empty capability bounding set,
+  `NoNewPrivileges` and `ProtectSystem=strict`. Windows offers no per-service network
+  isolation; there the binary must be installed under `%ProgramFiles%`.
 - **Checks per command.** Core signature, agent binding, type, parameter digest, approval
   expiry and command deadline, the helper's compiled allowlist, and a replay register
   (`executed.json`) written before anything runs.
 - **Allowlist.** Empty in this release: the helper runs no privileged command type yet.
   System-management commands (#92) add the first ones.
-- `nerve-agent diagnose` reports the helper, its socket permissions and the identity it
-  serves; logs are in `journalctl -u nerve-agent-helper`. `service uninstall` removes the
-  helper as well, and `--purge` also deletes its state.
+- `nerve-agent diagnose` reports the helper, its channel and the identity it serves. Logs:
+  `journalctl -u nerve-agent-helper` on Linux, the Windows Application log (source
+  `NERVEAgentHelper`) on Windows. `service uninstall` removes the helper as well, and
+  `--purge` also deletes its state.
 
 ## Capabilities
 

@@ -30,8 +30,8 @@ code or GitHub issues disagree with this file, trust them and correct this file.
 - Approval gate for privileged commands (#99): HTTPS transport in signed heartbeats, the
   `trusted` device check, `remote_scopes`, two-step operator approval and a Core-signed
   approval the agent verifies. No privileged command type is enabled yet.
-- Privileged helper on Linux (#91 part 1, decision 0007): a separate root service without
-  network access that re-verifies approvals against an install-time trust anchor; its
+- Privileged helper (#91, decisions 0007 and 0008): a separate root (Linux) or LocalSystem
+  (Windows) service that re-verifies approvals against an install-time trust anchor; its
   allowlist is empty until #92.
 - Read-only MeshCentral provider with operator-confirmed node bindings (#104, PR #111).
 - Releases: `v0.1.0` published on 2026-10-23. A `v*` tag builds reproducible agent
@@ -47,8 +47,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Active work
 
-- #91 part 2: the Windows privileged helper (named pipe, LocalSystem service) is next. The
-  Linux helper (#116) was not yet verified with a real systemd installation.
+- The privileged helper was not yet verified with a real systemd or Windows service
+  installation; #92 (first allowlisted commands) is next on the native track.
 - The MeshCentral provider (#111) UI was not checked in a browser. It was verified against a
   disposable MeshCentral 1.3.1 server, but not with a real MeshAgent reporting network info.
 - The #99 approval dialog (merged in #110) was not checked in a browser.
@@ -67,7 +67,7 @@ This order is the priority. Issues migrated from the board keep their K-n ID in 
 line; #98, #101 and #105 are unblocked.
 
 1. Production RMM milestone (hybrid, decision 0006), two parallel tracks:
-   - native path: #91 privileged helper (Linux done in #116, Windows next) → #92
+   - native path: #91 privileged helper (done) → #92
      system-management commands → #93 RMM device page;
    - MeshCentral: #104 read-only provider (done, #111) → #105 encrypted integration credentials → #106
      audited remote sessions;

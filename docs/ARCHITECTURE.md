@@ -91,12 +91,13 @@ an unexpired approval. Every refusal is audited with a stable error code.
 
 Privileged work never runs in the agent process. The agent forwards an approved privileged
 command to the privileged helper (`nerve-agent helper`, `cmd/nerve-agent/helper*.go`,
-decision 0007) over a local Unix socket checked with `SO_PEERCRED` in both directions. The
+decisions 0007 and 0008) over a local channel checked in both directions: a Unix socket with
+`SO_PEERCRED` on Linux, a SYSTEM-owned named pipe on Windows. The
 helper has no network access and trusts only `helper.json`, which the root installer writes
 from the enrolled identity; it re-verifies the approval, checks its compiled allowlist and a
 durable replay register, then runs the handler. The agent advertises privileged capabilities
 only while the helper answers a health check for the same agent ID; otherwise privileged
-commands fail with `helper_unavailable`. Linux only so far; the allowlist is empty until #92.
+commands fail with `helper_unavailable`. The allowlist is empty until #92.
 
 MeshCentral (#104): when `NERVE_MESHCENTRAL_URL` and a service account are set, Core lists
 nodes over `/control.ashx` every `NERVE_MESHCENTRAL_SYNC_INTERVAL` into

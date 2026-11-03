@@ -20,6 +20,7 @@ the table.
 | [0005](0005-github-issues-for-planned-work.md) | GitHub issues for planned work | Accepted |
 | [0006](0006-meshcentral-for-interactive-sessions.md) | MeshCentral for interactive remote sessions | Accepted |
 | [0007](0007-privileged-helper.md) | Privileged helper with an install-time trust anchor | Accepted |
+| [0008](0008-windows-privileged-helper-channel.md) | Windows channel for the privileged helper | Accepted |
 
 ## Template
 
