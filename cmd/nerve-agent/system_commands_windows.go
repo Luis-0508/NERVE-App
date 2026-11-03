@@ -26,12 +26,54 @@ var protectedServices = []string{serviceName, helperServiceName, "RpcSs", "RpcEp
 var stopProtectedServices = []string{"TermService", "Dhcp", "Dnscache", "LanmanWorkstation", "WinRM", "sshd"}
 
 // Processes (by image name, as process.list reports it) the helper never ends.
+// Processes that host a protected service are also refused by service
+// (processServices), whatever their name.
 var protectedProcesses = []string{"System", "Registry", "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe",
 	"services.exe", "lsass.exe", "lsaiso.exe", "svchost.exe", "fontdrvhost.exe", "dwm.exe", "MsMpEng.exe",
-	"MemCompression", "Secure System", "nerve-agent.exe"}
+	"MemCompression", "Secure System", "nerve-agent.exe", "sshd.exe"}
+
+// serviceProtected applies both protection lists: ending a stop-protected
+// service's process is a stop as well.
+func serviceProtected(name, action string) bool {
+	return protectedName(protectedServices, name) || (action == "stop" && protectedName(stopProtectedServices, name))
+}
+
+// processServices lists the running services hosted by pid.
+func processServices(pid uint32) ([]string, error) {
+	// Enumeration needs only SC_MANAGER_ENUMERATE_SERVICE.
+	manager, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_ENUMERATE_SERVICE)
+	if err != nil {
+		return nil, err
+	}
+	defer windows.CloseServiceHandle(manager)
+	var needed, returned uint32
+	buffer := make([]byte, 64<<10)
+	for attempt := 0; ; attempt++ {
+		var resume uint32
+		err = windows.EnumServicesStatusEx(manager, windows.SC_ENUM_PROCESS_INFO, windows.SERVICE_WIN32, windows.SERVICE_ACTIVE,
+			&buffer[0], uint32(len(buffer)), &needed, &returned, &resume, nil)
+		if err == nil {
+			break
+		}
+		if err != windows.ERROR_MORE_DATA || attempt == 3 {
+			return nil, err
+		}
+		buffer = make([]byte, needed+(4<<10))
+	}
+	if returned == 0 {
+		return nil, nil
+	}
+	var names []string
+	for _, entry := range unsafe.Slice((*windows.ENUM_SERVICE_STATUS_PROCESS)(unsafe.Pointer(&buffer[0])), returned) {
+		if entry.ServiceStatusProcess.ProcessId == pid {
+			names = append(names, windows.UTF16PtrToString(entry.ServiceName))
+		}
+	}
+	return names, nil
+}
 
 func controlManagedService(_ context.Context, name, action string) (map[string]any, error) {
-	if protectedName(protectedServices, name) || (action == "stop" && protectedName(stopProtectedServices, name)) {
+	if serviceProtected(name, action) {
 		return nil, refusedService(name)
 	}
 	manager, err := mgr.Connect()
@@ -81,6 +123,15 @@ func terminateProcess(_ context.Context, pid uint32, name string) (map[string]an
 		return nil, processNameMismatch(name, actual)
 	case protectedName(protectedProcesses, actual):
 		return nil, refusedProcess(actual)
+	}
+	services, err := processServices(pid)
+	if err != nil {
+		return nil, fmt.Errorf("check the services of process %d: %w", pid, err)
+	}
+	for _, service := range services {
+		if serviceProtected(service, "stop") {
+			return nil, refusedProcess(actual + " (service " + service + ")")
+		}
 	}
 	if err := windows.TerminateProcess(process, 1); err != nil {
 		return nil, fmt.Errorf("end process %d: %w", pid, err)

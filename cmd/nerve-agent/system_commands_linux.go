@@ -27,9 +27,47 @@ var stopProtectedServices = []string{"ssh.service", "sshd.service", "systemd-net
 	"systemd-resolved.service"}
 
 // Processes (by /proc/<pid>/stat name, as process.list reports it) the helper
-// never ends.
+// never ends. Processes of protected services are also refused by their
+// systemd unit (processUnit), whatever their name.
 var protectedProcesses = []string{"systemd", "init", "kthreadd", "nerve-agent", "systemd-journal", "systemd-logind",
-	"systemd-udevd", "dbus-daemon", "dbus-broker", "sshd", "polkitd"}
+	"systemd-udevd", "dbus-daemon", "dbus-broker", "sshd", "polkitd", "NetworkManager", "systemd-network", "systemd-resolve"}
+
+// serviceProtected applies both protection lists: ending a stop-protected
+// service's process is a stop as well.
+func serviceProtected(unit, action string) bool {
+	return protectedName(protectedServices, unit) || (action == "stop" && protectedName(stopProtectedServices, unit))
+}
+
+// unitProperty reads one "Key=value" line from systemctl show.
+func unitProperty(properties, key string) string {
+	for _, line := range strings.Split(properties, "\n") {
+		if value, found := strings.CutPrefix(line, key+"="); found {
+			return value
+		}
+	}
+	return ""
+}
+
+// processUnit returns the systemd service unit whose cgroup holds pid, or "".
+func processUnit(pid uint32) string {
+	raw, err := os.ReadFile("/proc/" + strconv.FormatUint(uint64(pid), 10) + "/cgroup")
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		parts := strings.SplitN(line, ":", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		segments := strings.Split(parts[2], "/")
+		for index := len(segments) - 1; index >= 0; index-- {
+			if strings.HasSuffix(segments[index], ".service") {
+				return segments[index]
+			}
+		}
+	}
+	return ""
+}
 
 func runSystemctl(ctx context.Context, args ...string) (string, error) {
 	command := exec.CommandContext(ctx, "systemctl", args...)
@@ -52,11 +90,22 @@ func controlManagedService(ctx context.Context, name, action string) (map[string
 	if !strings.HasSuffix(unit, ".service") {
 		return nil, &helperError{"invalid_parameters", "Only service units can be controlled."}
 	}
-	if protectedName(protectedServices, unit) || (action == "stop" && protectedName(stopProtectedServices, unit)) {
+	if serviceProtected(unit, action) {
 		return nil, refusedService(unit)
 	}
-	if state, err := runSystemctl(ctx, "show", "--property=LoadState", "--value", "--", unit); err != nil || state != "loaded" {
+	properties, err := runSystemctl(ctx, "show", "--property=LoadState,Id", "--", unit)
+	if err != nil || !strings.Contains(properties, "LoadState=loaded") {
 		return nil, &helperError{"unknown_service", "No service " + unit + " is installed."}
+	}
+	// systemctl follows alias links (for example
+	// dbus-org.freedesktop.login1.service to systemd-logind.service). Act only
+	// on canonical names, so the approved name is the unit that is controlled
+	// and the protection lists cannot be bypassed.
+	if canonical := unitProperty(properties, "Id"); canonical != unit {
+		if serviceProtected(canonical, action) {
+			return nil, refusedService(canonical)
+		}
+		return nil, &helperError{"service_alias", unit + " is an alias of " + canonical + "; request " + canonical + " instead."}
 	}
 	if output, err := runSystemctl(ctx, action, "--", unit); err != nil {
 		return nil, fmt.Errorf("systemctl %s %s: %v: %s", action, unit, err, output)
@@ -107,6 +156,8 @@ func terminateProcess(ctx context.Context, pid uint32, name string) (map[string]
 		return nil, processNameMismatch(name, actual)
 	case protectedName(protectedProcesses, actual):
 		return nil, refusedProcess(actual)
+	case serviceProtected(processUnit(pid), "stop"):
+		return nil, refusedProcess(actual + " (" + processUnit(pid) + ")")
 	}
 	signal := "SIGTERM"
 	if err := unix.PidfdSendSignal(fd, unix.SIGTERM, nil, 0); err != nil {

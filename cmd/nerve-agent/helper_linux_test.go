@@ -104,3 +104,20 @@ func TestHelperUnitIsIsolated(t *testing.T) {
 		}
 	}
 }
+
+func TestUnitPropertyAndProtection(t *testing.T) {
+	properties := "LoadState=loaded\nId=systemd-logind.service"
+	if unitProperty(properties, "Id") != "systemd-logind.service" || unitProperty(properties, "LoadState") != "loaded" {
+		t.Fatal("unit properties not parsed")
+	}
+	// Ending a stop-protected service's process counts as stopping it.
+	if !serviceProtected("sshd.service", "stop") || serviceProtected("sshd.service", "restart") || serviceProtected("", "stop") {
+		t.Fatal("stop protection wrong")
+	}
+	if !serviceProtected("systemd-logind.service", "restart") {
+		t.Fatal("full protection wrong")
+	}
+	if unit := processUnit(uint32(os.Getpid())); strings.HasPrefix(unit, "-") {
+		t.Fatalf("processUnit = %q", unit)
+	}
+}

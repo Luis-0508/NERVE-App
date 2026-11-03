@@ -549,12 +549,16 @@ verifies the signed approval again.
   and processes, and core system services and processes (for example D-Bus, journald,
   logind and udevd on Linux; RPC, LSA, the event log and Defender on Windows). Services that
   keep remote access alive (SSH, networking, Remote Desktop, WinRM) may be restarted but
-  not stopped. Linux handles only `.service` units. The refusal code is `protected_target`.
+  not stopped, and their processes may not be ended either: the helper maps a process to
+  its service (systemd cgroup on Linux, hosted services on Windows) and applies the same
+  lists. Linux handles only canonical `.service` names; an alias such as
+  `dbus-org.freedesktop.login1.service` is refused (`service_alias`), so the approved name is
+  the unit that is controlled. The refusal code is `protected_target`.
 - **Process identity.** The helper pins the process (a pidfd on Linux, a process handle on
   Windows) before it compares the name, so a reused PID never ends another process
   (`process_mismatch`). PIDs up to 2 (Linux) or 4 (Windows) and kernel threads are refused.
 - **Failure codes** reported by the helper (`invalid_parameters`, `protected_target`,
-  `process_mismatch`, `unknown_service`, `unknown_process`, `already_scheduled`,
+  `service_alias`, `process_mismatch`, `unknown_service`, `unknown_process`, `already_scheduled`,
   `handler_failed`) are stored with the result and shown in the command history.
 - **Operators** request a command from the device's remote panel; commands with parameters
   open a small form, then the approval dialog shows target, evidence and parameters.
