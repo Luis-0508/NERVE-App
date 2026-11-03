@@ -196,6 +196,8 @@ type manager struct {
 	runtime func(stopping bool) *agentproto.AgentRuntime
 	// collectors overrides the built-in collectors (tests only).
 	collectors map[string]collector
+	// helper runs privileged commands; nil where no helper exists.
+	helper privilegedRunner
 
 	mu        sync.Mutex
 	lastError string

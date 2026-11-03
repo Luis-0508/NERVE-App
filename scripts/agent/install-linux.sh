@@ -6,7 +6,8 @@
 #
 # The binary is copied to /usr/local/bin (root-owned, so the service account
 # cannot replace it). Other options are passed to `nerve-agent service install`:
-# --api-url, --token-file, --ca-file, --force (re-enrollment), --no-start.
+# --api-url, --token-file, --ca-file, --discovery, --with-helper (privileged helper),
+# --force (re-enrollment), --no-start.
 set -eu
 
 binary="$(dirname "$0")/nerve-agent"

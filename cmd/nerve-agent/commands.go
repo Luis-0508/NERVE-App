@@ -96,7 +96,8 @@ func (m *manager) execute(ctx context.Context, command agentproto.Command) {
 	}
 	// Anything beyond read-only needs HTTPS and Core's signed approval for
 	// exactly this command, checked here independently of Core's own gate.
-	if info, catalogued := agentproto.LookupCapability(command.Type); !catalogued || info.Risk != agentproto.RiskReadOnly {
+	info, catalogued := agentproto.LookupCapability(command.Type)
+	if !catalogued || info.Risk != agentproto.RiskReadOnly {
 		if m.client.transport() != agentproto.TransportHTTPS {
 			logger.Error("refusing a privileged command over plain HTTP")
 			m.submit(ctx, command, failed(agentproto.CommandFailed, "insecure_transport", "Privileged commands need an HTTPS connection to Core."))
@@ -109,6 +110,17 @@ func (m *manager) execute(ctx context.Context, command agentproto.Command) {
 		}
 	}
 	collect, known := m.collectorFor(command.Type)
+	if catalogued && info.Risk == agentproto.RiskPrivileged {
+		// Privileged work never runs in this process: the helper verifies the
+		// approval again and runs only its own allowlist (decision 0007).
+		if m.helper == nil || len(m.helper.types()) == 0 {
+			m.submit(ctx, command, failed(agentproto.CommandFailed, "helper_unavailable", "No privileged helper serves this agent."))
+			return
+		}
+		collect, known = func(runCtx context.Context, _ map[string]any) (map[string]any, error) {
+			return m.helper.run(runCtx, command)
+		}, true
+	}
 	if !known || !m.supported(command.Type) {
 		m.submit(ctx, command, failed(agentproto.CommandFailed, "unsupported_capability", "This agent does not support "+command.Type+"."))
 		return
@@ -134,6 +146,7 @@ func (m *manager) execute(ctx context.Context, command agentproto.Command) {
 	cancel()
 
 	var result agentproto.CommandResult
+	var refusal *helperError
 	switch {
 	case ctx.Err() != nil:
 		// The agent is stopping. Report the interruption instead of leaving
@@ -146,6 +159,8 @@ func (m *manager) execute(ctx context.Context, command agentproto.Command) {
 		return
 	case timedOut:
 		result = failed(agentproto.CommandTimedOut, "timeout", "The command exceeded its timeout.")
+	case errors.As(err, &refusal):
+		result = failed(agentproto.CommandFailed, refusal.Code, refusal.Reason)
 	case err != nil:
 		result = failed(agentproto.CommandFailed, "collection_failed", err.Error())
 		m.setError(command.Type + ": " + err.Error())

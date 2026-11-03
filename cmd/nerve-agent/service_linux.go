@@ -204,6 +204,12 @@ func installService(options installOptions) error {
 	if err := checkServiceBinary(executable); err != nil {
 		return err
 	}
+	// A reinstall keeps an installed helper and re-pins it to the identity.
+	withHelper := options.WithHelper || helperInstalled()
+	before, beforeErr := loadIdentity(options.StateDir)
+	if withHelper && beforeErr != nil && options.TokenFile == "" && os.Getenv("NERVE_AGENT_ENROLLMENT_TOKEN") == "" {
+		return fmt.Errorf("the privileged helper needs an enrolled agent; add --token-file: %w", beforeErr)
+	}
 	account, err := ensureServiceUser()
 	if err != nil {
 		return err
@@ -222,6 +228,14 @@ func installService(options installOptions) error {
 	id, err := prepareServiceState(options)
 	if err != nil {
 		return err
+	}
+	if withHelper {
+		// Only an enrollment made by this root process may change what the
+		// helper trusts; the existing identity file is writable by the agent.
+		enrolledNow := id != nil && (before == nil || before.CredentialID != id.CredentialID)
+		if err := installHelper(executable, id, enrolledNow, options.NoStart); err != nil {
+			return fmt.Errorf("privileged helper: %w", err)
+		}
 	}
 	if err := os.WriteFile(unitPath, []byte(systemdUnit(executable, options.StateDir)), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", unitPath, err)
@@ -250,6 +264,9 @@ func installService(options installOptions) error {
 
 func uninstallService(stateDir string, purge bool) error {
 	if err := requireAdministrator(); err != nil {
+		return err
+	}
+	if err := uninstallHelper(purge); err != nil {
 		return err
 	}
 	if _, err := os.Stat(unitPath); err == nil {

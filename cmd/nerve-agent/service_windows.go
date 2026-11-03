@@ -114,6 +114,9 @@ func requireAdministrator() error {
 }
 
 func installService(options installOptions) error {
+	if options.WithHelper {
+		return errors.New("the privileged helper is not available on Windows yet")
+	}
 	if err := requireAdministrator(); err != nil {
 		return err
 	}

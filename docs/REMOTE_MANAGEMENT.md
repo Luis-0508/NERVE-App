@@ -513,5 +513,6 @@ until all of these exist:
   check will be added together with the first privileged command.
 - Explicit operator confirmation showing the target identity and evidence.
 - Per-device or per-group authorization scope, plus policies or allowlists.
-- A privileged helper separated from the unprivileged agent.
+- A privileged helper separated from the unprivileged agent: implemented for Linux (#91,
+  decision 0007, [Agent setup](AGENT_SETUP.md#privileged-helper-linux)); Windows follows.
 - Signed agent releases and updates.
