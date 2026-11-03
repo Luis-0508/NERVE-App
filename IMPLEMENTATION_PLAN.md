@@ -4,7 +4,7 @@ This plan records what NERVE actually contains today, how the delivery order div
 from the original sequence, and the forward plan. User-facing capabilities are described
 in [README.md](./README.md); this file is for sequencing, architecture and risk.
 
-## Current state (October 2026)
+## Current state (November 2026)
 
 ### Implemented
 
@@ -41,13 +41,12 @@ in [README.md](./README.md); this file is for sequencing, architecture and risk.
   relationships are collected. The `relationships` table is unused by any collector.
 - Integrations: Proxmox and Docker (schema tables exist, no adapters).
 - Change intelligence: no "what changed?" view beyond raw discovery events.
-- Remote management beyond the foundation and agent services: no privileged commands,
-  interactive sessions, file transfer, MeshCentral adapter, MSI package or signed agent
-  updates. The
-  unused `actions`/`action_runs` tables from migration 000001 are superseded by
+- Remote management beyond the foundation, agent services and the approval gate: no
+  privileged helper or enabled privileged commands, interactive sessions, file transfer,
+  MeshCentral adapter, MSI package or remote agent updates. The unused `actions`/`action_runs` tables from migration 000001 are superseded by
   `remote_commands` and can be dropped in a later migration.
-- Operations: release signing, versioning and the changelog exist (`docs/RELEASING.md`), but
-  no release key is pinned and no version is tagged yet. No licence file, backup/restore,
+- Operations: release signing, versioning and the changelog exist (`docs/RELEASING.md`), a
+  release key is pinned and `v0.1.0` is published (agent only). No licence file, backup/restore,
   retention policy beyond command output, diagnostics bundle or upgrade/rollback procedure.
 
 ## How delivery diverged from the original plan
@@ -90,7 +89,7 @@ remote-management foundation, then device identity.
    | PR | Scope | State |
    | --- | --- | --- |
    | 1 | Agent as Windows service / systemd unit with unprivileged accounts, installers, persistent config, private-CA TLS, diagnostics, run state and graceful-stop reporting (`connection`: online/stopped/offline), live re-enrollment | implemented |
-   | 2 | Security hardening and privileged execution architecture: HTTPS enforcement for privileged agents, per-command operator approval the agent can verify, device-level scopes, trusted-device policy check, separate privileged helper (Windows service as LocalSystem / root systemd unit) reachable only over a local authenticated channel; output redaction and transcript retention are implemented (K-18) | planned |
+   | 2 | Security hardening and privileged execution architecture: HTTPS enforcement for privileged agents, per-command operator approval the agent can verify, device-level scopes, trusted-device policy check, separate privileged helper (Windows service as LocalSystem / root systemd unit) reachable only over a local authenticated channel; output redaction and transcript retention are implemented (K-18) | in progress: approval gate implemented (#99), privileged helper open (#91) |
    | 3 | System-management commands on that foundation: service restart/stop, process termination, reboot/shutdown, log retrieval, detailed hardware/network inventory, each with permission, validation, confirmation and audit | planned |
    | 4 | RMM device page: overview, system, performance, processes, services, software, actions, command history, agent status, audit; loading/offline/denied/failed states | planned |
    | 5 | Bounded non-interactive remote commands (PowerShell, shell) | dropped: MeshCentral terminal (decision 0006) |

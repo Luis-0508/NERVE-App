@@ -37,31 +37,43 @@ type Config struct {
 	SensorAddr             string
 	CountryDatabase        string
 	CityDatabase           string
+	// MeshCentral provider (#104): a least-privilege service account. The
+	// password stays server-side; encrypted storage follows in #105.
+	MeshCentralURL          string
+	MeshCentralUsername     string
+	MeshCentralPassword     string
+	MeshCentralCAFile       string
+	MeshCentralSyncInterval time.Duration
 }
 
 func Load() (Config, error) {
 	cfg := Config{
-		HTTPAddr:               envOr("NERVE_HTTP_ADDR", ":8080"),
-		DatabaseURL:            os.Getenv("NERVE_DATABASE_URL"),
-		MigrationsDir:          envOr("NERVE_MIGRATIONS_DIR", "migrations"),
-		AllowedOrigin:          envOr("NERVE_ALLOWED_ORIGIN", "http://localhost:3000"),
-		SessionTTL:             24 * time.Hour,
-		CommandResultRetention: 30 * 24 * time.Hour,
-		LogLevel:               slog.LevelInfo,
-		DiscoveryAgentToken:    os.Getenv("NERVE_DISCOVERY_AGENT_TOKEN"),
-		DiscoveryLegacyToken:   true,
-		CoreSigningKey:         os.Getenv("NERVE_CORE_SIGNING_KEY"),
-		NtopngURL:              os.Getenv("NERVE_NTOPNG_URL"),
-		NtopngUsername:         os.Getenv("NERVE_NTOPNG_USERNAME"),
-		NtopngPassword:         os.Getenv("NERVE_NTOPNG_PASSWORD"),
-		NtopngInterfaceID:      envOr("NERVE_NTOPNG_INTERFACE_ID", "0"),
-		NtopngTimeout:          5 * time.Second,
-		TrafficLocalCIDRs:      os.Getenv("NERVE_TRAFFIC_LOCAL_CIDRS"),
-		TrafficCaptureMode:     os.Getenv("NERVE_TRAFFIC_CAPTURE_MODE"),
-		SensorToken:            os.Getenv("NERVE_SENSOR_TOKEN"),
-		SensorAddr:             os.Getenv("NERVE_SENSOR_ADDR"),
-		CountryDatabase:        envOr("NERVE_COUNTRY_DATABASE", "/app/data/dbip-country-lite.csv.gz"),
-		CityDatabase:           envOr("NERVE_CITY_DATABASE", "/app/data/dbip-city-lite.mmdb"),
+		HTTPAddr:                envOr("NERVE_HTTP_ADDR", ":8080"),
+		DatabaseURL:             os.Getenv("NERVE_DATABASE_URL"),
+		MigrationsDir:           envOr("NERVE_MIGRATIONS_DIR", "migrations"),
+		AllowedOrigin:           envOr("NERVE_ALLOWED_ORIGIN", "http://localhost:3000"),
+		SessionTTL:              24 * time.Hour,
+		CommandResultRetention:  30 * 24 * time.Hour,
+		LogLevel:                slog.LevelInfo,
+		DiscoveryAgentToken:     os.Getenv("NERVE_DISCOVERY_AGENT_TOKEN"),
+		DiscoveryLegacyToken:    true,
+		CoreSigningKey:          os.Getenv("NERVE_CORE_SIGNING_KEY"),
+		NtopngURL:               os.Getenv("NERVE_NTOPNG_URL"),
+		NtopngUsername:          os.Getenv("NERVE_NTOPNG_USERNAME"),
+		NtopngPassword:          os.Getenv("NERVE_NTOPNG_PASSWORD"),
+		NtopngInterfaceID:       envOr("NERVE_NTOPNG_INTERFACE_ID", "0"),
+		NtopngTimeout:           5 * time.Second,
+		TrafficLocalCIDRs:       os.Getenv("NERVE_TRAFFIC_LOCAL_CIDRS"),
+		TrafficCaptureMode:      os.Getenv("NERVE_TRAFFIC_CAPTURE_MODE"),
+		SensorToken:             os.Getenv("NERVE_SENSOR_TOKEN"),
+		SensorAddr:              os.Getenv("NERVE_SENSOR_ADDR"),
+		CountryDatabase:         envOr("NERVE_COUNTRY_DATABASE", "/app/data/dbip-country-lite.csv.gz"),
+		CityDatabase:            envOr("NERVE_CITY_DATABASE", "/app/data/dbip-city-lite.mmdb"),
+		MeshCentralURL:          os.Getenv("NERVE_MESHCENTRAL_URL"),
+		MeshCentralUsername:     os.Getenv("NERVE_MESHCENTRAL_USERNAME"),
+		MeshCentralPassword:     os.Getenv("NERVE_MESHCENTRAL_PASSWORD"),
+		MeshCentralCAFile:       os.Getenv("NERVE_MESHCENTRAL_CA_FILE"),
+		MeshCentralSyncInterval: 5 * time.Minute,
 	}
 
 	if value := os.Getenv("NERVE_DISCOVERY_LEGACY_TOKEN"); value != "" {
@@ -110,6 +122,16 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("NERVE_NTOPNG_TIMEOUT must be a positive duration")
 		}
 		cfg.NtopngTimeout = parsed
+	}
+	if value := os.Getenv("NERVE_MESHCENTRAL_SYNC_INTERVAL"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil || parsed < 30*time.Second {
+			return Config{}, fmt.Errorf("NERVE_MESHCENTRAL_SYNC_INTERVAL must be a duration of at least 30s")
+		}
+		cfg.MeshCentralSyncInterval = parsed
+	}
+	if cfg.MeshCentralURL != "" && (cfg.MeshCentralUsername == "" || cfg.MeshCentralPassword == "") {
+		return Config{}, fmt.Errorf("NERVE_MESHCENTRAL_URL requires NERVE_MESHCENTRAL_USERNAME and NERVE_MESHCENTRAL_PASSWORD")
 	}
 	for _, raw := range strings.Split(cfg.TrafficLocalCIDRs, ",") {
 		if strings.TrimSpace(raw) == "" {

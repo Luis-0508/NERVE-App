@@ -64,6 +64,7 @@ func main() {
 	shutdownContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go api.RunMaintenance(shutdownContext, 30*time.Second)
+	go api.RunMeshCentralSync(shutdownContext)
 	go func() {
 		ctx, cancel := context.WithTimeout(shutdownContext, 10*time.Minute)
 		defer cancel()
