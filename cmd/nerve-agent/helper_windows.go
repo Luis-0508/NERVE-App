@@ -40,8 +40,10 @@ const (
 var helperStateDir = filepath.Join(filepath.Dir(machineStateDir()), "helper")
 
 // helperPipeClientAccess lets the agent read and write the pipe but not create
-// pipe instances (FILE_GENERIC_READ | FILE_WRITE_DATA).
-const helperPipeClientAccess = "0x12008b"
+// pipe instances: FILE_GENERIC_READ | FILE_WRITE_DATA. The agent opens the pipe
+// with exactly this mask; GENERIC_WRITE would include FILE_APPEND_DATA, which
+// on a pipe is FILE_CREATE_PIPE_INSTANCE.
+const helperPipeClientAccess = 0x00120089 | 0x00000002
 
 func helperSupported() bool { return true }
 
@@ -205,7 +207,7 @@ func listenWindowsHelper(name, owner string, allowed ...string) (net.Listener, e
 	}
 	sddl := "O:" + owner + "D:P(A;;GA;;;SY)(A;;GA;;;" + owner + ")"
 	for _, sid := range allowed {
-		sddl += "(A;;" + helperPipeClientAccess + ";;;" + sid + ")"
+		sddl += fmt.Sprintf("(A;;0x%x;;;%s)", helperPipeClientAccess, sid)
 	}
 	l := &windowsPipeListener{name: name, sddl: sddl}
 	c, err := l.instance(true)
@@ -351,7 +353,7 @@ func dialWindowsHelper(pipe, ownerSID string) func(context.Context) (net.Conn, e
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
-			h, err := windows.CreateFile(name, windows.GENERIC_READ|windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING,
+			h, err := windows.CreateFile(name, helperPipeClientAccess, 0, nil, windows.OPEN_EXISTING,
 				windows.FILE_FLAG_OVERLAPPED|windows.SECURITY_SQOS_PRESENT|windows.SECURITY_IDENTIFICATION, 0)
 			if err == nil {
 				sid, err := pipeOwnerSID(h)
@@ -377,6 +379,43 @@ func dialWindowsHelper(pipe, ownerSID string) func(context.Context) (net.Conn, e
 func newLocalHelperClient(agentID string, logger *slog.Logger) privilegedRunner {
 	return &helperClient{dial: dialWindowsHelper(helperSocketPath, systemSID), agentID: agentID, logger: logger}
 }
+
+// secureHelperParent makes %ProgramData%\NERVE administrator-controlled. By
+// default standard users may create folders in %ProgramData%, and an owner of
+// the parent could rename the helper directory. The parent must already be
+// owned by SYSTEM or Administrators; its DACL is replaced so that others may
+// only read it. The agent and helper directories keep their own protected DACLs.
+func secureHelperParent(dir string) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	sd, err := windows.GetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION)
+	if err != nil {
+		return err
+	}
+	owner, _, err := sd.Owner()
+	if err != nil {
+		return err
+	}
+	if owner == nil || !trustedHelperOwner(owner.String()) {
+		return fmt.Errorf("%s is owned by an account other than SYSTEM or Administrators; remove it and install again", dir)
+	}
+	descriptor, err := windows.SecurityDescriptorFromString("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;;0x1200a9;;;BU)")
+	if err != nil {
+		return err
+	}
+	dacl, _, err := descriptor.DACL()
+	if err != nil {
+		return err
+	}
+	if err := windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil); err != nil {
+		return err
+	}
+	return checkHelperSecurity(dir)
+}
+
+func trustedHelperOwner(sid string) bool { return sid == systemSID || sid == "S-1-5-32-544" }
 
 // checkHelperSecurity refuses helper state that a non-administrator owns or
 // may modify. Unknown ACE forms and reparse points fail closed.
@@ -407,7 +446,7 @@ func checkHelperSecurity(path string) error {
 	if err != nil {
 		return err
 	}
-	trusted := func(s string) bool { return s == systemSID || s == "S-1-5-32-544" }
+	trusted := trustedHelperOwner
 	if owner == nil || !trusted(owner.String()) {
 		return fmt.Errorf("untrusted owner of %s", path)
 	}
@@ -448,8 +487,11 @@ func checkHelperSecurity(path string) error {
 	}
 	return nil
 }
+
+// loadHelperPin also checks the parent directory: whoever may change it could
+// rename the helper directory and swap in another one.
 func loadHelperPin(dir string) (helperPin, error) {
-	for _, path := range []string{dir, filepath.Join(dir, helperPinFileName)} {
+	for _, path := range []string{filepath.Dir(dir), dir, filepath.Join(dir, helperPinFileName)} {
 		if err := checkHelperSecurity(path); err != nil {
 			return helperPin{}, err
 		}
@@ -505,6 +547,9 @@ func installHelper(executable string, id *identity, enrolledNow, noStart bool) e
 	if id == nil {
 		return errors.New("the privileged helper needs an enrolled agent; install with --token-file first")
 	}
+	if err := secureHelperParent(filepath.Dir(helperStateDir)); err != nil {
+		return err
+	}
 	pin := newHelperPin(id)
 	previous, err := loadHelperPin(helperStateDir)
 	if err == nil && !enrolledNow {
@@ -515,6 +560,11 @@ func installHelper(executable string, id *identity, enrolledNow, noStart bool) e
 	} else if err != nil && !enrolledNow {
 		if !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("existing helper pin unusable: %w", err)
+		}
+		if helperInstalled() {
+			// An installed helper without its pin was tampered with; only a new
+			// enrollment may establish trust again.
+			return errors.New("the installed helper has no pin; re-enroll with --token-file and --force")
 		}
 		fmt.Printf("The helper trusts Core key %s from the existing identity; compare it with NERVE before enabling privileged commands.\n", agentproto.CoreKeyID(id.coreKey))
 	}

@@ -31,7 +31,10 @@ helper by its process the way the Linux agent checks the socket's peer.
 - **State.** `%ProgramData%\NERVE\helper` (`helper.json`, `executed.json`) has a protected
   DACL for SYSTEM and Administrators. The helper refuses state whose owner is not SYSTEM or
   Administrators, whose DACL grants any write right to another SID, or that is a reparse
-  point.
+  point. The same check covers the parent `%ProgramData%\NERVE`, which the installer gives a
+  protected DACL (others may only read it), because standard users may create folders in
+  `%ProgramData%` and an owner of the parent could rename the helper directory. An installed
+  helper whose pin is missing is re-pinned only by a new enrollment.
 
 ## Alternatives considered
 

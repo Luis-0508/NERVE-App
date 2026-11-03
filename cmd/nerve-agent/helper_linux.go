@@ -101,6 +101,11 @@ func installHelper(executable string, id *identity, enrolledNow, noStart bool) e
 		}
 		pin = previous
 	} else if !enrolledNow {
+		if helperInstalled() {
+			// An installed helper without a usable pin: only a new enrollment
+			// may establish trust again.
+			return fmt.Errorf("the installed helper has no usable pin (%v); re-enroll with --token-file and --force", err)
+		}
 		fmt.Printf("The helper trusts Core key %s from the existing identity; compare it with NERVE before enabling privileged commands.\n",
 			agentproto.CoreKeyID(id.coreKey))
 	}

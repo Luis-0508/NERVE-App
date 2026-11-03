@@ -222,3 +222,10 @@ func TestWindowsHelperStateMustBeAdministratorOnly(t *testing.T) {
 		t.Fatal("loaded a pin from untrusted state")
 	}
 }
+
+func TestWindowsHelperPipeClientCannotCreateInstances(t *testing.T) {
+	const fileCreatePipeInstance = 0x4 // FILE_APPEND_DATA on a pipe
+	if helperPipeClientAccess&fileCreatePipeInstance != 0 || helperPipeClientAccess&windows.GENERIC_WRITE != 0 {
+		t.Fatalf("client access %#x allows creating pipe instances", helperPipeClientAccess)
+	}
+}
