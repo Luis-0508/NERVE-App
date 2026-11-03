@@ -76,8 +76,9 @@ start and result, and the at-most-once pipeline stores the result for the device
 history. Operators can cancel queued commands.
 
 Privileged commands pass an approval gate (`internal/remote/approval.go`, migration
-`000016`). No privileged type is enabled yet; `remote.RegisterPolicy` is the seam the
-privileged helper's allowlist will use. A policy with `RequiresApproval` is accepted only when
+`000016`). The system-management commands (#92) are the privileged policies in
+`internal/remote/policy.go`; their parameter rules live in `internal/agentproto/management.go`
+so Core and the helper share them. A policy with `RequiresApproval` is accepted only when
 the agent's last signed heartbeat reported `https` transport, the agent is associated with a
 `trusted` device, and a `remote_scopes` row (role or user; device, device tag or all devices;
 command types or `*`) covers the requester. The command is stored as `awaiting_approval` and
@@ -97,7 +98,8 @@ helper has no network access and trusts only `helper.json`, which the root insta
 from the enrolled identity; it re-verifies the approval, checks its compiled allowlist and a
 durable replay register, then runs the handler. The agent advertises privileged capabilities
 only while the helper answers a health check for the same agent ID; otherwise privileged
-commands fail with `helper_unavailable`. The allowlist is empty until #92.
+commands fail with `helper_unavailable`. The allowlist is `systemCommandHandlers` in
+`cmd/nerve-agent/system_commands*.go`, with per-platform protection lists.
 
 MeshCentral (#104): when `NERVE_MESHCENTRAL_URL` and a service account are set, Core lists
 nodes over `/control.ashx` every `NERVE_MESHCENTRAL_SYNC_INTERVAL` into

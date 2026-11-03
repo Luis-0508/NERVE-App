@@ -97,7 +97,7 @@ func TestHelperPinMustBeRootOwnedAndNotWritable(t *testing.T) {
 func TestHelperUnitIsIsolated(t *testing.T) {
 	unit := helperSystemdUnit("/usr/local/bin/nerve-agent")
 	for _, line := range []string{"ExecStart=/usr/local/bin/nerve-agent helper", "User=root", "Group=" + serviceUser,
-		"PrivateNetwork=true", "RestrictAddressFamilies=AF_UNIX", "CapabilityBoundingSet=\n", "NoNewPrivileges=true",
+		"PrivateNetwork=true", "RestrictAddressFamilies=AF_UNIX", "CapabilityBoundingSet=CAP_KILL\n", "NoNewPrivileges=true",
 		"RuntimeDirectoryMode=0750", "StateDirectoryMode=0700"} {
 		if !strings.Contains(unit, line) {
 			t.Errorf("helper unit lacks %q", line)

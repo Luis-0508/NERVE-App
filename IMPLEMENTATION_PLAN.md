@@ -90,7 +90,7 @@ remote-management foundation, then device identity.
    | --- | --- | --- |
    | 1 | Agent as Windows service / systemd unit with unprivileged accounts, installers, persistent config, private-CA TLS, diagnostics, run state and graceful-stop reporting (`connection`: online/stopped/offline), live re-enrollment | implemented |
    | 2 | Security hardening and privileged execution architecture: HTTPS enforcement for privileged agents, per-command operator approval the agent can verify, device-level scopes, trusted-device policy check, separate privileged helper (Windows service as LocalSystem / root systemd unit) reachable only over a local authenticated channel; output redaction and transcript retention are implemented (K-18) | in progress: approval gate implemented (#99), privileged helper open (#91) |
-   | 3 | System-management commands on that foundation: service restart/stop, process termination, reboot/shutdown, log retrieval, detailed hardware/network inventory, each with permission, validation, confirmation and audit | planned |
+   | 3 | System-management commands on that foundation: service restart/stop, process termination, reboot/shutdown, log retrieval, detailed hardware/network inventory, each with permission, validation, confirmation and audit | in progress: service, process and power actions implemented (#92); log retrieval next; inventory after an osquery evaluation |
    | 4 | RMM device page: overview, system, performance, processes, services, software, actions, command history, agent status, audit; loading/offline/denied/failed states | planned |
    | 5 | Bounded non-interactive remote commands (PowerShell, shell) | dropped: MeshCentral terminal (decision 0006) |
    | 6 | File management in explicitly authorized roots | dropped: MeshCentral file transfer (decision 0006) |
@@ -102,7 +102,8 @@ remote-management foundation, then device identity.
    `remote_scopes`, two-step operator approval showing target identity and evidence, and a
    Core-signed approval the agent verifies. The privileged helper (#91, decisions 0007 and
    0008) runs as a separate root or LocalSystem service and verifies the approval again; its
-   allowlist is empty until #92. Still missing: signed agent updates. Transcript redaction, configurable
+   allowlist holds the system-management commands of #92. Still missing: signed agent
+   updates. Transcript redaction, configurable
    retention and output access are implemented.
 4. **Interactive sessions (decision 0006), in parallel with the RMM milestone.** A
    MeshCentral adapter behind `remote.Provider`: read-only node listing and

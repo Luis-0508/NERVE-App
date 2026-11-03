@@ -3,8 +3,10 @@
 Status: **foundation implemented** (October 2026): per-agent enrollment and identity,
 heartbeat and capabilities, evidence-based device association, and an audited command
 pipeline with five read-only commands, with both directions of the agent channel
-authenticated (agent request signatures and Core response signatures). Interactive sessions (desktop, terminal, files)
-and privileged commands are **not** implemented. Agent installation is described in
+authenticated (agent request signatures and Core response signatures). Five
+approval-gated system-management commands run through the privileged helper
+([below](#system-management-commands)). Native interactive sessions (desktop, terminal,
+files) are not built; MeshCentral provides them (decision 0006). Agent installation is described in
 [Agent setup](AGENT_SETUP.md); sequencing lives in
 [IMPLEMENTATION_PLAN.md](../IMPLEMENTATION_PLAN.md).
 
@@ -224,7 +226,8 @@ network. `online` stays `false` while the shutdown is newer than the last reques
 | Capability | Risk | Executable today |
 | --- | --- | --- |
 | `system.info`, `system.metrics`, `process.list`, `service.list`, `software.list` | read-only | yes |
-| `command.shell`, `command.powershell`, `script.run`, `system.reboot` | privileged | no (no policy) |
+| `service.restart`, `service.stop`, `process.terminate`, `system.reboot`, `system.shutdown` | privileged | yes, with approval and the privileged helper |
+| `command.shell`, `command.powershell`, `script.run` | privileged | no (decision 0006) |
 | `file.transfer`, `remote.desktop`, `remote.terminal` | interactive | no (provider not implemented) |
 
 Agents advertise only what works on their host. For example, Linux reports
@@ -342,7 +345,7 @@ Permissions live in `permissions` and `role_permissions`, and every check is ser
 | `remote.view` (command history and results) | ✓ | ✓ | |
 | `remote.execute.read_only` (queue and cancel read-only commands) | ✓ | ✓ | |
 | `agents.manage` (enroll, revoke, remove, associate) | ✓ | | |
-| `remote.execute.privileged` (reserved; no command uses it yet) | ✓ | | |
+| `remote.execute.privileged` (request and approve system-management commands; scopes narrow it per command type) | ✓ | | |
 | `audit.view` (`GET /api/v1/audit`) | ✓ | | |
 | `discovery.manage` (discovery target and scans) | ✓ | | |
 | `devices.manage` (device name, type, tags, owner, location, notes) | ✓ | ✓ | |
@@ -522,22 +525,39 @@ Per-operator MeshCentral accounts and server-minted short-lived login cookies ne
 decision on storing the login-token key. That needs encrypted integration credentials
 with key rotation first.
 
-## Security requirements still open before privileged commands
+## System-management commands
 
-Native privileged commands are limited to a fixed allowlist (service restart/stop, process
-termination, reboot/shutdown, log retrieval, agent update). `command.shell`,
-`command.powershell` and `script.run` are not built natively; interactive shell and files
-come from MeshCentral sessions (decision 0006). The allowlisted commands stay disabled
-until all of these exist:
+Native privileged commands are a fixed allowlist (#92); `command.shell`,
+`command.powershell` and `script.run` are not built natively, and interactive shell and
+files come from MeshCentral sessions (decision 0006). Each command passes the approval gate
+(HTTPS transport, a `trusted` device, a `remote_scopes` row for its command type, the
+`remote.execute.privileged` permission and an operator's approval of the target) and runs
+only in the privileged helper ([Agent setup](AGENT_SETUP.md#privileged-helper)), which
+verifies the signed approval again.
 
-- HTTPS enforced for agents that may run privileged capabilities. Core-signed responses
-  (implemented) give authenticity and integrity, not confidentiality.
-- A per-command operator approval record that the agent can verify (today the agent trusts
-  any command Core signs; a compromised Core can therefore still order read-only commands).
-- Device trust: the target device must be `trusted`. The trust model exists; the policy
-  check will be added together with the first privileged command.
-- Explicit operator confirmation showing the target identity and evidence.
-- Per-device or per-group authorization scope, plus policies or allowlists.
-- A privileged helper separated from the unprivileged agent: implemented for Linux and
-  Windows (#91, decisions 0007 and 0008, [Agent setup](AGENT_SETUP.md#privileged-helper)).
-- Signed agent releases and updates.
+| Command | Parameters | Effect |
+| --- | --- | --- |
+| `service.restart` | `name`: systemd unit or Windows service name | Stops and starts the service; returns its state |
+| `service.stop` | `name` | Stops the service |
+| `process.terminate` | `pid`, `name` as listed by `process.list` | Linux: `SIGTERM`, then `SIGKILL` after 10 s; Windows: `TerminateProcess` |
+| `system.reboot`, `system.shutdown` | none | Scheduled 15 s later, so the result is delivered first |
+
+- **Validation twice.** Core validates parameters before it stores and signs them
+  (`agentproto.ServiceParameters`, `ProcessParameters`); the helper validates them again.
+  Service names are letters, digits and `. _ @ : + -`, never an option or a path.
+- **Protection lists in the helper**, which no approval overrides: NERVE's own services
+  and processes, and core system services and processes (for example D-Bus, journald,
+  logind and udevd on Linux; RPC, LSA, the event log and Defender on Windows). Services that
+  keep remote access alive (SSH, networking, Remote Desktop, WinRM) may be restarted but
+  not stopped. Linux handles only `.service` units. The refusal code is `protected_target`.
+- **Process identity.** The helper pins the process (a pidfd on Linux, a process handle on
+  Windows) before it compares the name, so a reused PID never ends another process
+  (`process_mismatch`). PIDs up to 2 (Linux) or 4 (Windows) and kernel threads are refused.
+- **Failure codes** reported by the helper (`invalid_parameters`, `protected_target`,
+  `process_mismatch`, `unknown_service`, `unknown_process`, `already_scheduled`,
+  `handler_failed`) are stored with the result and shown in the command history.
+- **Operators** request a command from the device's remote panel; commands with parameters
+  open a small form, then the approval dialog shows target, evidence and parameters.
+
+Still open: log retrieval (#92, next PR), detailed hardware and network inventory
+(evaluation of osquery first), and signed remote agent updates (#100).

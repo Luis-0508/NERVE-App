@@ -35,9 +35,9 @@ const (
 
 func helperSupported() bool { return true }
 
-// helperSystemdUnit runs the helper as root without network access and with
-// an empty capability bounding set. #92 adds the capabilities its handlers
-// need. Group=nerve-agent makes systemd create the runtime directory and the
+// helperSystemdUnit runs the helper as root without network access. Its only
+// capability is CAP_KILL, which process.terminate needs for processes of other
+// users; service and power actions go through systemd's private socket. Group=nerve-agent makes systemd create the runtime directory and the
 // socket with that group, so the agent can connect without CAP_CHOWN.
 func helperSystemdUnit(executable string) string {
 	return fmt.Sprintf(`# Installed by "nerve-agent service install --with-helper". Reinstall to update.
@@ -60,7 +60,7 @@ RuntimeDirectoryMode=0750
 StateDirectory=nerve-agent-helper
 StateDirectoryMode=0700
 NoNewPrivileges=true
-CapabilityBoundingSet=
+CapabilityBoundingSet=CAP_KILL
 AmbientCapabilities=
 PrivateNetwork=true
 RestrictAddressFamilies=AF_UNIX

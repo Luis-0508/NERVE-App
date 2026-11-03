@@ -12,8 +12,8 @@ import (
 )
 
 // Policy describes how NERVE accepts one command type. Only types listed here
-// can be queued; privileged and interactive capabilities have no policy yet,
-// so they are refused regardless of what an agent advertises.
+// can be queued; other capabilities are refused regardless of what an agent
+// advertises.
 type Policy struct {
 	Type           string
 	Risk           agentproto.Risk
@@ -54,6 +54,25 @@ func processListParameters(parameters map[string]any) (map[string]any, error) {
 	return map[string]any{"limit": limit}, nil
 }
 
+// managementParameters adapts a shared agentproto validator to Core's error.
+func managementParameters(validate func(map[string]any) (map[string]any, error)) func(map[string]any) (map[string]any, error) {
+	return func(parameters map[string]any) (map[string]any, error) {
+		normalized, err := validate(parameters)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidParameters, err)
+		}
+		return normalized, nil
+	}
+}
+
+// privileged is a system-management command (#92): approval-gated, run by the
+// privileged helper, with a small result.
+func privileged(commandType string, timeout time.Duration, validate func(map[string]any) (map[string]any, error)) Policy {
+	return Policy{Type: commandType, Risk: agentproto.RiskPrivileged, Permission: authz.RemoteExecutePrivileged,
+		DefaultTimeout: timeout, MaxTimeout: 2 * timeout, MaxOutputBytes: 4 << 10, RequiresApproval: true,
+		normalize: managementParameters(validate)}
+}
+
 var policies = map[string]Policy{
 	agentproto.CapabilitySystemInfo: {Type: agentproto.CapabilitySystemInfo, Risk: agentproto.RiskReadOnly, Permission: authz.RemoteExecuteReadOnly,
 		DefaultTimeout: 20 * time.Second, MaxTimeout: time.Minute, MaxOutputBytes: 16 << 10, normalize: noParameters},
@@ -65,6 +84,11 @@ var policies = map[string]Policy{
 		DefaultTimeout: 30 * time.Second, MaxTimeout: 2 * time.Minute, MaxOutputBytes: 512 << 10, normalize: noParameters},
 	agentproto.CapabilitySoftwareList: {Type: agentproto.CapabilitySoftwareList, Risk: agentproto.RiskReadOnly, Permission: authz.RemoteExecuteReadOnly,
 		DefaultTimeout: time.Minute, MaxTimeout: 2 * time.Minute, MaxOutputBytes: 1 << 20, normalize: noParameters},
+	agentproto.CapabilityServiceRestart:   privileged(agentproto.CapabilityServiceRestart, time.Minute, agentproto.ServiceParameters),
+	agentproto.CapabilityServiceStop:      privileged(agentproto.CapabilityServiceStop, time.Minute, agentproto.ServiceParameters),
+	agentproto.CapabilityProcessTerminate: privileged(agentproto.CapabilityProcessTerminate, 30*time.Second, agentproto.ProcessParameters),
+	agentproto.CapabilitySystemReboot:     privileged(agentproto.CapabilitySystemReboot, 30*time.Second, agentproto.NoParameters),
+	agentproto.CapabilitySystemShutdown:   privileged(agentproto.CapabilitySystemShutdown, 30*time.Second, agentproto.NoParameters),
 }
 
 var policiesMu sync.RWMutex
@@ -78,11 +102,9 @@ func PolicyFor(commandType string) (Policy, bool) {
 }
 
 // RegisterPolicy enables an additional command type and returns a function
-// that disables it again. NERVE registers no privileged type yet; the
-// privileged helper's fixed allowlist (#91) will, and tests use it to exercise
-// the approval gate. The type must be in the capability catalogue with the
-// same risk, and anything beyond read-only must require approval. A policy
-// without a parameter validator accepts no parameters.
+// that disables it again (tests use it). The type must be in the capability
+// catalogue with the same risk, and anything beyond read-only must require
+// approval. A policy without a parameter validator accepts no parameters.
 func RegisterPolicy(policy Policy) (func(), error) {
 	info, known := agentproto.LookupCapability(policy.Type)
 	switch {

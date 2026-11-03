@@ -42,10 +42,9 @@ const (
 	helperHealthTTL = 30 * time.Second
 )
 
-// helperHandlers is the compiled allowlist of privileged command types. It is
-// empty until system-management commands (#92) add their handlers; tests
-// register a no-op.
-var helperHandlers = map[string]collector{}
+// helperHandlers is the compiled allowlist of privileged command types: the
+// system-management commands (#92). Tests use their own handlers.
+var helperHandlers = systemCommandHandlers()
 
 type helperRequest struct {
 	Op      string              `json:"op"` // "health" or "run"
@@ -308,6 +307,10 @@ func (s *helperServer) handle(ctx context.Context, request helperRequest) helper
 	output, err := handler(runCtx, command.Parameters)
 	if err != nil {
 		logger.Warn("privileged command failed", "error", err)
+		var failure *helperError
+		if errors.As(err, &failure) {
+			return helperResponse{Code: failure.Code, Reason: failure.Reason}
+		}
 		return helperResponse{Code: "handler_failed", Reason: err.Error()}
 	}
 	logger.Info("privileged command finished")

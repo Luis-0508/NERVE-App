@@ -45,6 +45,6 @@ browser sessions. Permissions in parentheses are checked server-side.
 - `POST /api/v1/devices/{deviceID}/meshcentral/binding` — `confirm` or `unbind` a MeshCentral node (`{"action","nodeId"}`); confirming needs a matching MAC address (`agents.manage`)
 - `GET /api/v1/integrations/meshcentral` — MeshCentral sync status without credentials (`agents.view`); `POST .../sync` syncs now (`agents.manage`)
 - `GET /api/v1/devices/{deviceID}/commands`, `GET /api/v1/agents/{agentID}/commands` — command history without output (`remote.view`)
-- `POST /api/v1/agents/{agentID}/commands` — queue a read-only command (`remote.execute.read_only`); other command types are refused
+- `POST /api/v1/agents/{agentID}/commands` — queue a read-only command (`remote.execute.read_only`) or request a system-management command (`remote.execute.privileged`, stored as `awaiting_approval`); other command types are refused
 - `GET /api/v1/remote/commands/{commandID}` — command state and retained result (`remote.view`); `POST .../cancel` cancels an unfinished command
 - `POST /api/v1/agent/enroll`, `.../identity`, `.../credential/rotate`, `.../heartbeat`, `.../commands/claim`, `.../commands/{commandID}/start`, `.../commands/{commandID}/result` — management-agent endpoints, authenticated by per-agent Ed25519 request signatures (never browser sessions). Every response is signed by Core, except the `503 core_signing_key_missing` answer returned when Core has no signing key; agents reject that unsigned answer and log it as an unverifiable HTTP 503

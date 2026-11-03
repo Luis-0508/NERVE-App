@@ -11,32 +11,31 @@ import (
 
 	"github.com/nerve-labs/nerve/internal/agentproto"
 	"github.com/nerve-labs/nerve/internal/agents"
-	"github.com/nerve-labs/nerve/internal/authz"
 	"github.com/nerve-labs/nerve/internal/remote"
 	"github.com/nerve-labs/nerve/internal/testsupport"
 )
 
-// enableReboot registers a test policy for the catalogued, privileged
-// system.reboot capability; NERVE itself enables no privileged type yet.
+// enableReboot prepares the built-in system.reboot policy; with
+// forbidSelfApproval it requires a second operator for this test.
 func enableReboot(t *testing.T, forbidSelfApproval bool) {
 	t.Helper()
-	unregister, err := remote.RegisterPolicy(remote.Policy{Type: agentproto.CapabilitySystemReboot, Risk: agentproto.RiskPrivileged,
-		Permission: authz.RemoteExecutePrivileged, DefaultTimeout: 30 * time.Second, MaxTimeout: time.Minute, MaxOutputBytes: 4096,
-		RequiresApproval: true, ForbidSelfApproval: forbidSelfApproval})
-	if err != nil {
-		t.Fatal(err)
+	if forbidSelfApproval {
+		remote.ForbidSelfApprovalForTest(t, agentproto.CapabilitySystemReboot)
 	}
-	t.Cleanup(unregister)
 }
+
+// systemManagementTypes are the commands the privileged helper runs (#92).
+var systemManagementTypes = []string{agentproto.CapabilityServiceRestart, agentproto.CapabilityServiceStop,
+	agentproto.CapabilityProcessTerminate, agentproto.CapabilitySystemReboot, agentproto.CapabilitySystemShutdown}
 
 // privilegedTarget is an agent that reported transport, associated with a
 // device in the given trust state ("" leaves the agent unassociated).
 func (f fixture) privilegedTarget(t *testing.T, transport, trust string) (agents.Principal, string) {
 	t.Helper()
 	ctx := context.Background()
-	principal := f.agent(t, agentproto.CapabilitySystemReboot)
+	principal := f.agent(t, systemManagementTypes...)
 	facts := agentproto.HostFacts{Hostname: "host", OS: "linux", Architecture: "amd64", AgentVersion: "test"}
-	if err := f.agents.Heartbeat(ctx, principal, agentproto.HeartbeatRequest{Host: facts, Capabilities: []string{agentproto.CapabilitySystemReboot},
+	if err := f.agents.Heartbeat(ctx, principal, agentproto.HeartbeatRequest{Host: facts, Capabilities: systemManagementTypes,
 		Transport: transport}); err != nil {
 		t.Fatal(err)
 	}
@@ -267,5 +266,103 @@ func TestDatabaseGuardsApprovalStates(t *testing.T) {
 	cancelled, err := f.commands.Cancel(ctx, command.ID, f.actor)
 	if err != nil || cancelled.Status != "cancelled" {
 		t.Fatalf("cancel awaiting command: %+v %v", cancelled, err)
+	}
+}
+
+func TestSystemManagementCommands(t *testing.T) {
+	f := newFixture(t, "remote_system_management")
+	f.commands.SetApprovalKey(testsupport.CoreKey())
+	ctx := context.Background()
+	principal, deviceID := f.privilegedTarget(t, agentproto.TransportHTTPS, "trusted")
+	public := testsupport.CoreKey().Public().(ed25519.PublicKey)
+
+	// Each command is approval-gated, and its validated parameters are bound
+	// into the signed approval the agent and helper verify.
+	runs := []struct {
+		commandType string
+		parameters  map[string]any
+		result      agentproto.CommandResult
+		status      string
+	}{
+		{agentproto.CapabilityServiceRestart, map[string]any{"name": "nginx.service"},
+			agentproto.CommandResult{Status: agentproto.CommandSucceeded, Output: []byte(`{"service":"nginx.service","state":"active"}`)}, "succeeded"},
+		{agentproto.CapabilityProcessTerminate, map[string]any{"pid": 4242.0, "name": "sshd"},
+			agentproto.CommandResult{Status: agentproto.CommandFailed, FailureCode: "protected_target", FailureReason: "The process sshd is protected."}, "failed"},
+		{agentproto.CapabilityServiceStop, map[string]any{"name": "Spooler"},
+			agentproto.CommandResult{Status: agentproto.CommandFailed, FailureCode: "unknown_service", FailureReason: "No service Spooler is installed."}, "failed"},
+		{agentproto.CapabilitySystemShutdown, nil,
+			agentproto.CommandResult{Status: agentproto.CommandSucceeded, Output: []byte(`{"action":"poweroff","scheduled":true}`)}, "succeeded"},
+	}
+	for _, run := range runs {
+		command := f.create(t, principal.AgentID, run.commandType, run.parameters)
+		if command.Status != "awaiting_approval" {
+			t.Fatalf("%s: status %s", run.commandType, command.Status)
+		}
+		if _, err := f.commands.Approve(ctx, command.ID, f.actor); err != nil {
+			t.Fatalf("%s: approve: %v", run.commandType, err)
+		}
+		claimed, err := f.commands.Claim(ctx, principal, 0)
+		if err != nil || claimed.ID != command.ID {
+			t.Fatalf("%s: claim: %v", run.commandType, err)
+		}
+		if err := agentproto.VerifyCommandApproval(public, claimed, time.Now()); err != nil || claimed.Approval.DeviceID != deviceID {
+			t.Fatalf("%s: approval: %v", run.commandType, err)
+		}
+		// A parameter changed after approval no longer matches the signature.
+		if len(claimed.Parameters) > 0 {
+			tampered := claimed
+			tampered.Parameters = map[string]any{"name": "other", "pid": 1.0}
+			if err := agentproto.VerifyCommandApproval(public, tampered, time.Now()); !errors.Is(err, agentproto.ErrApprovalMismatch) {
+				t.Fatalf("%s: tampered parameters verified: %v", run.commandType, err)
+			}
+		}
+		if err := f.commands.Start(ctx, principal, command.ID); err != nil {
+			t.Fatalf("%s: start: %v", run.commandType, err)
+		}
+		if _, err := f.commands.SubmitResult(ctx, principal, command.ID, run.result); err != nil {
+			t.Fatalf("%s: result: %v", run.commandType, err)
+		}
+		stored, err := f.commands.Get(ctx, command.ID)
+		if err != nil || stored.Status != run.status || stored.FailureCode != run.result.FailureCode {
+			t.Fatalf("%s: stored %+v %v", run.commandType, stored, err)
+		}
+		for _, action := range []string{"remote.command.created", "remote.command.approved", "remote.command.claimed"} {
+			if f.auditCount(t, action, command.ID) != 1 {
+				t.Fatalf("%s: missing audit %s", run.commandType, action)
+			}
+		}
+	}
+
+	// Invalid parameters are refused before anything is stored.
+	for commandType, parameters := range map[string]map[string]any{
+		agentproto.CapabilityServiceRestart:   {"name": "--now"},
+		agentproto.CapabilityProcessTerminate: {"pid": 1.0, "name": "systemd"},
+		agentproto.CapabilitySystemReboot:     {"delaySeconds": 0.0},
+	} {
+		if _, err := f.commands.Create(ctx, remote.CreateInput{AgentID: principal.AgentID, Type: commandType, Parameters: parameters}, f.actor); !errors.Is(err, remote.ErrInvalidParameters) {
+			t.Fatalf("%s %v: %v", commandType, parameters, err)
+		}
+	}
+
+	// Scopes are per command type: a technician allowed to restart services
+	// may not end processes or reboot.
+	technicianID := testsupport.CreateUser(t, f.pool, "tech@example.invalid", "integration-password", "technician")
+	technician := agents.Actor{UserID: technicianID}
+	if _, err := f.pool.Exec(ctx, `INSERT INTO remote_scopes (user_id, device_id, command_types) VALUES ($1::uuid, $2::uuid, ARRAY['service.restart'])`,
+		technicianID, deviceID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.commands.Create(ctx, remote.CreateInput{AgentID: principal.AgentID, Type: agentproto.CapabilityServiceRestart,
+		Parameters: map[string]any{"name": "nginx"}}, technician); err != nil {
+		t.Fatalf("scoped restart: %v", err)
+	}
+	for _, commandType := range []string{agentproto.CapabilityProcessTerminate, agentproto.CapabilitySystemReboot} {
+		parameters := map[string]any{}
+		if commandType == agentproto.CapabilityProcessTerminate {
+			parameters = map[string]any{"pid": 4242.0, "name": "nginx"}
+		}
+		if _, err := f.commands.Create(ctx, remote.CreateInput{AgentID: principal.AgentID, Type: commandType, Parameters: parameters}, technician); !errors.Is(err, remote.ErrOutOfScope) {
+			t.Fatalf("%s outside the technician's scope: %v", commandType, err)
+		}
 	}
 }

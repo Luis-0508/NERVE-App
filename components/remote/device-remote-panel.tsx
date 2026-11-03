@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { agentConnectionState } from "@/lib/agent-status";
 import { APIError, api } from "@/lib/api";
 import { ApprovalDialog } from "./approval-dialog";
-import type { RemoteCommand, RemoteCommandStatus, RemoteEndpoint } from "@/lib/types";
+import type { RemoteCapability, RemoteCommand, RemoteCommandStatus, RemoteEndpoint } from "@/lib/types";
 import { MeshCentralEndpoint } from "./meshcentral-endpoint";
 
 const activeStatuses: RemoteCommandStatus[] = ["awaiting_approval", "queued", "claimed", "running"];
@@ -16,6 +16,20 @@ const statusLabels: Record<RemoteCommandStatus, string> = {
 const associationLabels: Record<string, string> = {
   automatic: "Automatic (unique MAC match)", confirmed: "Confirmed by an operator",
 };
+
+// Parameters of the system-management commands (#92). Core and the privileged
+// helper validate them again; these fields only collect them.
+type ParameterField = { key: string; label: string; numeric?: boolean; hint: string };
+const serviceField: ParameterField = { key: "name", label: "Service name", hint: "systemd unit or Windows service name, as in Services" };
+const parameterFields: Record<string, ParameterField[]> = {
+  "service.restart": [serviceField],
+  "service.stop": [serviceField],
+  "process.terminate": [
+    { key: "pid", label: "PID", numeric: true, hint: "Process ID, as in Processes" },
+    { key: "name", label: "Process name", hint: "Must match the running process" },
+  ],
+};
+type ParameterForm = { endpoint: RemoteEndpoint; capability: RemoteCapability; values: Record<string, string> };
 
 function formatDate(value?: string) {
   if (!value) return "—";
@@ -33,6 +47,7 @@ export function DeviceRemotePanel({ deviceId, permissions }: { deviceId: string;
   const canExecute = permissions.includes("remote.execute.read_only");
   const canApprove = permissions.includes("remote.execute.privileged");
   const [approving, setApproving] = useState<RemoteCommand | null>(null);
+  const [form, setForm] = useState<ParameterForm | null>(null);
 
   const load = useCallback(async () => {
     if (!canView) return;
@@ -65,15 +80,31 @@ export function DeviceRemotePanel({ deviceId, permissions }: { deviceId: string;
     if (latest && latest.status !== selected.status) void api.command(selected.id).then(setSelected).catch(() => undefined);
   }, [commands, selected, canSeeCommands]);
 
-  async function run(endpoint: RemoteEndpoint, type: string) {
+  async function run(endpoint: RemoteEndpoint, type: string, parameters: Record<string, unknown> = {}) {
     setBusy(type); setError(null);
     try {
-      const command = await api.createCommand(endpoint.endpointId, type);
-      setSelected(command);
+      const command = await api.createCommand(endpoint.endpointId, type, parameters);
+      setSelected(command); setForm(null);
       await load();
+      // A privileged request goes straight to the approval step.
+      if (command.status === "awaiting_approval" && canApprove) await review(command);
     } catch (requestError) {
       setError(requestError instanceof APIError ? requestError.message : "The command could not be queued.");
     } finally { setBusy(null); }
+  }
+
+  function request(endpoint: RemoteEndpoint, capability: RemoteCapability) {
+    if (parameterFields[capability.name]) setForm({ endpoint, capability, values: {} });
+    else void run(endpoint, capability.name);
+  }
+
+  function submitForm() {
+    if (!form) return;
+    const parameters = Object.fromEntries((parameterFields[form.capability.name] ?? []).map((field) => {
+      const value = (form.values[field.key] ?? "").trim();
+      return [field.key, field.numeric ? Number(value) : value];
+    }));
+    void run(form.endpoint, form.capability.name, parameters);
   }
 
   async function open(command: RemoteCommand) {
@@ -117,11 +148,27 @@ export function DeviceRemotePanel({ deviceId, permissions }: { deviceId: string;
         <div><dt>Capabilities</dt><dd>{endpoint.capabilities.length ? endpoint.capabilities.map((capability) => capability.label).join(", ") : "None reported"}</dd></div>
       </dl>
       {canExecute && endpoint.status === "active" && <div className="remote-actions">
-        {endpoint.capabilities.filter((capability) => capability.executable).map((capability) =>
+        {endpoint.capabilities.filter((capability) => capability.executable && capability.risk === "read_only").map((capability) =>
           <button key={capability.name} className="button" type="button" title={capability.description} disabled={busy !== null} aria-busy={busy === capability.name}
             onClick={() => void run(endpoint, capability.name)}>{capability.label}</button>)}
         {!endpoint.online && <span className="muted">The agent is offline; commands wait until it reconnects or expire.</span>}
       </div>}
+      {canApprove && endpoint.status === "active" && endpoint.capabilities.some((capability) => capability.executable && capability.risk === "privileged") && <div className="remote-actions">
+        <span className="muted">System actions (need approval):</span>
+        {endpoint.capabilities.filter((capability) => capability.executable && capability.risk === "privileged").map((capability) =>
+          <button key={capability.name} className="button" type="button" title={capability.description} disabled={busy !== null} aria-busy={busy === capability.name}
+            aria-expanded={parameterFields[capability.name] ? form?.capability.name === capability.name && form.endpoint.endpointId === endpoint.endpointId : undefined}
+            onClick={() => request(endpoint, capability)}>{capability.label}</button>)}
+      </div>}
+      {form && form.endpoint.endpointId === endpoint.endpointId && <form className="remote-parameters" aria-label={form.capability.label + " parameters"}
+        onSubmit={(event) => { event.preventDefault(); submitForm(); }}>
+        {(parameterFields[form.capability.name] ?? []).map((field) => <label key={field.key} className="field"><span>{field.label}</span>
+          <input className="input" required inputMode={field.numeric ? "numeric" : undefined} pattern={field.numeric ? "[0-9]+" : undefined} title={field.hint}
+            placeholder={field.hint} value={form.values[field.key] ?? ""}
+            onChange={(event) => setForm({ ...form, values: { ...form.values, [field.key]: event.target.value } })} /></label>)}
+        <button className="button button-primary" type="submit" disabled={busy !== null}>Request {form.capability.label.toLowerCase()}</button>
+        <button className="button" type="button" onClick={() => setForm(null)}>Cancel</button>
+      </form>}
     </section>)}
 
     {canSeeCommands && <section>
