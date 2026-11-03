@@ -92,6 +92,11 @@ func diagnose(ctx context.Context, stateDir string) diagnosis {
 	default:
 		result.add("identity", "fail", "%v", err)
 	}
+	agentID := ""
+	if id != nil {
+		agentID = id.AgentID
+	}
+	diagnoseHelper(ctx, &result, agentID)
 	config, err := resolveSettings(stateDir, id)
 	if err != nil {
 		result.add("config", "fail", "%v", err)

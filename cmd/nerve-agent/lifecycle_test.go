@@ -169,8 +169,9 @@ func TestPrepareServiceStateCopiesCAFile(t *testing.T) {
 	if err := os.WriteFile(source, caPEM, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := prepareServiceState(installOptions{APIURL: "https://core.example/api/v1", CAFile: source, StateDir: stateDir}); err != nil {
-		t.Fatal(err)
+	// Without a token nothing is enrolled, so a helper must not be re-pinned.
+	if _, enrolled, err := prepareServiceState(installOptions{APIURL: "https://core.example/api/v1", CAFile: source, StateDir: stateDir}); err != nil || enrolled {
+		t.Fatalf("enrolled=%v err=%v", enrolled, err)
 	}
 	config, err := loadConfig(stateDir)
 	if err != nil {
@@ -351,7 +352,7 @@ func TestInstallTokenPrefersFileOverEnvironment(t *testing.T) {
 
 func TestPrepareServiceStateEnrollsWithEnvironmentToken(t *testing.T) {
 	t.Setenv("NERVE_AGENT_ENROLLMENT_TOKEN", "not-a-valid-token")
-	_, err := prepareServiceState(installOptions{APIURL: "https://core.example/api/v1", StateDir: t.TempDir()})
+	_, _, err := prepareServiceState(installOptions{APIURL: "https://core.example/api/v1", StateDir: t.TempDir()})
 	if err == nil || !strings.HasPrefix(err.Error(), "enrollment:") {
 		t.Fatalf("install must try to enroll with the environment token, got %v", err)
 	}

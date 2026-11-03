@@ -89,6 +89,15 @@ envelope to the agent, which verifies it against its pinned Core key and refuses
 work over plain HTTP. Database triggers keep privileged rows out of claimable states without
 an unexpired approval. Every refusal is audited with a stable error code.
 
+Privileged work never runs in the agent process. The agent forwards an approved privileged
+command to the privileged helper (`nerve-agent helper`, `cmd/nerve-agent/helper*.go`,
+decision 0007) over a local Unix socket checked with `SO_PEERCRED` in both directions. The
+helper has no network access and trusts only `helper.json`, which the root installer writes
+from the enrolled identity; it re-verifies the approval, checks its compiled allowlist and a
+durable replay register, then runs the handler. The agent advertises privileged capabilities
+only while the helper answers a health check for the same agent ID; otherwise privileged
+commands fail with `helper_unavailable`. Linux only so far; the allowlist is empty until #92.
+
 MeshCentral (#104): when `NERVE_MESHCENTRAL_URL` and a service account are set, Core lists
 nodes over `/control.ashx` every `NERVE_MESHCENTRAL_SYNC_INTERVAL` into
 `meshcentral_nodes`. The provider shows bound nodes and unbound nodes whose MAC or hostname
@@ -117,5 +126,5 @@ smoke test; `workflow-checks.yml` runs the workflow tests when workflow files ch
 - New collector or integration: its own package (`internal/integrations/<name>`) added with
   its first real behaviour; credentials encrypted and server-side only.
 - New remote command: through `internal/remote` and the signed agent protocol; a privileged
-  type needs `RequiresApproval` (enforced by `remote.RegisterPolicy`) and stays disabled
-  until the privileged helper (#91) exists.
+  type needs `RequiresApproval` (enforced by `remote.RegisterPolicy`) and a handler in the
+  helper's allowlist (`helperHandlers` in `cmd/nerve-agent/helper.go`).

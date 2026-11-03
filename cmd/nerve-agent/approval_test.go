@@ -16,7 +16,7 @@ import (
 )
 
 // privilegedTestManager runs a manager against a fake Core over HTTPS (or
-// plain HTTP) with a privileged test collector that records whether it ran.
+// plain HTTP) with a fake helper that records whether it ran.
 func privilegedTestManager(t *testing.T, useTLS bool) (*manager, *[]recordedCall, *bool) {
 	t.Helper()
 	public, private, _ := ed25519.GenerateKey(nil)
@@ -43,12 +43,26 @@ func privilegedTestManager(t *testing.T, useTLS bool) (*manager, *[]recordedCall
 	id := &identity{CredentialID: "cred", key: private, coreKey: testCorePublic}
 	m := &manager{client: newManagementClientWith(server.URL+"/api/v1", id, server.Client().Transport), agentID: "agent-1",
 		logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		capabilities: func() []string { return []string{agentproto.CapabilitySystemReboot} }, facts: collectHostFacts,
-		collectors: map[string]collector{agentproto.CapabilitySystemReboot: func(context.Context, map[string]any) (map[string]any, error) {
-			ran = true
-			return map[string]any{"ok": true}, nil
-		}}}
+		capabilities: func() []string { return []string{agentproto.CapabilitySystemReboot} }, facts: collectHostFacts}
+	m.helper = &fakeHelper{available: []string{agentproto.CapabilitySystemReboot}, ran: &ran}
 	return m, &calls, &ran
+}
+
+// fakeHelper stands in for the privileged helper on the agent side.
+type fakeHelper struct {
+	available []string
+	ran       *bool
+	err       error
+}
+
+func (f *fakeHelper) types() []string { return f.available }
+
+func (f *fakeHelper) run(context.Context, agentproto.Command) (map[string]any, error) {
+	*f.ran = true
+	if f.err != nil {
+		return nil, f.err
+	}
+	return map[string]any{"ok": true}, nil
 }
 
 func approvedRebootCommand(id string, key ed25519.PrivateKey, now time.Time) agentproto.Command {
@@ -123,5 +137,40 @@ func TestPrivilegedCommandRefusals(t *testing.T) {
 				t.Fatalf("failure code %q, want %q", code, tc.code)
 			}
 		})
+	}
+}
+
+func TestPrivilegedCommandFailsClosedWithoutHelper(t *testing.T) {
+	for name, helper := range map[string]privilegedRunner{"no helper": nil, "unreachable helper": &fakeHelper{ran: new(bool)}} {
+		t.Run(name, func(t *testing.T) {
+			m, calls, ran := privilegedTestManager(t, true)
+			m.helper = helper
+			m.execute(context.Background(), approvedRebootCommand("h1", testCoreKey, time.Now()))
+			if *ran || len(*calls) != 1 || failureCode(t, (*calls)[0]) != "helper_unavailable" {
+				t.Fatalf("ran=%v calls=%s", *ran, routes(*calls))
+			}
+		})
+	}
+}
+
+func TestHelperRefusalBecomesTheFailureCode(t *testing.T) {
+	m, calls, _ := privilegedTestManager(t, true)
+	m.helper.(*fakeHelper).err = &helperError{"replayed", "This command was already executed."}
+	m.execute(context.Background(), approvedRebootCommand("h2", testCoreKey, time.Now()))
+	if routes(*calls) != "/agent/commands/h2/start,/agent/commands/h2/result" || failureCode(t, (*calls)[1]) != "replayed" {
+		t.Fatalf("calls=%s", routes(*calls))
+	}
+}
+
+func TestPrivilegedCapabilitiesComeOnlyFromTheHelper(t *testing.T) {
+	base := func() []string { return []string{agentproto.CapabilitySystemInfo} }
+	helper := &fakeHelper{}
+	capabilities := withPrivileged(base, helper, []string{agentproto.CapabilityScriptRun})
+	if got := capabilities(); len(got) != 1 {
+		t.Fatalf("capabilities without helper types = %v", got)
+	}
+	helper.available = []string{agentproto.CapabilitySystemReboot, agentproto.CapabilityScriptRun}
+	if got := strings.Join(capabilities(), ","); got != "system.info,system.reboot" {
+		t.Fatalf("capabilities = %s", got)
 	}
 }

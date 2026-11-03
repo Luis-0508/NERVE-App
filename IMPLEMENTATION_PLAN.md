@@ -100,9 +100,10 @@ remote-management foundation, then device identity.
    Privileged commands stay blocked until PR 2 lands. The approval gate (#99) is
    implemented: HTTPS transport reported in signed heartbeats, the `trusted` device check,
    `remote_scopes`, two-step operator approval showing target identity and evidence, and a
-   Core-signed approval the agent verifies. Still missing before any privileged type is
-   enabled: the privileged helper separate from the unprivileged agent (#91), which verifies
-   the approval again, and signed agent updates. Transcript redaction, configurable
+   Core-signed approval the agent verifies. The privileged helper (#91, decision 0007) runs
+   on Linux as a separate root service without network access and verifies the approval
+   again; its allowlist is empty until #92. Still missing: the Windows helper channel and
+   signed agent updates. Transcript redaction, configurable
    retention and output access are implemented.
 4. **Interactive sessions (decision 0006), in parallel with the RMM milestone.** A
    MeshCentral adapter behind `remote.Provider`: read-only node listing and

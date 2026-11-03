@@ -114,6 +114,9 @@ func requireAdministrator() error {
 }
 
 func installService(options installOptions) error {
+	if options.WithHelper {
+		return errors.New("the privileged helper is not available on Windows yet")
+	}
 	if err := requireAdministrator(); err != nil {
 		return err
 	}
@@ -198,7 +201,7 @@ func installService(options installOptions) error {
 	if err := restrictDir(options.StateDir, sid); err != nil {
 		return fmt.Errorf("restrict %s: %w", options.StateDir, err)
 	}
-	id, err := prepareServiceState(options)
+	id, _, err := prepareServiceState(options)
 	if err != nil {
 		return err
 	}

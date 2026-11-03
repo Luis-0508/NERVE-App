@@ -27,6 +27,8 @@ const usage = `Usage:
   nerve-agent rotate-key      replace the agent key without re-enrolling
   nerve-agent diagnose        check configuration, identity, network, TLS and Core
   nerve-agent service ...     install, uninstall, start, stop or query the service
+  nerve-agent helper          run the privileged helper (Linux; installed with
+                              "service install --with-helper")
   nerve-agent version         print the agent version (also --version)
   nerve-agent verify-release DIR
                               verify a downloaded release against the pinned release key
@@ -74,6 +76,8 @@ func runCLI(args []string) int {
 		return runDiagnose(args)
 	case "service":
 		return runService(args)
+	case "helper":
+		return runHelper(args)
 	case "version":
 		fmt.Println(version)
 		return 0
@@ -401,8 +405,13 @@ func runManagement(ctx context.Context, options managementOptions, id *identity)
 		var settled bool
 		id, settled = settlePendingRotation(ctx, options, apiURL, id, options.logger)
 		client := newManagementClientWith(apiURL, id, options.transport)
+		capabilities := capabilitiesWithout(options.settings.DisabledCapabilities, options.settings.Discovery)
+		helper := newLocalHelperClient(id.AgentID, options.logger)
+		if helper != nil {
+			capabilities = withPrivileged(capabilities, helper, options.settings.DisabledCapabilities)
+		}
 		m := &manager{client: client, agentID: id.AgentID, logger: options.logger,
-			heartbeatInterval: 30 * time.Second, capabilities: capabilitiesWithout(options.settings.DisabledCapabilities, options.settings.Discovery),
+			heartbeatInterval: 30 * time.Second, capabilities: capabilities, helper: helper,
 			facts: collectHostFacts, runtime: runtimeReporter(options.runMode, startedAt)}
 		options.logger.Info("NERVE management agent started", "agent_id", id.AgentID, "fingerprint", id.Fingerprint, "api", apiURL,
 			"version", version, "run_mode", options.runMode)
