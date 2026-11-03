@@ -3,12 +3,12 @@
 Narrative snapshot of where NERVE stands. **The repository is authoritative:** if git, the
 code or GitHub issues disagree with this file, trust them and correct this file.
 
-- Last updated: 2026-10-29
-- Verified against: `master` at `11b67a4`
+- Last updated: 2026-11-03
+- Verified against: `master` at `41360b5`
 
 ## What exists
 
-- Go Core with PostgreSQL (checksummed migrations up to `000015`), static Next.js UI, Nginx
+- Go Core with PostgreSQL (checksummed migrations up to `000016`), static Next.js UI, Nginx
   proxy, Docker Compose; health/readiness endpoints and SSE.
 - Sign-in with first-admin bootstrap, roles mapped to permissions, immutable audit log.
 - Device inventory with server-side search and paging; device identity with operator-owned
@@ -27,6 +27,9 @@ code or GitHub issues disagree with this file, trust them and correct this file.
   enrollment command (K-20), reusable deployment keys with operator approval of new agents
   (K-22), agent-initiated key rotation with crash-safe recovery (K-10), and secret
   redaction plus configurable retention for command output (K-18).
+- Approval gate for privileged commands (#99): HTTPS transport in signed heartbeats, the
+  `trusted` device check, `remote_scopes`, two-step operator approval and a Core-signed
+  approval the agent verifies. No privileged command type is enabled yet.
 - Releases: `v0.1.0` published on 2026-10-23. A `v*` tag builds reproducible agent
   binaries, signs the manifest with the key pinned in `internal/release/keys.go` and opens a
   draft release (K-7, decision 0003, `docs/RELEASING.md`).
@@ -40,24 +43,25 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 
 ## Active work
 
-- #99 (approval gate for privileged commands, migration `000016`) is in review on
-  `feat/99-privileged-approval-gate`. The approval dialog was not checked in a browser.
+- #104 (read-only MeshCentral provider) is in review as PR #111.
+- #91 (privileged helper) is next on the native RMM track.
+- The #99 approval dialog was not checked in a browser yet.
 - Windows service installation (K-1) on a real elevated host is not verified yet.
 
 ## Blockers
 
-- None in code. Privileged remote commands stay blocked until #99 (approval gate) and #91
-  (privileged helper) land, by design.
+- None in code. Privileged remote commands stay blocked until #91 (privileged helper)
+  lands, by design.
 - #97 (per-sensor identity) waits for the maintainer's choice between options 1–3 on the
   issue (#97).
 
 ## Next priorities
 
 This order is the priority. Issues migrated from the board keep their K-n ID in the first
-line; #98, #99, #101 and #104 are unblocked.
+line; #91, #98, #101 and #104 are unblocked.
 
 1. Production RMM milestone (hybrid, decision 0006), two parallel tracks:
-   - native path: #99 approval gate → #91 privileged helper (fixed allowlist) → #92
+   - native path: #91 privileged helper (fixed allowlist) → #92
      system-management commands → #93 RMM device page;
    - MeshCentral: #104 read-only provider → #105 encrypted integration credentials → #106
      audited remote sessions;
