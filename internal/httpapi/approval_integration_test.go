@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/nerve-labs/nerve/internal/agentproto"
-	"github.com/nerve-labs/nerve/internal/authz"
 	"github.com/nerve-labs/nerve/internal/config"
 	"github.com/nerve-labs/nerve/internal/httpapi"
 	"github.com/nerve-labs/nerve/internal/remote"
@@ -23,12 +22,6 @@ import (
 )
 
 func TestPrivilegedApprovalOverHTTP(t *testing.T) {
-	unregister, err := remote.RegisterPolicy(remote.Policy{Type: agentproto.CapabilitySystemReboot, Risk: agentproto.RiskPrivileged,
-		Permission: authz.RemoteExecutePrivileged, DefaultTimeout: 30 * time.Second, MaxTimeout: time.Minute, MaxOutputBytes: 4096, RequiresApproval: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer unregister()
 	pool := testsupport.MigratedPool(t, "http_approval")
 	adminID := testsupport.CreateUser(t, pool, "admin@example.invalid", "integration-password", "administrator")
 	testsupport.CreateUser(t, pool, "tech@example.invalid", "integration-password", "technician")

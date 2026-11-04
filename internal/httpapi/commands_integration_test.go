@@ -42,7 +42,7 @@ func TestRemoteCommandLifecycleOverHTTP(t *testing.T) {
 	}
 	commandsURL := server.URL + "/api/v1/agents/" + agent.agentID + "/commands"
 
-	// Authorization: viewers cannot execute; privileged commands are not enabled for anyone.
+	// Authorization: viewers cannot execute; shell commands are never enabled (decision 0006).
 	for client, expected := range map[*http.Client]int{viewer: http.StatusForbidden} {
 		response := doJSON(t, client, http.MethodPost, commandsURL, `{"type":"system.info"}`, nil)
 		if response.StatusCode != expected {

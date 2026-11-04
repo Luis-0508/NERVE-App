@@ -243,14 +243,16 @@ installation has no helper, and privileged commands then fail with `helper_unava
   the helper accepts only `NT SERVICE\NERVEAgent` (and SYSTEM), and the agent only a pipe
   owned by SYSTEM.
 - **Isolation.** The helper never contacts Core. On Linux it has no network at all
-  (`PrivateNetwork=true`, Unix sockets only), an empty capability bounding set,
-  `NoNewPrivileges` and `ProtectSystem=strict`. Windows offers no per-service network
+  (`PrivateNetwork=true`, Unix sockets only), only `CAP_KILL` in its capability bounding
+  set (to end processes of other users), `NoNewPrivileges` and `ProtectSystem=strict`. Windows offers no per-service network
   isolation; there the binary must be installed under `%ProgramFiles%`.
 - **Checks per command.** Core signature, agent binding, type, parameter digest, approval
   expiry and command deadline, the helper's compiled allowlist, and a replay register
   (`executed.json`) written before anything runs.
-- **Allowlist.** Empty in this release: the helper runs no privileged command type yet.
-  System-management commands (#92) add the first ones.
+- **Allowlist.** The system-management commands `service.restart`, `service.stop`,
+  `process.terminate`, `system.reboot` and `system.shutdown`, with protection lists the
+  helper enforces itself (see
+  [System-management commands](REMOTE_MANAGEMENT.md#system-management-commands)).
 - `nerve-agent diagnose` reports the helper, its channel and the identity it serves. Logs:
   `journalctl -u nerve-agent-helper` on Linux, the Windows Application log (source
   `NERVEAgentHelper`) on Windows. `service uninstall` removes the helper as well, and

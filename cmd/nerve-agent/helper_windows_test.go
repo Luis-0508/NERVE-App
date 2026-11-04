@@ -229,3 +229,15 @@ func TestWindowsHelperPipeClientCannotCreateInstances(t *testing.T) {
 		t.Fatalf("client access %#x allows creating pipe instances", helperPipeClientAccess)
 	}
 }
+
+func TestProcessServicesListsHostedServices(t *testing.T) {
+	// The test process hosts no service; enumerating the SCM must still work
+	// for a standard user.
+	services, err := processServices(uint32(os.Getpid()))
+	if err != nil || len(services) != 0 {
+		t.Fatalf("services=%v err=%v", services, err)
+	}
+	if !serviceProtected("TermService", "stop") || serviceProtected("TermService", "restart") || !serviceProtected("nerveagent", "restart") {
+		t.Fatal("protection lists wrong")
+	}
+}

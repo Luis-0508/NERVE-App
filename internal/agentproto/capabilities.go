@@ -18,11 +18,19 @@ const (
 	// and report local network scans. It is not a remote command type.
 	CapabilityDiscoveryScan = "discovery.scan"
 
-	// Reserved for later milestones. Core refuses to queue them today.
+	// System-management commands (#92). They run only in the privileged
+	// helper, after an operator approved them (decisions 0007 and 0008).
+	CapabilityServiceRestart   = "service.restart"
+	CapabilityServiceStop      = "service.stop"
+	CapabilityProcessTerminate = "process.terminate"
+	CapabilitySystemReboot     = "system.reboot"
+	CapabilitySystemShutdown   = "system.shutdown"
+
+	// Reserved; decision 0006 leaves shell, scripts, files and desktop to
+	// MeshCentral. Core refuses to queue them.
 	CapabilityCommandShell      = "command.shell"
 	CapabilityCommandPowerShell = "command.powershell"
 	CapabilityScriptRun         = "script.run"
-	CapabilitySystemReboot      = "system.reboot"
 	CapabilityFileTransfer      = "file.transfer"
 	CapabilityRemoteDesktop     = "remote.desktop"
 	CapabilityRemoteTerminal    = "remote.terminal"
@@ -53,10 +61,14 @@ var Catalogue = []CapabilityInfo{
 	{CapabilityServiceList, "Services", RiskReadOnly, "Installed services and their state"},
 	{CapabilitySoftwareList, "Software", RiskReadOnly, "Installed software packages"},
 	{CapabilityDiscoveryScan, "Network discovery", RiskReadOnly, "ARP, ICMP and TCP probes of the administrator-configured subnet"},
+	{CapabilityServiceRestart, "Restart service", RiskPrivileged, "Restart one service; protected system and NERVE services are refused"},
+	{CapabilityServiceStop, "Stop service", RiskPrivileged, "Stop one service; protected system and NERVE services are refused"},
+	{CapabilityProcessTerminate, "End process", RiskPrivileged, "End one process identified by PID and name; protected processes are refused"},
+	{CapabilitySystemReboot, "Reboot", RiskPrivileged, "Restart the endpoint after a short delay"},
+	{CapabilitySystemShutdown, "Shut down", RiskPrivileged, "Shut the endpoint down after a short delay"},
 	{CapabilityCommandShell, "Shell command", RiskPrivileged, "Run a shell command (not enabled)"},
 	{CapabilityCommandPowerShell, "PowerShell command", RiskPrivileged, "Run a PowerShell command (not enabled)"},
 	{CapabilityScriptRun, "Run script", RiskPrivileged, "Run a catalogued script (not enabled)"},
-	{CapabilitySystemReboot, "Reboot", RiskPrivileged, "Restart the endpoint (not enabled)"},
 	{CapabilityFileTransfer, "File transfer", RiskInteractive, "Transfer files (not enabled)"},
 	{CapabilityRemoteDesktop, "Remote desktop", RiskInteractive, "Interactive desktop session (not enabled)"},
 	{CapabilityRemoteTerminal, "Terminal", RiskInteractive, "Interactive terminal session (not enabled)"},

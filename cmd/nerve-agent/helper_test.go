@@ -10,6 +10,7 @@ import (
 	"net"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -121,10 +122,34 @@ func TestHelperRefusals(t *testing.T) {
 	}
 }
 
-func TestHelperProductionAllowlistIsEmpty(t *testing.T) {
-	// #92 adds handlers together with their policies and tests.
-	if len(helperHandlers) != 0 {
-		t.Fatalf("unexpected privileged handlers: %v", helperHandlers)
+func TestHelperProductionAllowlist(t *testing.T) {
+	// The allowlist is exactly the system-management commands (#92); shell,
+	// scripts and files stay with MeshCentral (decision 0006).
+	want := []string{agentproto.CapabilityProcessTerminate, agentproto.CapabilityServiceRestart, agentproto.CapabilityServiceStop,
+		agentproto.CapabilitySystemReboot, agentproto.CapabilitySystemShutdown}
+	server := &helperServer{handlers: helperHandlers}
+	if got := server.types(); strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("allowlist = %v, want %v", got, want)
+	}
+	for _, name := range want {
+		if info, ok := agentproto.LookupCapability(name); !ok || info.Risk != agentproto.RiskPrivileged {
+			t.Errorf("%s is not a catalogued privileged capability", name)
+		}
+	}
+}
+
+func TestSystemCommandsRevalidateParameters(t *testing.T) {
+	for commandType, parameters := range map[string]map[string]any{
+		agentproto.CapabilityServiceRestart:   {"name": "--now"},
+		agentproto.CapabilityServiceStop:      {},
+		agentproto.CapabilityProcessTerminate: {"pid": 1.0, "name": "init"},
+		agentproto.CapabilitySystemReboot:     {"force": true},
+	} {
+		_, err := helperHandlers[commandType](context.Background(), parameters)
+		var refusal *helperError
+		if !errors.As(err, &refusal) || refusal.Code != "invalid_parameters" {
+			t.Errorf("%s %v: err = %v", commandType, parameters, err)
+		}
 	}
 }
 
