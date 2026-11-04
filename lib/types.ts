@@ -280,4 +280,20 @@ export type RemoteCommand = {
   result?: { output?: unknown; outputTruncated: boolean; outputBytes: number; submittedAt: string; redactions?: Record<string, number>; outputWithheld?: boolean };
 };
 
+// One immutable audit record; parameters hold identifiers and sizes only.
+export type AuditRecord = {
+  id: number;
+  actorUserId?: string;
+  actorEmail?: string;
+  actorAgentId?: string;
+  action: string;
+  targetType: string;
+  targetId?: string;
+  parameters: Record<string, unknown>;
+  result: "success" | "failure" | "denied" | string;
+  errorCode?: string;
+  sourceAddress?: string;
+  occurredAt: string;
+};
+
 export type MeshCentralStatus = { configured: boolean; lastAttemptAt?: string; lastSuccessAt?: string; lastError?: string; nodeCount: number };

@@ -380,6 +380,27 @@ Audit parameters hold only identifiers, types, sizes, digests and outcomes. They
 hold tokens, keys or command output. Results live in `remote_command_results` and are
 referenced by command ID.
 
+`GET /api/v1/devices/{id}/audit` (`audit.view`) lists one device's trail: records for the
+device and devices merged into it, for the agents associated with it now and for its remote
+commands. Records of an agent that was later moved to another device appear there instead.
+
+## RMM device view (#93)
+
+The **Remote** tab of a device groups the native agent's data into sections: overview,
+system, performance, processes, services, software, actions, command history, audit and
+remote session. The inventory sections show the newest retained result of their read-only
+command (`GET /api/v1/devices/{id}/remote/snapshots`) with the time the agent reported it and
+the operator who requested it; **Refresh** queues a new command. Nothing is collected on a
+schedule: a section without a result says so and offers to request one. Each section shows
+its own state: loading, not reported by the agent, offline (last report kept), refresh in
+progress, last request failed (older data kept), not permitted and failed to load.
+
+Process and service rows offer **End**, **Restart** and **Stop** when the agent advertises
+the matching system-management command and the operator holds
+`remote.execute.privileged`; the request goes through the usual approval dialog. The
+remote session section shows MeshCentral presence; starting sessions from NERVE comes with
+#106.
+
 ## Current limitations
 
 - **No confidentiality on plain HTTP.** Both directions are authenticated (agent request

@@ -260,6 +260,26 @@ func (s *Server) auditLog(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": records})
 }
 
+// deviceAudit lists the audit records of one device, its associated agents
+// and its remote commands (#93).
+func (s *Server) deviceAudit(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requirePermission(w, r, authz.AuditView); !ok {
+		return
+	}
+	deviceID := r.PathValue("deviceID")
+	if !isUUID(deviceID) {
+		writeError(w, http.StatusBadRequest, "invalid_device_id", "Device ID must be a UUID.")
+		return
+	}
+	records, err := audit.List(r.Context(), s.db, audit.Filter{DeviceID: deviceID, Limit: 100})
+	if err != nil {
+		s.logger.Error("query device audit log", "error", err)
+		writeError(w, http.StatusInternalServerError, "audit_unavailable", "The audit log could not be loaded.")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": records})
+}
+
 func (s *Server) writeAgentError(w http.ResponseWriter, err error) bool {
 	switch {
 	case err == nil:

@@ -1,4 +1,4 @@
-import type { AgentDeploymentKey, AgentEnrollment,Device, DeviceDetail, DeviceFacets, DeviceList, DeviceMetadataUpdate, DeviceVocabulary, DuplicateCandidate, IdentityReport, TrustState, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ManagementAgent, MeshCentralStatus, RemoteCommand, RemoteEndpoint, ServiceStatus, Session, TrafficSnapshot } from "./types";
+import type { AgentDeploymentKey, AgentEnrollment,Device, DeviceDetail, DeviceFacets, DeviceList, DeviceMetadataUpdate, DeviceVocabulary, DuplicateCandidate, IdentityReport, TrustState, DiscoveryScan, DiscoveryState, DiscoveryTarget, EventList, ManagementAgent, MeshCentralStatus, RemoteCommand, AuditRecord, RemoteEndpoint, ServiceStatus, Session, TrafficSnapshot } from "./types";
 
 import type { TrafficCapture } from "./types";
 
@@ -78,6 +78,9 @@ export const api = {
   revokeDeploymentKey: (id: string) => request<AgentDeploymentKey>(`/api/v1/agent-deployment-keys/${encodeURIComponent(id)}/revoke`, { method: "POST", body: "{}" }),
   deviceRemote: (deviceId: string) => request<{ endpoints: RemoteEndpoint[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/remote`),
   deviceCommands: (deviceId: string) => request<{ items: RemoteCommand[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/commands`),
+  // Newest retained result of each read-only inventory command (#93).
+  deviceSnapshots: (deviceId: string) => request<{ items: RemoteCommand[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/remote/snapshots`),
+  deviceAudit: (deviceId: string) => request<{ items: AuditRecord[] }>(`/api/v1/devices/${encodeURIComponent(deviceId)}/audit`),
   createCommand: (agentId: string, type: string, parameters: Record<string, unknown> = {}) =>
     request<RemoteCommand>(`/api/v1/agents/${encodeURIComponent(agentId)}/commands`, { method: "POST", body: JSON.stringify({ type, parameters }) }),
   command: (id: string) => request<RemoteCommand>(`/api/v1/remote/commands/${encodeURIComponent(id)}`),

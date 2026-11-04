@@ -70,7 +70,7 @@ line; #98, #101 and #105 are unblocked.
 
 1. Production RMM milestone (hybrid, decision 0006), two parallel tracks:
    - native path: #91 privileged helper (done) → #92 (done; inventory in #118)
-     system-management commands → #93 RMM device page;
+     system-management commands → #93 RMM device page (in review);
    - MeshCentral: #104 read-only provider (done, #111) → #105 encrypted integration credentials → #106
      audited remote sessions;
    then #100 remote agent updates; #96 documentation and real-host verification last.

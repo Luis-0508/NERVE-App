@@ -101,6 +101,25 @@ func (s *Server) listDeviceCommands(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
+// deviceSnapshots returns the newest retained result of each read-only
+// inventory command for a device (#93). Only read-only commands qualify, so
+// no output needs to be withheld.
+func (s *Server) deviceSnapshots(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.requirePermission(w, r, authz.RemoteView); !ok {
+		return
+	}
+	deviceID := r.PathValue("deviceID")
+	if !isUUID(deviceID) {
+		writeError(w, http.StatusBadRequest, "invalid_device_id", "Device ID must be a UUID.")
+		return
+	}
+	items, err := s.commands.Snapshots(r.Context(), deviceID)
+	if s.writeCommandError(w, err) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 func (s *Server) commandDetail(w http.ResponseWriter, r *http.Request) {
 	user, ok := s.requirePermission(w, r, authz.RemoteView)
 	if !ok {
