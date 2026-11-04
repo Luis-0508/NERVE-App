@@ -73,7 +73,10 @@ Remote commands: an operator with the permission queues one of the read-only com
 (`POST /api/v1/agents/{agentID}/commands`); `internal/remote` stores and audits it. The
 enrolled agent claims it over the signed agent API (`/api/v1/agent/commands/claim`), reports
 start and result, and the at-most-once pipeline stores the result for the device's command
-history. Operators can cancel queued commands.
+history. Operators can cancel queued commands. The device's Remote tab
+(`components/remote/device-remote-panel.tsx`, with `rmm-inventory.tsx` and
+`rmm-activity.tsx`) reads the newest result per read-only type from
+`remote.Service.Snapshots` and the device audit trail from `audit.List` with a device filter.
 
 Privileged commands pass an approval gate (`internal/remote/approval.go`, migration
 `000016`). The system-management commands (#92) are the privileged policies in

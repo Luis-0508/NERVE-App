@@ -83,7 +83,11 @@ type Filter struct {
 	TargetType   string
 	TargetID     string
 	ActionPrefix string
-	Limit        int
+	// DeviceID limits the records to one device: the device itself (and
+	// devices merged into it), the agents currently associated with it and
+	// the remote commands requested for it.
+	DeviceID string
+	Limit    int
 }
 
 func List(ctx context.Context, db Querier, filter Filter) ([]Record, error) {
@@ -97,7 +101,12 @@ func List(ctx context.Context, db Querier, filter Filter) ([]Record, error) {
 		WHERE (NULLIF($1, '') IS NULL OR log.target_type = $1)
 		  AND (NULLIF($2, '') IS NULL OR log.target_id = $2)
 		  AND (NULLIF($3, '') IS NULL OR log.action LIKE $3 || '%')
-		ORDER BY log.occurred_at DESC, log.id DESC LIMIT $4`, filter.TargetType, filter.TargetID, filter.ActionPrefix, filter.Limit)
+		  AND (NULLIF($5, '') IS NULL OR (log.target_type, log.target_id) IN (
+			SELECT 'device', entity_id::text FROM devices WHERE entity_id = NULLIF($5, '')::uuid OR merged_into = NULLIF($5, '')::uuid
+			UNION ALL SELECT 'agent', id::text FROM agents WHERE device_id = NULLIF($5, '')::uuid
+			UNION ALL SELECT 'remote_command', id::text FROM remote_commands WHERE device_id = NULLIF($5, '')::uuid
+			  OR device_id IN (SELECT entity_id FROM devices WHERE merged_into = NULLIF($5, '')::uuid)))
+		ORDER BY log.occurred_at DESC, log.id DESC LIMIT $4`, filter.TargetType, filter.TargetID, filter.ActionPrefix, filter.Limit, filter.DeviceID)
 	if err != nil {
 		return nil, fmt.Errorf("query audit log: %w", err)
 	}

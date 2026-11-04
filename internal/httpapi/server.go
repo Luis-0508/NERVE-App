@@ -219,6 +219,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/integrations/meshcentral", s.meshCentralStatus)
 	mux.HandleFunc("POST /api/v1/integrations/meshcentral/sync", s.syncMeshCentral)
 	mux.HandleFunc("GET /api/v1/devices/{deviceID}/commands", s.listDeviceCommands)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/remote/snapshots", s.deviceSnapshots)
+	mux.HandleFunc("GET /api/v1/devices/{deviceID}/audit", s.deviceAudit)
 	mux.HandleFunc("GET /api/v1/agents/{agentID}/commands", s.listAgentCommands)
 	mux.HandleFunc("POST /api/v1/agents/{agentID}/commands", s.createCommand)
 	mux.HandleFunc("GET /api/v1/remote/commands/{commandID}", s.commandDetail)
