@@ -125,8 +125,8 @@ func TestHelperRefusals(t *testing.T) {
 func TestHelperProductionAllowlist(t *testing.T) {
 	// The allowlist is exactly the system-management commands (#92); shell,
 	// scripts and files stay with MeshCentral (decision 0006).
-	want := []string{agentproto.CapabilityProcessTerminate, agentproto.CapabilityServiceRestart, agentproto.CapabilityServiceStop,
-		agentproto.CapabilitySystemReboot, agentproto.CapabilitySystemShutdown}
+	want := []string{agentproto.CapabilityLogsRead, agentproto.CapabilityProcessTerminate, agentproto.CapabilityServiceRestart,
+		agentproto.CapabilityServiceStop, agentproto.CapabilitySystemReboot, agentproto.CapabilitySystemShutdown}
 	server := &helperServer{handlers: helperHandlers}
 	if got := server.types(); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("allowlist = %v, want %v", got, want)
@@ -144,6 +144,7 @@ func TestSystemCommandsRevalidateParameters(t *testing.T) {
 		agentproto.CapabilityServiceStop:      {},
 		agentproto.CapabilityProcessTerminate: {"pid": 1.0, "name": "init"},
 		agentproto.CapabilitySystemReboot:     {"force": true},
+		agentproto.CapabilityLogsRead:         {"lines": 0.0},
 	} {
 		_, err := helperHandlers[commandType](context.Background(), parameters)
 		var refusal *helperError

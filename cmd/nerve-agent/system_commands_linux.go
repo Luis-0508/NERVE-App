@@ -205,3 +205,30 @@ func scheduleShutdown(ctx context.Context, reboot bool) (map[string]any, error) 
 	}
 	return map[string]any{"action": action, "scheduled": true, "inSeconds": int(shutdownDelay.Seconds())}, nil
 }
+
+// readLogs reads the newest journal entries, optionally of one service.
+func readLogs(ctx context.Context, source string, lines int, since time.Duration) ([]logEntry, error) {
+	args := []string{"--no-pager", "--output=json", "--reverse", "--lines=" + strconv.Itoa(lines),
+		"--since=-" + strconv.Itoa(int(since.Minutes())) + "min"}
+	if source != "" {
+		if strings.Contains(source, " ") {
+			return nil, &helperError{"invalid_parameters", "A systemd unit name has no spaces."}
+		}
+		if !strings.Contains(source, ".") {
+			source += ".service"
+		}
+		args = append(args, "--unit="+source)
+	}
+	command := exec.CommandContext(ctx, "journalctl", args...)
+	command.Env = []string{"LC_ALL=C", "PATH=/usr/sbin:/usr/bin:/sbin:/bin"}
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	if err := command.Run(); err != nil && stdout.Len() == 0 {
+		message := strings.TrimSpace(stderr.String())
+		if len(message) > 500 {
+			message = message[:500]
+		}
+		return nil, fmt.Errorf("journalctl: %v: %s", err, message)
+	}
+	return parseJournal(stdout.Bytes()), nil
+}

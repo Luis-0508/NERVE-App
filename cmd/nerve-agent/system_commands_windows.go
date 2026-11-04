@@ -3,11 +3,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -177,4 +181,39 @@ func enableShutdownPrivilege() error {
 	privileges := windows.Tokenprivileges{PrivilegeCount: 1}
 	privileges.Privileges[0] = windows.LUIDAndAttributes{Luid: luid, Attributes: windows.SE_PRIVILEGE_ENABLED}
 	return windows.AdjustTokenPrivileges(token, false, &privileges, uint32(unsafe.Sizeof(privileges)), nil, nil)
+}
+
+// eventLogs are the logs logs.read may query. The Security log is excluded on
+// purpose: it records sign-ins and is not needed for service diagnostics.
+var eventLogs = []string{"System", "Application"}
+
+// readLogs queries the newest events of the System and Application logs,
+// optionally of one event source (provider).
+func readLogs(ctx context.Context, source string, lines int, since time.Duration) ([]logEntry, error) {
+	filter := "TimeCreated[timediff(@SystemTime) <= " + strconv.FormatInt(since.Milliseconds(), 10) + "]"
+	if source != "" {
+		// LogParameters admits no quotes, so the name is a plain literal.
+		filter = "Provider[@Name='" + source + "'] and " + filter
+	}
+	tool := filepath.Join(os.Getenv("SystemRoot"), "System32", "wevtutil.exe")
+	var entries []logEntry
+	for _, log := range eventLogs {
+		command := exec.CommandContext(ctx, tool, "qe", log, "/c:"+strconv.Itoa(lines), "/rd:true", "/f:RenderedXml", "/uni:true",
+			"/q:*[System["+filter+"]]")
+		var stdout, stderr bytes.Buffer
+		command.Stdout, command.Stderr = &stdout, &stderr
+		if err := command.Run(); err != nil {
+			message := strings.TrimSpace(stderr.String())
+			if len(message) > 500 {
+				message = message[:500]
+			}
+			return nil, fmt.Errorf("read the %s log: %v: %s", log, err, message)
+		}
+		parsed, err := parseEvents(decodeUTF16(stdout.Bytes()))
+		if err != nil {
+			return nil, fmt.Errorf("parse the %s log: %w", log, err)
+		}
+		entries = append(entries, parsed...)
+	}
+	return entries, nil
 }

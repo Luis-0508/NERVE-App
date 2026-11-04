@@ -26,7 +26,7 @@ func enableReboot(t *testing.T, forbidSelfApproval bool) {
 
 // systemManagementTypes are the commands the privileged helper runs (#92).
 var systemManagementTypes = []string{agentproto.CapabilityServiceRestart, agentproto.CapabilityServiceStop,
-	agentproto.CapabilityProcessTerminate, agentproto.CapabilitySystemReboot, agentproto.CapabilitySystemShutdown}
+	agentproto.CapabilityProcessTerminate, agentproto.CapabilitySystemReboot, agentproto.CapabilitySystemShutdown, agentproto.CapabilityLogsRead}
 
 // privilegedTarget is an agent that reported transport, associated with a
 // device in the given trust state ("" leaves the agent unassociated).
@@ -292,6 +292,8 @@ func TestSystemManagementCommands(t *testing.T) {
 			agentproto.CommandResult{Status: agentproto.CommandFailed, FailureCode: "unknown_service", FailureReason: "No service Spooler is installed."}, "failed"},
 		{agentproto.CapabilitySystemShutdown, nil,
 			agentproto.CommandResult{Status: agentproto.CommandSucceeded, Output: []byte(`{"action":"poweroff","scheduled":true}`)}, "succeeded"},
+		{agentproto.CapabilityLogsRead, map[string]any{"source": "nginx", "lines": 20.0},
+			agentproto.CommandResult{Status: agentproto.CommandSucceeded, Output: []byte(`{"items":[{"time":"2026-11-04T08:00:00Z","source":"nginx.service","level":"error","message":"upstream failed"}],"returned":1}`)}, "succeeded"},
 	}
 	for _, run := range runs {
 		command := f.create(t, principal.AgentID, run.commandType, run.parameters)
@@ -338,6 +340,7 @@ func TestSystemManagementCommands(t *testing.T) {
 		agentproto.CapabilityServiceRestart:   {"name": "--now"},
 		agentproto.CapabilityProcessTerminate: {"pid": 1.0, "name": "systemd"},
 		agentproto.CapabilitySystemReboot:     {"delaySeconds": 0.0},
+		agentproto.CapabilityLogsRead:         {"lines": 1000.0},
 	} {
 		if _, err := f.commands.Create(ctx, remote.CreateInput{AgentID: principal.AgentID, Type: commandType, Parameters: parameters}, f.actor); !errors.Is(err, remote.ErrInvalidParameters) {
 			t.Fatalf("%s %v: %v", commandType, parameters, err)
@@ -364,5 +367,18 @@ func TestSystemManagementCommands(t *testing.T) {
 		if _, err := f.commands.Create(ctx, remote.CreateInput{AgentID: principal.AgentID, Type: commandType, Parameters: parameters}, technician); !errors.Is(err, remote.ErrOutOfScope) {
 			t.Fatalf("%s outside the technician's scope: %v", commandType, err)
 		}
+	}
+}
+
+func TestLogParametersAreStoredWithDefaults(t *testing.T) {
+	f := newFixture(t, "remote_logs_defaults")
+	principal, _ := f.privilegedTarget(t, agentproto.TransportHTTPS, "trusted")
+	command := f.create(t, principal.AgentID, agentproto.CapabilityLogsRead, nil)
+	// The approver sees, and the signature covers, what will actually be read.
+	if command.Parameters["lines"] != float64(100) && command.Parameters["lines"] != 100 {
+		t.Fatalf("lines default missing: %v", command.Parameters)
+	}
+	if _, present := command.Parameters["sinceMinutes"]; !present {
+		t.Fatalf("sinceMinutes default missing: %v", command.Parameters)
 	}
 }

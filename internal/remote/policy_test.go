@@ -38,6 +38,9 @@ func TestManagementParameters(t *testing.T) {
 		{agentproto.CapabilityProcessTerminate, map[string]any{"pid": 4242.0, "name": "notepad.exe"}},
 		{agentproto.CapabilitySystemReboot, map[string]any{}},
 		{agentproto.CapabilitySystemShutdown, nil},
+		{agentproto.CapabilityLogsRead, nil},
+		{agentproto.CapabilityLogsRead, map[string]any{"source": "Service Control Manager", "lines": 500.0, "sinceMinutes": 10080.0}},
+		{agentproto.CapabilityLogsRead, map[string]any{"source": "nginx.service"}},
 	}
 	for _, tc := range valid {
 		policy, _ := PolicyFor(tc.commandType)
@@ -59,6 +62,11 @@ func TestManagementParameters(t *testing.T) {
 		{agentproto.CapabilityProcessTerminate, map[string]any{"pid": 42.0}},
 		{agentproto.CapabilityProcessTerminate, map[string]any{"pid": 42.0, "name": "/usr/bin/x"}},
 		{agentproto.CapabilitySystemReboot, map[string]any{"delaySeconds": 5.0}},
+		{agentproto.CapabilityLogsRead, map[string]any{"lines": 501.0}},
+		{agentproto.CapabilityLogsRead, map[string]any{"sinceMinutes": 0.0}},
+		{agentproto.CapabilityLogsRead, map[string]any{"source": "x' or '1'='1"}},
+		{agentproto.CapabilityLogsRead, map[string]any{"source": " leading"}},
+		{agentproto.CapabilityLogsRead, map[string]any{"source": "Security", "log": "Security"}},
 	}
 	for _, tc := range invalid {
 		policy, _ := PolicyFor(tc.commandType)

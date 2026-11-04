@@ -3,7 +3,7 @@
 Status: **foundation implemented** (October 2026): per-agent enrollment and identity,
 heartbeat and capabilities, evidence-based device association, and an audited command
 pipeline with five read-only commands, with both directions of the agent channel
-authenticated (agent request signatures and Core response signatures). Five
+authenticated (agent request signatures and Core response signatures). Six
 approval-gated system-management commands run through the privileged helper
 ([below](#system-management-commands)). Native interactive sessions (desktop, terminal,
 files) are not built; MeshCentral provides them (decision 0006). Agent installation is described in
@@ -226,7 +226,7 @@ network. `online` stays `false` while the shutdown is newer than the last reques
 | Capability | Risk | Executable today |
 | --- | --- | --- |
 | `system.info`, `system.metrics`, `process.list`, `service.list`, `software.list` | read-only | yes |
-| `service.restart`, `service.stop`, `process.terminate`, `system.reboot`, `system.shutdown` | privileged | yes, with approval and the privileged helper |
+| `service.restart`, `service.stop`, `process.terminate`, `system.reboot`, `system.shutdown`, `logs.read` | privileged | yes, with approval and the privileged helper |
 | `command.shell`, `command.powershell`, `script.run` | privileged | no (decision 0006) |
 | `file.transfer`, `remote.desktop`, `remote.terminal` | interactive | no (provider not implemented) |
 
@@ -541,6 +541,7 @@ verifies the signed approval again.
 | `service.stop` | `name` | Stops the service |
 | `process.terminate` | `pid`, `name` as listed by `process.list` | Linux: `SIGTERM`, then `SIGKILL` after 10 s; Windows: `TerminateProcess` |
 | `system.reboot`, `system.shutdown` | none | Scheduled 15 s later, so the result is delivered first |
+| `logs.read` | optional `source` (systemd unit or Windows event source), `lines` 1–500 (default 100), `sinceMinutes` 1–10080 (default 60) | Newest entries first: the systemd journal on Linux; the System and Application event logs on Windows (never the Security log). Messages are cut at 2,000 bytes, the result at 256 KiB, and secrets are redacted like any command output |
 
 - **Validation twice.** Core validates parameters before it stores and signs them
   (`agentproto.ServiceParameters`, `ProcessParameters`); the helper validates them again.
@@ -563,5 +564,5 @@ verifies the signed approval again.
 - **Operators** request a command from the device's remote panel; commands with parameters
   open a small form, then the approval dialog shows target, evidence and parameters.
 
-Still open: log retrieval (#92, next PR), detailed hardware and network inventory
-(evaluation of osquery first), and signed remote agent updates (#100).
+Still open: detailed hardware and network inventory (osquery evaluation in #118) and
+signed remote agent updates (#100).

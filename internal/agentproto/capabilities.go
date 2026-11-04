@@ -25,6 +25,7 @@ const (
 	CapabilityProcessTerminate = "process.terminate"
 	CapabilitySystemReboot     = "system.reboot"
 	CapabilitySystemShutdown   = "system.shutdown"
+	CapabilityLogsRead         = "logs.read"
 
 	// Reserved; decision 0006 leaves shell, scripts, files and desktop to
 	// MeshCentral. Core refuses to queue them.
@@ -66,6 +67,7 @@ var Catalogue = []CapabilityInfo{
 	{CapabilityProcessTerminate, "End process", RiskPrivileged, "End one process identified by PID and name; protected processes are refused"},
 	{CapabilitySystemReboot, "Reboot", RiskPrivileged, "Restart the endpoint after a short delay"},
 	{CapabilitySystemShutdown, "Shut down", RiskPrivileged, "Shut the endpoint down after a short delay"},
+	{CapabilityLogsRead, "Logs", RiskPrivileged, "Recent journal entries (Linux) or System and Application log events (Windows)"},
 	{CapabilityCommandShell, "Shell command", RiskPrivileged, "Run a shell command (not enabled)"},
 	{CapabilityCommandPowerShell, "PowerShell command", RiskPrivileged, "Run a PowerShell command (not enabled)"},
 	{CapabilityScriptRun, "Run script", RiskPrivileged, "Run a catalogued script (not enabled)"},

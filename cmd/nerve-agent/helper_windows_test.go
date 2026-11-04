@@ -241,3 +241,19 @@ func TestProcessServicesListsHostedServices(t *testing.T) {
 		t.Fatal("protection lists wrong")
 	}
 }
+
+func TestReadLogsFromEventLogs(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	entries, err := readLogs(ctx, "", 5, 7*24*time.Hour)
+	if err != nil {
+		t.Skipf("event logs not readable here: %v", err)
+	}
+	if len(entries) > 10 {
+		t.Fatalf("read %d entries for 5 lines from two logs", len(entries))
+	}
+	// A provider name with spaces stays one literal in the query.
+	if _, err := readLogs(ctx, "Service Control Manager", 3, 7*24*time.Hour); err != nil {
+		t.Fatalf("provider filter: %v", err)
+	}
+}
