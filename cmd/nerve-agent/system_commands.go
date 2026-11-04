@@ -47,6 +47,7 @@ func systemCommandHandlers() map[string]collector {
 		},
 		agentproto.CapabilitySystemReboot:   power(true),
 		agentproto.CapabilitySystemShutdown: power(false),
+		agentproto.CapabilityLogsRead:       readLogsHandler,
 	}
 }
 

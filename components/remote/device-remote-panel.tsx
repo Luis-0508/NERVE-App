@@ -19,7 +19,7 @@ const associationLabels: Record<string, string> = {
 
 // Parameters of the system-management commands (#92). Core and the privileged
 // helper validate them again; these fields only collect them.
-type ParameterField = { key: string; label: string; numeric?: boolean; hint: string };
+type ParameterField = { key: string; label: string; numeric?: boolean; optional?: boolean; hint: string };
 const serviceField: ParameterField = { key: "name", label: "Service name", hint: "systemd unit or Windows service name, as in Services" };
 const parameterFields: Record<string, ParameterField[]> = {
   "service.restart": [serviceField],
@@ -27,6 +27,11 @@ const parameterFields: Record<string, ParameterField[]> = {
   "process.terminate": [
     { key: "pid", label: "PID", numeric: true, hint: "Process ID, as in Processes" },
     { key: "name", label: "Process name", hint: "Must match the running process" },
+  ],
+  "logs.read": [
+    { key: "source", label: "Source (optional)", optional: true, hint: "Service or event source; empty for all" },
+    { key: "lines", label: "Entries", numeric: true, optional: true, hint: "1–500, default 100" },
+    { key: "sinceMinutes", label: "Minutes back", numeric: true, optional: true, hint: "1–10080, default 60" },
   ],
 };
 type ParameterForm = { endpoint: RemoteEndpoint; capability: RemoteCapability; values: Record<string, string> };
@@ -100,9 +105,11 @@ export function DeviceRemotePanel({ deviceId, permissions }: { deviceId: string;
 
   function submitForm() {
     if (!form) return;
-    const parameters = Object.fromEntries((parameterFields[form.capability.name] ?? []).map((field) => {
+    // Empty optional fields are left out; Core fills in their defaults.
+    const parameters = Object.fromEntries((parameterFields[form.capability.name] ?? []).flatMap((field) => {
       const value = (form.values[field.key] ?? "").trim();
-      return [field.key, field.numeric ? Number(value) : value];
+      if (!value && field.optional) return [];
+      return [[field.key, field.numeric ? Number(value) : value]];
     }));
     void run(form.endpoint, form.capability.name, parameters);
   }
@@ -163,7 +170,7 @@ export function DeviceRemotePanel({ deviceId, permissions }: { deviceId: string;
       {form && form.endpoint.endpointId === endpoint.endpointId && <form className="remote-parameters" aria-label={form.capability.label + " parameters"}
         onSubmit={(event) => { event.preventDefault(); submitForm(); }}>
         {(parameterFields[form.capability.name] ?? []).map((field) => <label key={field.key} className="field"><span>{field.label}</span>
-          <input className="input" required inputMode={field.numeric ? "numeric" : undefined} pattern={field.numeric ? "[0-9]+" : undefined} title={field.hint}
+          <input className="input" required={!field.optional} inputMode={field.numeric ? "numeric" : undefined} pattern={field.numeric ? "[0-9]+" : undefined} title={field.hint}
             placeholder={field.hint} value={form.values[field.key] ?? ""}
             onChange={(event) => setForm({ ...form, values: { ...form.values, [field.key]: event.target.value } })} /></label>)}
         <button className="button button-primary" type="submit" disabled={busy !== null}>Request {form.capability.label.toLowerCase()}</button>

@@ -32,8 +32,9 @@ code or GitHub issues disagree with this file, trust them and correct this file.
   approval the agent verifies. No privileged command type is enabled yet.
 - Privileged helper (#91, decisions 0007 and 0008): a separate root (Linux) or LocalSystem
   (Windows) service that re-verifies approvals against an install-time trust anchor.
-- System-management commands (#92, first part): service restart/stop, process termination,
-  reboot/shutdown, approval-gated and run only by the helper, with protection lists.
+- System-management commands (#92): service restart/stop, process termination,
+  reboot/shutdown and log retrieval (journal, Windows System/Application logs),
+  approval-gated and run only by the helper, with protection lists.
 - Read-only MeshCentral provider with operator-confirmed node bindings (#104, PR #111).
 - Releases: `v0.1.0` published on 2026-10-23. A `v*` tag builds reproducible agent
   binaries, signs the manifest with the key pinned in `internal/release/keys.go` and opens a
@@ -49,8 +50,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how it fits together and
 ## Active work
 
 - The privileged helper was not yet verified with a real systemd or Windows service
-  installation, and the system-management commands not on real hosts. #92 continues with
-  log retrieval; detailed inventory waits for an osquery evaluation.
+  installation, and the system-management commands not on real hosts. Detailed inventory
+  waits for the osquery evaluation (#118).
 - The MeshCentral provider (#111) UI was not checked in a browser. It was verified against a
   disposable MeshCentral 1.3.1 server, but not with a real MeshAgent reporting network info.
 - The #99 approval dialog (merged in #110) was not checked in a browser.
@@ -68,7 +69,7 @@ This order is the priority. Issues migrated from the board keep their K-n ID in 
 line; #98, #101 and #105 are unblocked.
 
 1. Production RMM milestone (hybrid, decision 0006), two parallel tracks:
-   - native path: #91 privileged helper (done) → #92 (actions done; logs, inventory)
+   - native path: #91 privileged helper (done) → #92 (done; inventory in #118)
      system-management commands → #93 RMM device page;
    - MeshCentral: #104 read-only provider (done, #111) → #105 encrypted integration credentials → #106
      audited remote sessions;

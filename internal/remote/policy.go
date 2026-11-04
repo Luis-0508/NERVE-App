@@ -89,6 +89,16 @@ var policies = map[string]Policy{
 	agentproto.CapabilityProcessTerminate: privileged(agentproto.CapabilityProcessTerminate, 30*time.Second, agentproto.ProcessParameters),
 	agentproto.CapabilitySystemReboot:     privileged(agentproto.CapabilitySystemReboot, 30*time.Second, agentproto.NoParameters),
 	agentproto.CapabilitySystemShutdown:   privileged(agentproto.CapabilitySystemShutdown, 30*time.Second, agentproto.NoParameters),
+	agentproto.CapabilityLogsRead:         logsPolicy(),
+}
+
+// logsPolicy reads logs through the helper: they are readable only with
+// administrator rights and may hold sensitive data, so they need approval too.
+// The output is larger than for actions and passes the usual secret redaction.
+func logsPolicy() Policy {
+	policy := privileged(agentproto.CapabilityLogsRead, 30*time.Second, agentproto.LogParameters)
+	policy.MaxOutputBytes = 256 << 10
+	return policy
 }
 
 var policiesMu sync.RWMutex

@@ -250,7 +250,7 @@ installation has no helper, and privileged commands then fail with `helper_unava
   expiry and command deadline, the helper's compiled allowlist, and a replay register
   (`executed.json`) written before anything runs.
 - **Allowlist.** The system-management commands `service.restart`, `service.stop`,
-  `process.terminate`, `system.reboot` and `system.shutdown`, with protection lists the
+  `process.terminate`, `system.reboot`, `system.shutdown` and `logs.read`, with protection lists the
   helper enforces itself (see
   [System-management commands](REMOTE_MANAGEMENT.md#system-management-commands)).
 - `nerve-agent diagnose` reports the helper, its channel and the identity it serves. Logs:
