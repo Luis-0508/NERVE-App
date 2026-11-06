@@ -109,7 +109,7 @@ export function DeviceIdentityPanel({ detail, permissions, onChanged }: { detail
           <label className="field"><span>New trust state</span><select className="input" value={trust} onChange={(event) => setTrust(event.target.value as TrustState)}>{vocabulary.trustStates.map((state) => <option key={state} value={state}>{trustLabels[state]}</option>)}</select></label>
           <label className="field"><span>Reason (audited)</span><input className="input" value={trustReason} maxLength={500} onChange={(event) => setTrustReason(event.target.value)} /></label>
           <button className="button" type="button" disabled={busy || trust === device.trustState} onClick={() => void act(() => api.setDeviceTrust(device.id, trust, trustReason), "Trust state changed.")}>Change trust</button>
-          <p className="muted identity-hint">Blocked devices receive no remote actions. Future privileged actions will require Trusted.</p>
+          <p className="muted identity-hint">Blocked devices receive no remote actions. System actions (service, process, power and logs) require Trusted.</p>
         </div>}
         <div className="detail-section-heading"><h2>Management agents</h2></div>
         {identity && identity.agents.length ? <dl className="property-list">{identity.agents.map((agent) => <div key={agent.id}><dt>{agent.displayName}</dt><dd>{agent.status === "active" ? (agent.online ? "Online" : "Offline") : agent.status} · association {agent.association}</dd></div>)}</dl>

@@ -126,6 +126,7 @@ type Agent struct {
 	Online           bool        `json:"online"`
 	Connection       string      `json:"connection"`
 	RunMode          string      `json:"runMode,omitempty"`
+	Transport        string      `json:"transport,omitempty"` // last heartbeat: "http", "https" or empty (older agent)
 	ProcessStartedAt *time.Time  `json:"processStartedAt,omitempty"`
 	HostBootAt       *time.Time  `json:"hostBootAt,omitempty"`
 	LastShutdownAt   *time.Time  `json:"lastShutdownAt,omitempty"`

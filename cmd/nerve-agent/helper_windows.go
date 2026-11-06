@@ -785,6 +785,10 @@ func diagnoseHelper(ctx context.Context, result *diagnosis, agentID string) {
 	client := &helperClient{dial: dialWindowsHelper(helperSocketPath, systemSID), agentID: agentID}
 	response, err := client.exchange(check, helperRequest{Op: "health"})
 	switch {
+	case errors.Is(err, windows.ERROR_ACCESS_DENIED):
+		// The pipe admits only the agent service and SYSTEM, so an administrator
+		// console cannot reach it; that is the intended boundary, not a fault.
+		result.add("helper", "skip", "service running; its pipe admits only NT SERVICE\\NERVEAgent and SYSTEM, so this console cannot check it (NERVE shows system actions for the device when the agent reaches it)")
 	case err != nil:
 		result.add("helper", "fail", "installed but not answering: %v", err)
 	case response.Health == nil:

@@ -226,6 +226,8 @@ export type RemoteEndpoint = {
   status: string;
   online: boolean;
   connection?: AgentConnection;
+  // Native agents: transport of the last heartbeat. Privileged commands need "https".
+  transport?: "http" | "https";
   version?: string;
   lastSeenAt?: string;
   // MeshCentral endpoints add "weak": hostname evidence only, not confirmable.
