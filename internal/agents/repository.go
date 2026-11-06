@@ -633,7 +633,7 @@ const agentColumns = `a.id::text, a.display_name, a.status,
 	a.associated_at, COALESCE(a.associated_by::text, ''),
 	COALESCE(credential.id::text, ''), COALESCE(credential.fingerprint, ''), credential.created_at,
 	COALESCE(a.run_mode, ''), a.process_started_at, a.host_boot_at, a.last_shutdown_at, COALESCE(a.deployment_key_id::text, ''),
-	rotation.count, rotation.last`
+	rotation.count, rotation.last, COALESCE(a.transport, '')`
 
 const agentJoins = `FROM agents a
 	LEFT JOIN entities device_entity ON device_entity.id = a.device_id
@@ -658,7 +658,7 @@ func scanAgent(row pgx.Row) (Agent, error) {
 		&agent.LastError, &agent.FirstEnrolledAt, &agent.EnrolledAt, &agent.LastHeartbeatAt, &agent.LastSeenAt, &agent.RevokedAt,
 		&agent.RemovedAt, &deviceID, &deviceName, &agent.Association.Status, &evidence, &agent.Association.AssociatedAt,
 		&agent.Association.AssociatedBy, &credentialID, &fingerprint, &credentialCreated, &agent.RunMode,
-		&agent.ProcessStartedAt, &agent.HostBootAt, &agent.LastShutdownAt, &agent.DeploymentKeyID, &rotations, &lastRotated)
+		&agent.ProcessStartedAt, &agent.HostBootAt, &agent.LastShutdownAt, &agent.DeploymentKeyID, &rotations, &lastRotated, &agent.Transport)
 	if err != nil {
 		return Agent{}, err
 	}

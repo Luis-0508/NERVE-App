@@ -253,7 +253,9 @@ installation has no helper, and privileged commands then fail with `helper_unava
   `process.terminate`, `system.reboot`, `system.shutdown` and `logs.read`, with protection lists the
   helper enforces itself (see
   [System-management commands](REMOTE_MANAGEMENT.md#system-management-commands)).
-- `nerve-agent diagnose` reports the helper, its channel and the identity it serves. Logs:
+- `nerve-agent diagnose` reports the helper, its channel and the identity it serves. On
+  Windows the pipe admits only the agent service and SYSTEM, so `diagnose` run from an
+  administrator console reports the running helper as skipped instead of checking it. Logs:
   `journalctl -u nerve-agent-helper` on Linux, the Windows Application log (source
   `NERVEAgentHelper`) on Windows. `service uninstall` removes the helper as well, and
   `--purge` also deletes its state.

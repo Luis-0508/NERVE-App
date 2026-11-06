@@ -172,7 +172,8 @@ func prepareServiceState(options installOptions) (*identity, bool, error) {
 		return existing, false, nil
 	}
 	if existing != nil && !options.Force {
-		fmt.Printf("Already enrolled as agent %s; the token was not used. Use --force with a re-enrollment token to replace the key.\n", existing.AgentID)
+		fmt.Printf("Warning: already enrolled as agent %s, so the token was NOT used and the existing identity was kept.\n"+
+			"If NERVE shows this agent as revoked, or this host should get a new identity, run the installer again with --force (-Force for install-windows.ps1) and a re-enrollment token.\n", existing.AgentID)
 		return existing, false, nil
 	}
 	transport, err := newTransport(config.CAFile)

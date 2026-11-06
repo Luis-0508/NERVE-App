@@ -306,8 +306,10 @@ function Overview({ agent, meshNodes, snapshots, commands, canSeeCommands, onOpe
         <div><dt>Agent version</dt><dd className="mono">{agent.version || "—"}</dd></div>
         <div><dt>Last heartbeat</dt><dd className="mono">{formatDate(agent.lastSeenAt)}</dd></div>
         <div><dt>Association</dt><dd>{associationLabels[agent.association] ?? agent.association}</dd></div>
-        <div><dt>Privileged helper</dt><dd>{agent.capabilities.some((item) => item.risk === "privileged" && item.executable)
-          ? "Installed: system actions available" : "Not reported: read-only commands only"}</dd></div>
+        <div><dt>Privileged helper</dt><dd>{!agent.capabilities.some((item) => item.risk === "privileged" && item.executable)
+          ? "Not reported: read-only commands only"
+          : agent.transport === "https" ? "Installed: system actions available"
+          : "Installed, but system actions are refused until the agent connects over verified HTTPS"}</dd></div>
       </>}
       <div><dt>MeshCentral</dt><dd>{meshNodes.length
         ? meshNodes.map((node) => `${node.displayName}: ${node.status === "absent" ? "not in the latest listing" : node.online ? "MeshAgent connected" : "MeshAgent not connected"}`).join("; ")
